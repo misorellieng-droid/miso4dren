@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Layers, Loader2, Plus, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Layers, Loader2, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Modal } from '../components/ui/Modal'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { getProjetoDetail, type ProjetoDetail } from '../lib/projetosStorage'
-import { createRevisao, deleteRevisao, listRevisoesPorProjeto, type RevisaoRecord } from '../lib/revisoesStorage'
+import { createRevisao, deleteRevisao, listRevisoesPorProjeto, updateRevisao, type RevisaoRecord } from '../lib/revisoesStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { supabase } from '../lib/supabase'
 
@@ -48,6 +48,7 @@ export function ProjetoDetailPage() {
   }, [id])
 
   const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [equacaoIdfId, setEquacaoIdfId] = useState('')
@@ -55,10 +56,20 @@ export function ProjetoDetailPage() {
   const [saving, setSaving] = useState(false)
 
   const openCreate = () => {
+    setEditingId(null)
     setNome('')
     setDescricao('')
     setEquacaoIdfId(equacoes[0]?.id ?? '')
     setTempoRetorno(10)
+    setFormOpen(true)
+  }
+
+  const openEdit = (r: RevisaoRecord) => {
+    setEditingId(r.id)
+    setNome(r.nome)
+    setDescricao(r.descricao ?? '')
+    setEquacaoIdfId(r.equacao_idf_id ?? '')
+    setTempoRetorno(r.tempo_retorno_anos ?? 10)
     setFormOpen(true)
   }
 
@@ -70,17 +81,29 @@ export function ProjetoDetailPage() {
     setSaving(true)
     setError(null)
     try {
-      const created = await createRevisao({
-        projetoId: id,
-        nome: nome.trim(),
-        descricao: descricao.trim() || null,
-        equacaoIdfId: equacaoIdfId || null,
-        tempoRetornoAnos: tempoRetorno,
-      })
-      setFormOpen(false)
-      await load()
-      await reloadRevisoes()
-      setRevisaoAtivaId(created.id)
+      if (editingId) {
+        await updateRevisao(editingId, {
+          nome: nome.trim(),
+          descricao: descricao.trim() || null,
+          equacaoIdfId: equacaoIdfId || null,
+          tempoRetornoAnos: tempoRetorno,
+        })
+        setFormOpen(false)
+        await load()
+        await reloadRevisoes()
+      } else {
+        const created = await createRevisao({
+          projetoId: id,
+          nome: nome.trim(),
+          descricao: descricao.trim() || null,
+          equacaoIdfId: equacaoIdfId || null,
+          tempoRetornoAnos: tempoRetorno,
+        })
+        setFormOpen(false)
+        await load()
+        await reloadRevisoes()
+        setRevisaoAtivaId(created.id)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar revisão.')
     } finally {
@@ -177,6 +200,13 @@ export function ProjetoDetailPage() {
                   Abrir
                 </button>
                 <button
+                  onClick={() => openEdit(r)}
+                  aria-label="Editar revisão"
+                  className="rounded p-1.5 hover:bg-elevated hover:text-text-primary"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
                   onClick={() => handleDelete(r)}
                   disabled={busyId === r.id}
                   aria-label="Excluir revisão"
@@ -193,7 +223,7 @@ export function ProjetoDetailPage() {
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        title="Nova revisão"
+        title={editingId ? 'Editar revisão' : 'Nova revisão'}
         description="Escolha a equação IDF e o tempo de retorno de projeto — a rede e as bacias são importadas depois, dentro da revisão."
         icon={<Layers size={20} />}
         footer={
@@ -203,7 +233,7 @@ export function ProjetoDetailPage() {
             </button>
             <button onClick={handleSave} disabled={saving} className={PRIMARY_BTN}>
               {saving && <Loader2 size={14} className="animate-spin" />}
-              Criar revisão
+              {editingId ? 'Salvar alterações' : 'Criar revisão'}
             </button>
           </>
         }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Calculator, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Calculator, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Modal } from '../components/ui/Modal'
 import { Field, fieldInputClass } from '../components/ui/Field'
-import { createEquacaoIdf, deleteEquacaoIdf, listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
+import { createEquacaoIdf, deleteEquacaoIdf, listEquacoesIdf, updateEquacaoIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -19,6 +19,7 @@ export function EquacoesIdfPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
 
@@ -41,6 +42,26 @@ export function EquacoesIdfPage() {
     load()
   }, [])
 
+  const openCreate = () => {
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    setFormOpen(true)
+  }
+
+  const openEdit = (eq: EquacaoIdfRecord) => {
+    setEditingId(eq.id)
+    setForm({
+      nome: eq.nome,
+      localidade: eq.localidade ?? '',
+      k: String(eq.k),
+      a: String(eq.a),
+      b: String(eq.b),
+      c: String(eq.c),
+      fonte: eq.fonte ?? '',
+    })
+    setFormOpen(true)
+  }
+
   const handleSave = async () => {
     const { nome, k, a, b, c } = form
     if (!nome.trim() || [k, a, b, c].some((v) => v === '' || !Number.isFinite(Number(v)))) {
@@ -50,7 +71,7 @@ export function EquacoesIdfPage() {
     setSaving(true)
     setError(null)
     try {
-      await createEquacaoIdf({
+      const payload = {
         nome: nome.trim(),
         localidade: form.localidade.trim() || null,
         k: Number(k),
@@ -58,9 +79,15 @@ export function EquacoesIdfPage() {
         b: Number(b),
         c: Number(c),
         fonte: form.fonte.trim() || null,
-      })
+      }
+      if (editingId) {
+        await updateEquacaoIdf(editingId, payload)
+      } else {
+        await createEquacaoIdf(payload)
+      }
       setFormOpen(false)
       setForm(EMPTY_FORM)
+      setEditingId(null)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar equação.')
@@ -91,7 +118,7 @@ export function EquacoesIdfPage() {
           <h1 className="font-sans text-xl font-bold text-text-primary">Equações IDF</h1>
           <p className="text-sm text-text-secondary">i = k × Tr^a / (b + Tc)^c — biblioteca compartilhada entre obras.</p>
         </div>
-        <button onClick={() => setFormOpen(true)} disabled={!supabase} className={PRIMARY_BTN}>
+        <button onClick={openCreate} disabled={!supabase} className={PRIMARY_BTN}>
           <Plus size={16} />
           Nova equação
         </button>
@@ -132,6 +159,9 @@ export function EquacoesIdfPage() {
                   <td className="px-4 py-2 text-text-secondary">{eq.b}</td>
                   <td className="px-4 py-2 text-text-secondary">{eq.c}</td>
                   <td className="px-4 py-2 text-right">
+                    <button onClick={() => openEdit(eq)} className="rounded p-1 hover:bg-elevated hover:text-text-primary">
+                      <Pencil size={14} />
+                    </button>
                     <button onClick={() => handleDelete(eq.id)} disabled={busyId === eq.id} className="rounded p-1 hover:bg-accent-red/10 hover:text-accent-red">
                       {busyId === eq.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
                     </button>
@@ -146,7 +176,7 @@ export function EquacoesIdfPage() {
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        title="Nova equação IDF"
+        title={editingId ? 'Editar equação IDF' : 'Nova equação IDF'}
         icon={<Calculator size={20} />}
         footer={
           <>

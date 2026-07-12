@@ -28,6 +28,11 @@ export async function createEquacaoIdf(input: Omit<EquacaoIdfRecord, 'id'>): Pro
   return data as EquacaoIdfRecord
 }
 
+export async function updateEquacaoIdf(id: string, input: Partial<Omit<EquacaoIdfRecord, 'id'>>): Promise<void> {
+  const { error } = await requireSupabase().from('equacoes_idf').update(input).eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteEquacaoIdf(id: string): Promise<void> {
   const { error } = await requireSupabase().from('equacoes_idf').delete().eq('id', id)
   if (error) throw error
