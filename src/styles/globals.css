@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg-base: #f4f5f7;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #f2f3f5;
+  --color-accent-green: #16a34a;
+  --color-accent-amber: #d97706;
+  --color-accent-red: #dc2626;
+  --color-accent-blue: #3498db;
+  --color-text-primary: #1f2430;
+  --color-text-secondary: #6b7280;
+  --color-border: #e5e7eb;
+
+  /* identidade MISO4ENG compartilhada por toda a família miso4: laranja
+     como cor primária de marca (menu lateral, ações principais, estados
+     ativos) — accent-blue fica reservado para uso técnico/informativo
+     (ex.: lâmina d'água nos desenhos de seção), não para UI de marca */
+  --color-brand: #f0661a;
+  --color-brand-dark: #d8550a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* remove as setas padrão do input number para não conflitar com o layout compacto das tabelas */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  appearance: textfield;
+}
