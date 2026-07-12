@@ -5,12 +5,20 @@ export interface ResultadoSarjetaRecord {
   obra_id: string
   nome_via: string
   y0_m: number
-  z: number
+  z: number | null // obsoleto — ver 003_sarjeta_manning_completo.sql
+  largura_sarjeta_m: number | null
+  declividade_transversal_via_m_m: number | null
+  declividade_transversal_sarjeta_m_m: number | null
   declividade_longitudinal: number
   coef_c: number
   largura_impluvio_m: number
   manning_n: number
   intensidade_mm_h: number
+  area_molhada_m2: number | null
+  perimetro_molhado_m: number | null
+  raio_hidraulico_m: number | null
+  velocidade_ms: number | null
+  vazao_m3s: number | null
   comprimento_critico_m: number | null
   created_at: string
 }

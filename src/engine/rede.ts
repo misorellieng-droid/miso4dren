@@ -1,3 +1,5 @@
+import { RATIONAL_METHOD_K } from './constants'
+
 export interface ArestaGrafo {
   id: string
   montanteId: string
@@ -42,7 +44,7 @@ export function ordenarTopologicamente(noIds: string[], arestas: ArestaGrafo[]):
  * Q_entrada = 2.78×10⁻⁷ × C × i × area_m2
  */
 export function calcularQEntradaBacia(coefC: number, intensidadeMmH: number, areaM2: number): number {
-  return 2.78e-7 * coefC * intensidadeMmH * areaM2
+  return RATIONAL_METHOD_K * coefC * intensidadeMmH * areaM2
 }
 
 export interface TrechoGrafo extends ArestaGrafo {
