@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Droplets,
   FileBarChart,
+  FolderKanban,
   FolderOpen,
   LogOut,
   Settings,
@@ -35,7 +36,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Cadastros',
     items: [
-      { to: '/obras', label: 'Obras', icon: Building2 },
+      { to: '/clientes', label: 'Clientes', icon: Building2 },
+      { to: '/projetos', label: 'Projetos', icon: FolderKanban },
       { to: '/bacias', label: 'Bacias', icon: FolderOpen },
     ],
   },

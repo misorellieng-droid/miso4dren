@@ -1,12 +1,13 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { ObraRecord } from './obrasStorage'
+import type { RevisaoRecord } from './revisoesStorage'
 import type { EquacaoIdfRecord } from './idfStorage'
 import type { BaciaRecord } from './baciasStorage'
 import type { ResultadoSarjetaRecord } from './resultadosStorage'
 
 export interface RelatorioData {
-  obra: ObraRecord
+  projetoNome: string
+  revisao: RevisaoRecord
   equacao: EquacaoIdfRecord | null
   bacias: BaciaRecord[]
   caixasPorId: Map<string, string> // id -> nome, para exibir a caixa de destino
@@ -31,12 +32,12 @@ export function exportRelatorioPdf(data: RelatorioData): void {
   let y = 50
 
   doc.setFontSize(16)
-  doc.text(`Memorial de Cálculo — ${data.obra.nome}`, marginX, y)
+  doc.text(`Memorial de Cálculo — ${data.projetoNome} — ${data.revisao.nome}`, marginX, y)
   y += 22
 
   doc.setFontSize(10)
   doc.text(
-    `Equação IDF: ${data.equacao?.nome ?? '—'} · Tempo de retorno: ${data.obra.tempo_retorno_anos ?? '—'} anos`,
+    `Equação IDF: ${data.equacao?.nome ?? '—'} · Tempo de retorno: ${data.revisao.tempo_retorno_anos ?? '—'} anos`,
     marginX,
     y
   )
@@ -109,5 +110,5 @@ export function exportRelatorioPdf(data: RelatorioData): void {
     })
   }
 
-  doc.save(`memorial-${data.obra.nome.replace(/\s+/g, '-').toLowerCase()}.pdf`)
+  doc.save(`memorial-${data.projetoNome}-${data.revisao.nome}`.replace(/\s+/g, '-').toLowerCase() + '.pdf')
 }

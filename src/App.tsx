@@ -1,7 +1,9 @@
 import { Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { DashboardPage } from './pages/DashboardPage'
-import { ObrasPage } from './pages/ObrasPage'
+import { ClientesPage } from './pages/ClientesPage'
+import { ProjetosPage } from './pages/ProjetosPage'
+import { ProjetoDetailPage } from './pages/ProjetoDetailPage'
 import { BaciasPage } from './pages/BaciasPage'
 import { SarjetaCriticaPage } from './pages/SarjetaCriticaPage'
 import { RedePluvialPage } from './pages/RedePluvialPage'
@@ -16,7 +18,9 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
-        <Route path="obras" element={<ObrasPage />} />
+        <Route path="clientes" element={<ClientesPage />} />
+        <Route path="projetos" element={<ProjetosPage />} />
+        <Route path="projetos/:id" element={<ProjetoDetailPage />} />
         <Route path="bacias" element={<BaciasPage />} />
         <Route path="sarjeta-critica" element={<SarjetaCriticaPage />} />
         <Route path="rede-pluvial" element={<RedePluvialPage />} />

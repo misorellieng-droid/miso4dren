@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 
 export interface ResultadoSarjetaRecord {
   id: string
-  obra_id: string
+  revisao_id: string
   nome_via: string
   y0_m: number
   z: number | null // obsoleto — ver 003_sarjeta_manning_completo.sql
@@ -50,11 +50,11 @@ export async function saveResultadoSarjeta(input: Omit<ResultadoSarjetaRecord, '
   return data as ResultadoSarjetaRecord
 }
 
-export async function listResultadosSarjeta(obraId: string): Promise<ResultadoSarjetaRecord[]> {
+export async function listResultadosSarjeta(revisaoId: string): Promise<ResultadoSarjetaRecord[]> {
   const { data, error } = await requireSupabase()
     .from('resultados_sarjeta')
     .select('*')
-    .eq('obra_id', obraId)
+    .eq('revisao_id', revisaoId)
     .order('created_at', { ascending: false })
   if (error) throw error
   return data as ResultadoSarjetaRecord[]
@@ -66,13 +66,13 @@ export async function saveResultadoRede(input: Omit<ResultadoRedeRecord, 'id'>):
   return data as ResultadoRedeRecord
 }
 
-export async function listResultadosRedeByObra(
-  obraId: string
+export async function listResultadosRedeByRevisao(
+  revisaoId: string
 ): Promise<(ResultadoRedeRecord & { trecho_nome: string })[]> {
   const { data, error } = await requireSupabase()
     .from('resultados_rede')
-    .select('*, trechos!inner(nome, obra_id)')
-    .eq('trechos.obra_id', obraId)
+    .select('*, trechos!inner(nome, revisao_id)')
+    .eq('trechos.revisao_id', revisaoId)
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data as Array<ResultadoRedeRecord & { trechos: { nome: string } }>).map((r) => ({

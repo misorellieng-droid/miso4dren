@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FolderOpen, Loader2, Upload } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
-import { useObraContext } from '../lib/ObraContext'
+import { useRevisaoContext } from '../lib/RevisaoContext'
 import { parseLandXml } from '../engine/landxml'
 import { parseBaciasCsv } from '../engine/csvBacias'
 import { importarRedeLandXml, listCaixas, listTrechos, updateTrechoManning, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
@@ -14,7 +14,7 @@ const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
 export function BaciasPage() {
-  const { obraAtiva } = useObraContext()
+  const { revisaoAtiva } = useRevisaoContext()
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
@@ -26,8 +26,8 @@ export function BaciasPage() {
   const csvInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
-    if (!obraAtiva) return
-    const [c, t, b] = await Promise.all([listCaixas(obraAtiva.id), listTrechos(obraAtiva.id), listBacias(obraAtiva.id)])
+    if (!revisaoAtiva) return
+    const [c, t, b] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id), listBacias(revisaoAtiva.id)])
     setCaixas(c)
     setTrechos(t)
     setBacias(b)
@@ -36,10 +36,10 @@ export function BaciasPage() {
   useEffect(() => {
     load().catch((e) => setError(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obraAtiva])
+  }, [revisaoAtiva])
 
   const handleImportLandXml = async (file: File) => {
-    if (!obraAtiva) return
+    if (!revisaoAtiva) return
     setBusy(true)
     setError(null)
     setMessage(null)
@@ -47,7 +47,7 @@ export function BaciasPage() {
       const text = await file.text()
       const materiais = await listMateriaisManning()
       const resultado = parseLandXml(text, toMateriaisManningMap(materiais))
-      await importarRedeLandXml(obraAtiva.id, resultado)
+      await importarRedeLandXml(revisaoAtiva.id, resultado)
       setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).`)
       await load()
     } catch (err) {
@@ -59,14 +59,14 @@ export function BaciasPage() {
   }
 
   const handleImportCsv = async (file: File) => {
-    if (!obraAtiva) return
+    if (!revisaoAtiva) return
     setBusy(true)
     setError(null)
     setMessage(null)
     try {
       const text = await file.text()
       const parsed = parseBaciasCsv(text)
-      await importarBaciasCsv(obraAtiva.id, parsed)
+      await importarBaciasCsv(revisaoAtiva.id, parsed)
       setMessage(`${parsed.length} bacia(s) importada(s).`)
       await load()
     } catch (err) {
@@ -108,12 +108,12 @@ export function BaciasPage() {
     )
   }
 
-  if (!obraAtiva) {
+  if (!revisaoAtiva) {
     return (
       <div className="mx-auto max-w-4xl">
         <Breadcrumb items={['Cadastros', 'Bacias']} />
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          Selecione ou crie uma obra em Cadastros → Obras antes de importar rede e bacias.
+          Selecione ou crie um projeto e uma revisão em Cadastros → Projetos antes de importar rede e bacias.
         </div>
       </div>
     )
@@ -127,7 +127,9 @@ export function BaciasPage() {
       <Breadcrumb items={['Cadastros', 'Bacias']} />
 
       <div className="mb-6">
-        <h1 className="font-sans text-xl font-bold text-text-primary">Bacias — {obraAtiva.nome}</h1>
+        <h1 className="font-sans text-xl font-bold text-text-primary">
+          Bacias — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+        </h1>
         <p className="text-sm text-text-secondary">Importe a rede (LandXML) e as bacias (CSV), depois revise as exceções abaixo.</p>
       </div>
 

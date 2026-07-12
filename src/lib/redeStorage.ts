@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 
 export interface CaixaRecord {
   id: string
-  obra_id: string
+  revisao_id: string
   nome: string
   tipo: string
   x: number | null
@@ -15,7 +15,7 @@ export interface CaixaRecord {
 
 export interface TrechoRecord {
   id: string
-  obra_id: string
+  revisao_id: string
   nome: string
   caixa_montante_id: string
   caixa_jusante_id: string
@@ -36,14 +36,14 @@ function requireSupabase() {
   return supabase
 }
 
-export async function listCaixas(obraId: string): Promise<CaixaRecord[]> {
-  const { data, error } = await requireSupabase().from('caixas').select('*').eq('obra_id', obraId).order('nome')
+export async function listCaixas(revisaoId: string): Promise<CaixaRecord[]> {
+  const { data, error } = await requireSupabase().from('caixas').select('*').eq('revisao_id', revisaoId).order('nome')
   if (error) throw error
   return data as CaixaRecord[]
 }
 
-export async function listTrechos(obraId: string): Promise<TrechoRecord[]> {
-  const { data, error } = await requireSupabase().from('trechos').select('*').eq('obra_id', obraId).order('nome')
+export async function listTrechos(revisaoId: string): Promise<TrechoRecord[]> {
+  const { data, error } = await requireSupabase().from('trechos').select('*').eq('revisao_id', revisaoId).order('nome')
   if (error) throw error
   return data as TrechoRecord[]
 }
@@ -59,12 +59,12 @@ export async function updateTrechoManning(id: string, manningN: number): Promise
 /**
  * Grava o resultado de parseLandXml: insere as caixas primeiro, depois
  * resolve os nomes montante/jusante dos trechos para os ids recém-criados.
- * Caixas já existentes na obra (mesmo nome) são reaproveitadas.
+ * Caixas já existentes na revisão (mesmo nome) são reaproveitadas.
  */
-export async function importarRedeLandXml(obraId: string, resultado: ResultadoImportLandXml): Promise<void> {
+export async function importarRedeLandXml(revisaoId: string, resultado: ResultadoImportLandXml): Promise<void> {
   const client = requireSupabase()
 
-  const existentes = await listCaixas(obraId)
+  const existentes = await listCaixas(revisaoId)
   const idPorNome = new Map(existentes.map((c) => [c.nome, c.id]))
 
   const novasCaixas = resultado.caixas.filter((c) => !idPorNome.has(c.nome))
@@ -73,7 +73,7 @@ export async function importarRedeLandXml(obraId: string, resultado: ResultadoIm
       .from('caixas')
       .insert(
         novasCaixas.map((c) => ({
-          obra_id: obraId,
+          revisao_id: revisaoId,
           nome: c.nome,
           tipo: c.tipo,
           x: c.x ?? null,
@@ -91,7 +91,7 @@ export async function importarRedeLandXml(obraId: string, resultado: ResultadoIm
   const trechosParaInserir = resultado.trechos
     .filter((t) => idPorNome.has(t.caixaMontanteNome) && idPorNome.has(t.caixaJusanteNome))
     .map((t) => ({
-      obra_id: obraId,
+      revisao_id: revisaoId,
       nome: t.nome,
       caixa_montante_id: idPorNome.get(t.caixaMontanteNome),
       caixa_jusante_id: idPorNome.get(t.caixaJusanteNome),

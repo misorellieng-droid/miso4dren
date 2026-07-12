@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { FileBarChart, FileDown } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
-import { useObraContext } from '../lib/ObraContext'
+import { useRevisaoContext } from '../lib/RevisaoContext'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
 import { listCaixas } from '../lib/redeStorage'
-import { listResultadosRedeByObra, listResultadosSarjeta, type ResultadoSarjetaRecord } from '../lib/resultadosStorage'
+import { listResultadosRedeByRevisao, listResultadosSarjeta, type ResultadoSarjetaRecord } from '../lib/resultadosStorage'
 import { exportRelatorioPdf, type RelatorioData } from '../lib/exportPdf'
 import { supabase } from '../lib/supabase'
 
@@ -13,7 +13,7 @@ const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
 export function RelatoriosPage() {
-  const { obraAtiva } = useObraContext()
+  const { revisaoAtiva } = useRevisaoContext()
   const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
   const [sarjetas, setSarjetas] = useState<ResultadoSarjetaRecord[]>([])
@@ -22,36 +22,44 @@ export function RelatoriosPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!obraAtiva) return
+    if (!revisaoAtiva) return
     setError(null)
     Promise.all([
-      obraAtiva.equacao_idf_id ? listEquacoesIdf() : Promise.resolve([]),
-      listBacias(obraAtiva.id),
-      listResultadosSarjeta(obraAtiva.id),
-      listResultadosRedeByObra(obraAtiva.id),
-      listCaixas(obraAtiva.id),
+      revisaoAtiva.equacao_idf_id ? listEquacoesIdf() : Promise.resolve([]),
+      listBacias(revisaoAtiva.id),
+      listResultadosSarjeta(revisaoAtiva.id),
+      listResultadosRedeByRevisao(revisaoAtiva.id),
+      listCaixas(revisaoAtiva.id),
     ])
       .then(([eqs, b, s, r, c]) => {
-        setEquacao((eqs as EquacaoIdfRecord[]).find((e) => e.id === obraAtiva.equacao_idf_id) ?? null)
+        setEquacao((eqs as EquacaoIdfRecord[]).find((e) => e.id === revisaoAtiva.equacao_idf_id) ?? null)
         setBacias(b)
         setSarjetas(s)
         setRede(r)
         setCaixasPorId(new Map(c.map((cx) => [cx.id, cx.nome])))
       })
       .catch((e) => setError(e.message))
-  }, [obraAtiva])
+  }, [revisaoAtiva])
 
   const handleExport = () => {
-    if (!obraAtiva) return
-    exportRelatorioPdf({ obra: obraAtiva, equacao, bacias, caixasPorId, sarjetas, rede })
+    if (!revisaoAtiva) return
+    exportRelatorioPdf({
+      projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+      revisao: revisaoAtiva,
+      equacao,
+      bacias,
+      caixasPorId,
+      sarjetas,
+      rede,
+    })
   }
 
-  if (!supabase || !obraAtiva) {
+  if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-3xl">
         <Breadcrumb items={['Controle', 'Relatórios']} />
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          {!supabase ? 'Supabase não configurado.' : 'Selecione uma obra em Cadastros → Obras.'}
+          {!supabase ? 'Supabase não configurado.' : 'Selecione uma revisão em Cadastros → Projetos.'}
         </div>
       </div>
     )
@@ -65,7 +73,9 @@ export function RelatoriosPage() {
 
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="font-sans text-xl font-bold text-text-primary">Relatórios — {obraAtiva.nome}</h1>
+          <h1 className="font-sans text-xl font-bold text-text-primary">
+            Relatórios — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+          </h1>
           <p className="text-sm text-text-secondary">Memorial de cálculo consolidado: dados de entrada, bacias, sarjetas e rede.</p>
         </div>
         <button onClick={handleExport} className={PRIMARY_BTN}>
@@ -80,7 +90,7 @@ export function RelatoriosPage() {
         <div className="rounded-lg border border-border bg-surface p-4">
           <div className="mb-1 font-sans text-sm font-semibold text-text-primary">Dados de entrada</div>
           <div className="text-sm text-text-secondary">
-            Equação IDF: {equacao?.nome ?? '—'} · Tempo de retorno: {obraAtiva.tempo_retorno_anos ?? '—'} anos
+            Equação IDF: {equacao?.nome ?? '—'} · Tempo de retorno: {revisaoAtiva.tempo_retorno_anos ?? '—'} anos
           </div>
         </div>
 

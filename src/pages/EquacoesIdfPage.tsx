@@ -70,7 +70,7 @@ export function EquacoesIdfPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Excluir esta equação IDF? Obras que a usam ficarão sem equação vinculada.')) return
+    if (!window.confirm('Excluir esta equação IDF? Revisões que a usam ficarão sem equação vinculada.')) return
     setBusyId(id)
     try {
       await deleteEquacaoIdf(id)

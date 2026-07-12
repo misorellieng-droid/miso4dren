@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, Loader2, Save, Waves } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
-import { useObraContext } from '../lib/ObraContext'
+import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { calcularSarjeta, type MemorialCalculoSarjeta } from '../engine/sarjeta'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
@@ -38,7 +38,7 @@ const NUMERIC_FIELDS = [
 ] as const
 
 export function SarjetaCriticaPage() {
-  const { obraAtiva } = useObraContext()
+  const { revisaoAtiva } = useRevisaoContext()
   const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [historico, setHistorico] = useState<ResultadoSarjetaRecord[]>([])
   const [form, setForm] = useState(DEFAULT_FORM)
@@ -49,19 +49,19 @@ export function SarjetaCriticaPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!obraAtiva) return
-    listResultadosSarjeta(obraAtiva.id).then(setHistorico).catch(() => {})
-    if (obraAtiva.equacao_idf_id) {
-      listEquacoesIdf().then((eqs) => setEquacao(eqs.find((e) => e.id === obraAtiva.equacao_idf_id) ?? null)).catch(() => {})
+    if (!revisaoAtiva) return
+    listResultadosSarjeta(revisaoAtiva.id).then(setHistorico).catch(() => {})
+    if (revisaoAtiva.equacao_idf_id) {
+      listEquacoesIdf().then((eqs) => setEquacao(eqs.find((e) => e.id === revisaoAtiva.equacao_idf_id) ?? null)).catch(() => {})
     } else {
       setEquacao(null)
     }
-  }, [obraAtiva])
+  }, [revisaoAtiva])
 
   const handleCalcular = () => {
     setError(null)
     if (!equacao) {
-      setError('A obra ativa não tem uma equação IDF vinculada — configure em Cadastros → Obras.')
+      setError('A revisão ativa não tem uma equação IDF vinculada — configure em Cadastros → Projetos.')
       return
     }
 
@@ -76,7 +76,7 @@ export function SarjetaCriticaPage() {
     }
 
     try {
-      const i = calcularIntensidadeIdf(equacao, obraAtiva!.tempo_retorno_anos ?? 10, valores.tcMin)
+      const i = calcularIntensidadeIdf(equacao, revisaoAtiva!.tempo_retorno_anos ?? 10, valores.tcMin)
       const resultado = calcularSarjeta({
         geometria: {
           tipo: 'triangular',
@@ -100,7 +100,7 @@ export function SarjetaCriticaPage() {
   }
 
   const handleSalvar = async () => {
-    if (!obraAtiva || !memorial || intensidade == null || !form.nomeVia.trim()) {
+    if (!revisaoAtiva || !memorial || intensidade == null || !form.nomeVia.trim()) {
       setError('Informe o nome da via antes de salvar.')
       return
     }
@@ -108,7 +108,7 @@ export function SarjetaCriticaPage() {
     setError(null)
     try {
       await saveResultadoSarjeta({
-        obra_id: obraAtiva.id,
+        revisao_id: revisaoAtiva.id,
         nome_via: form.nomeVia.trim(),
         y0_m: Number(form.y0M),
         z: null,
@@ -127,7 +127,7 @@ export function SarjetaCriticaPage() {
         vazao_m3s: memorial.vazaoM3s,
         comprimento_critico_m: memorial.comprimentoCriticoM,
       })
-      setHistorico(await listResultadosSarjeta(obraAtiva.id))
+      setHistorico(await listResultadosSarjeta(revisaoAtiva.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar resultado.')
     } finally {
@@ -135,12 +135,12 @@ export function SarjetaCriticaPage() {
     }
   }
 
-  if (!supabase || !obraAtiva) {
+  if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-3xl">
         <Breadcrumb items={['Cálculos', 'Sarjeta Crítica']} />
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          {!supabase ? 'Supabase não configurado.' : 'Selecione uma obra em Cadastros → Obras.'}
+          {!supabase ? 'Supabase não configurado.' : 'Selecione uma revisão em Cadastros → Projetos.'}
         </div>
       </div>
     )
@@ -151,7 +151,9 @@ export function SarjetaCriticaPage() {
       <Breadcrumb items={['Cálculos', 'Sarjeta Crítica']} />
 
       <div className="mb-6">
-        <h1 className="font-sans text-xl font-bold text-text-primary">Sarjeta Crítica — {obraAtiva.nome}</h1>
+        <h1 className="font-sans text-xl font-bold text-text-primary">
+          Sarjeta Crítica — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+        </h1>
         <p className="text-sm text-text-secondary">
           Comprimento crítico via equação completa de Manning (geometria → velocidade → vazão), que define o
           espaçamento entre bocas de lobo.
@@ -197,7 +199,7 @@ export function SarjetaCriticaPage() {
           <Field label="Largura do impluvio (m)" required>
             <input type="number" step="any" className={fieldInputClass} value={form.larguraImpluvioM} onChange={(e) => setForm({ ...form, larguraImpluvioM: e.target.value })} />
           </Field>
-          <Field label="Tc — tempo de concentração (min)" required hint={equacao ? `Equação IDF: ${equacao.nome} · TR: ${obraAtiva.tempo_retorno_anos} anos` : 'Obra sem equação IDF vinculada'}>
+          <Field label="Tc — tempo de concentração (min)" required hint={equacao ? `Equação IDF: ${equacao.nome} · TR: ${revisaoAtiva.tempo_retorno_anos} anos` : 'Revisão sem equação IDF vinculada'}>
             <input type="number" step="any" className={fieldInputClass} value={form.tcMin} onChange={(e) => setForm({ ...form, tcMin: e.target.value })} />
           </Field>
         </div>

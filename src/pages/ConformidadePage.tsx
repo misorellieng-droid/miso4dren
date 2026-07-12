@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ClipboardCheck } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
-import { useObraContext } from '../lib/ObraContext'
-import { listResultadosRedeByObra, type ResultadoRedeRecord } from '../lib/resultadosStorage'
+import { useRevisaoContext } from '../lib/RevisaoContext'
+import { listResultadosRedeByRevisao, type ResultadoRedeRecord } from '../lib/resultadosStorage'
 import { supabase } from '../lib/supabase'
 
 interface LinhaResultado extends ResultadoRedeRecord {
@@ -10,29 +10,29 @@ interface LinhaResultado extends ResultadoRedeRecord {
 }
 
 export function ConformidadePage() {
-  const { obraAtiva } = useObraContext()
+  const { revisaoAtiva } = useRevisaoContext()
   const [resultados, setResultados] = useState<LinhaResultado[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!obraAtiva) {
+    if (!revisaoAtiva) {
       setLoading(false)
       return
     }
     setLoading(true)
-    listResultadosRedeByObra(obraAtiva.id)
+    listResultadosRedeByRevisao(revisaoAtiva.id)
       .then(setResultados)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [obraAtiva])
+  }, [revisaoAtiva])
 
-  if (!supabase || !obraAtiva) {
+  if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-3xl">
         <Breadcrumb items={['Controle', 'Conformidade']} />
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          {!supabase ? 'Supabase não configurado.' : 'Selecione uma obra em Cadastros → Obras.'}
+          {!supabase ? 'Supabase não configurado.' : 'Selecione uma revisão em Cadastros → Projetos.'}
         </div>
       </div>
     )
@@ -45,7 +45,9 @@ export function ConformidadePage() {
       <Breadcrumb items={['Controle', 'Conformidade']} />
 
       <div className="mb-6">
-        <h1 className="font-sans text-xl font-bold text-text-primary">Conformidade — {obraAtiva.nome}</h1>
+        <h1 className="font-sans text-xl font-bold text-text-primary">
+          Conformidade — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+        </h1>
         <p className="text-sm text-text-secondary">Trechos de rede que não atendem aos critérios de lâmina, velocidade ou declividade.</p>
       </div>
 

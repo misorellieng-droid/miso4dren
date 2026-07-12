@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, Droplets, Loader2, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
-import { useObraContext } from '../lib/ObraContext'
+import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQEntradaBacia, calcularTcSistema } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
-import { listResultadosRedeByObra, saveResultadoRede, type ResultadoRedeRecord } from '../lib/resultadosStorage'
+import { listResultadosRedeByRevisao, saveResultadoRede, type ResultadoRedeRecord } from '../lib/resultadosStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -28,7 +28,7 @@ interface LinhaResultado extends ResultadoRedeRecord {
 }
 
 export function RedePluvialPage() {
-  const { obraAtiva } = useObraContext()
+  const { revisaoAtiva } = useRevisaoContext()
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
@@ -40,33 +40,33 @@ export function RedePluvialPage() {
   const [avisos, setAvisos] = useState<string[]>([])
 
   const load = async () => {
-    if (!obraAtiva) return
-    const [c, t, b] = await Promise.all([listCaixas(obraAtiva.id), listTrechos(obraAtiva.id), listBacias(obraAtiva.id)])
+    if (!revisaoAtiva) return
+    const [c, t, b] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id), listBacias(revisaoAtiva.id)])
     setCaixas(c)
     setTrechos(t)
     setBacias(b)
-    if (obraAtiva.equacao_idf_id) {
+    if (revisaoAtiva.equacao_idf_id) {
       const eqs = await listEquacoesIdf()
-      setEquacao(eqs.find((e) => e.id === obraAtiva.equacao_idf_id) ?? null)
+      setEquacao(eqs.find((e) => e.id === revisaoAtiva.equacao_idf_id) ?? null)
     } else {
       setEquacao(null)
     }
-    const existentes = await listResultadosRedeByObra(obraAtiva.id)
+    const existentes = await listResultadosRedeByRevisao(revisaoAtiva.id)
     setResultados(existentes)
   }
 
   useEffect(() => {
     load().catch((e) => setError(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obraAtiva])
+  }, [revisaoAtiva])
 
   const handleRodar = async () => {
-    if (!obraAtiva) return
+    if (!revisaoAtiva) return
     setError(null)
     setAvisos([])
 
     if (!equacao) {
-      setError('A obra não tem equação IDF vinculada — configure em Cadastros → Obras.')
+      setError('A revisão não tem equação IDF vinculada — configure em Cadastros → Projetos.')
       return
     }
     const baciasVinculadas = bacias.filter((b) => b.caixa_destino_id)
@@ -85,7 +85,7 @@ export function RedePluvialPage() {
       const qEntradaPorBaciaId = new Map<string, number>()
       for (const b of baciasVinculadas) {
         const tcMin = b.tc_min ?? 10
-        const intensidade = calcularIntensidadeIdf(equacao, obraAtiva.tempo_retorno_anos ?? 10, tcMin)
+        const intensidade = calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcMin)
         const q = calcularQEntradaBacia(b.coef_c, intensidade, b.area_m2)
         qEntradaPorBaciaId.set(b.id, q)
         qEntradaPorCaixa.set(b.caixa_destino_id!, (qEntradaPorCaixa.get(b.caixa_destino_id!) ?? 0) + q)
@@ -157,7 +157,7 @@ export function RedePluvialPage() {
         const trecho = trechos.find((t) => t.id === linha.trecho_id)!
         const tcSistema = tcPorCaixa.get(trecho.caixa_jusante_id) ?? null
         linha.tc_sistema_min = tcSistema
-        linha.intensidade_mm_h = tcSistema != null ? calcularIntensidadeIdf(equacao, obraAtiva.tempo_retorno_anos ?? 10, tcSistema) : null
+        linha.intensidade_mm_h = tcSistema != null ? calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcSistema) : null
       }
 
       for (const linha of linhas) {
@@ -173,12 +173,12 @@ export function RedePluvialPage() {
     }
   }
 
-  if (!supabase || !obraAtiva) {
+  if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-3xl">
         <Breadcrumb items={['Cálculos', 'Rede Pluvial']} />
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          {!supabase ? 'Supabase não configurado.' : 'Selecione uma obra em Cadastros → Obras.'}
+          {!supabase ? 'Supabase não configurado.' : 'Selecione uma revisão em Cadastros → Projetos.'}
         </div>
       </div>
     )
@@ -189,7 +189,9 @@ export function RedePluvialPage() {
       <Breadcrumb items={['Cálculos', 'Rede Pluvial']} />
 
       <div className="mb-6">
-        <h1 className="font-sans text-xl font-bold text-text-primary">Rede Pluvial — {obraAtiva.nome}</h1>
+        <h1 className="font-sans text-xl font-bold text-text-primary">
+          Rede Pluvial — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+        </h1>
         <p className="text-sm text-text-secondary">
           Dimensionamento hidráulico trecho a trecho: {caixas.length} caixa(s), {trechos.length} trecho(s), {bacias.length} bacia(s).
         </p>
