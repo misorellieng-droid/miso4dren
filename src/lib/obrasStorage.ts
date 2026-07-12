@@ -33,7 +33,9 @@ export async function createObra(input: {
   tempoRetornoAnos?: number
 }): Promise<ObraRecord> {
   const client = requireSupabase()
-  const { data: userData } = await client.auth.getUser()
+  // user_id fica nulo enquanto não há tela de login — ver
+  // supabase/002_modo_sem_login.sql. Reintroduzir client.auth.getUser()
+  // aqui quando o login for implementado.
   const { data, error } = await client
     .from('obras')
     .insert({
@@ -41,7 +43,6 @@ export async function createObra(input: {
       descricao: input.descricao ?? null,
       equacao_idf_id: input.equacaoIdfId ?? null,
       tempo_retorno_anos: input.tempoRetornoAnos ?? 10,
-      user_id: userData.user?.id,
     })
     .select()
     .single()
