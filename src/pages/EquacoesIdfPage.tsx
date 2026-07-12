@@ -124,6 +124,11 @@ export function EquacoesIdfPage() {
         </button>
       </div>
 
+      <div className="mb-4 rounded-md border border-border bg-elevated/40 p-3 text-sm text-text-secondary">
+        Esta tela só cadastra as equações. Para usar uma em um cálculo, vá em <strong>Cadastros → Projetos</strong>, abra o
+        projeto e clique no lápis da revisão — lá dá pra escolher (ou trocar) a equação IDF e o tempo de retorno.
+      </div>
+
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
       {!supabase && (
         <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3 text-sm text-accent-amber">
