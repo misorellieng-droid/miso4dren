@@ -4,12 +4,15 @@ export interface ResultadoSarjetaRecord {
   id: string
   revisao_id: string
   nome_via: string
+  tipo_secao: string // 'triangular' | 'triangular_simetrica'
   y0_m: number
   z: number | null // obsoleto — ver 003_sarjeta_manning_completo.sql
   largura_sarjeta_m: number | null
   declividade_transversal_via_m_m: number | null
   declividade_transversal_sarjeta_m_m: number | null
   declividade_longitudinal: number
+  declividade_calculada_por_velocidade: boolean
+  velocidade_minima_ms: number | null
   coef_c: number
   largura_impluvio_m: number
   manning_n: number

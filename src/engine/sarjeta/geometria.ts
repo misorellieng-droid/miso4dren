@@ -1,4 +1,5 @@
 import { calcularGeometriaTriangular } from './geometrias/triangular'
+import { calcularGeometriaTriangularSimetrica } from './geometrias/triangularSimetrica'
 import type { GeometriaSarjetaResultado, ParametrosGeometriaSarjeta } from './types'
 
 /**
@@ -11,8 +12,10 @@ export function calcularGeometria(params: ParametrosGeometriaSarjeta): Geometria
   switch (params.tipo) {
     case 'triangular':
       return calcularGeometriaTriangular(params)
+    case 'triangular_simetrica':
+      return calcularGeometriaTriangularSimetrica(params)
     default: {
-      const tipo: string = params.tipo
+      const tipo = (params as { tipo: string }).tipo
       throw new Error(`Geometria de sarjeta "${tipo}" ainda não implementada.`)
     }
   }

@@ -28,6 +28,38 @@ describe('calcularSarjeta (pipeline completo)', () => {
     expect(resultado.raioHidraulicoElevadoDoisTercos).toBeCloseTo(Math.pow(resultado.raioHidraulicoM, 2 / 3), 12)
   })
 
+  it('sarjetão em V simétrico com declividade calculada a partir da velocidade mínima', () => {
+    const resultado = calcularSarjeta({
+      geometria: { tipo: 'triangular_simetrica', y0M: 0.15, declividadeTransversalMM: 0.02 },
+      velocidadeMinimaMs: 0.5,
+      manningN: 0.02,
+      coefC: 0.9,
+      intensidadeMmH: 100,
+      larguraImpluvioM: 20, // soma dos dois lados (ex.: 10 m de cada galpão)
+    })
+
+    expect(resultado.areaMolhadaM2).toBeCloseTo(1.125, 9)
+    expect(resultado.raioHidraulicoM).toBeCloseTo(0.07498500449850053, 9)
+    expect(resultado.declividadeCalculadaPorVelocidade).toBe(true)
+    expect(resultado.declividadeLongitudinalMM).toBeCloseTo(0.0031625259965767463, 9)
+    expect(resultado.velocidadeMs).toBeCloseTo(0.5, 9)
+    expect(resultado.vazaoM3s).toBeCloseTo(0.5625, 9)
+    expect(resultado.comprimentoCriticoM).toBeCloseTo(1124.1007194244603, 6)
+  })
+
+  it('com declividade informada diretamente, declividadeCalculadaPorVelocidade fica false', () => {
+    const resultado = calcularSarjeta({
+      geometria: { tipo: 'triangular_simetrica', y0M: 0.15, declividadeTransversalMM: 0.02 },
+      declividadeLongitudinalMM: 0.003,
+      manningN: 0.02,
+      coefC: 0.9,
+      intensidadeMmH: 100,
+      larguraImpluvioM: 20,
+    })
+    expect(resultado.declividadeCalculadaPorVelocidade).toBe(false)
+    expect(resultado.declividadeLongitudinalMM).toBe(0.003)
+  })
+
   it('lança erro para geometria ainda não implementada', () => {
     expect(() =>
       calcularSarjeta({

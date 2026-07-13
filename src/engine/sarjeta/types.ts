@@ -7,6 +7,7 @@
 
 export type TipoSecaoSarjeta =
   | 'triangular'
+  | 'triangular_simetrica'
   // ainda não implementadas — ver seção "Próximas geometrias" no README do motor:
   | 'trapezoidal'
   | 'retangular'
@@ -34,6 +35,20 @@ export interface ParametrosGeometriaTriangular {
   declividadeTransversalSarjetaMM: number // declividade transversal da própria sarjeta, Sw (m/m)
 }
 
+/**
+ * Sarjetão em V simétrico: duas faces planas de mesma declividade
+ * transversal convergindo no ponto mais baixo (centro), alimentado
+ * igualmente dos dois lados — típico de um vão entre duas edificações onde
+ * a via não pode ter declividade longitudinal (ex.: pátio entre galpões) e
+ * a calha central concentra o escoamento, geralmente em perfil "dente de
+ * serra" ao longo do comprimento. Ver geometrias/triangularSimetrica.ts.
+ */
+export interface ParametrosGeometriaTriangularSimetrica {
+  tipo: 'triangular_simetrica'
+  y0M: number // profundidade máxima no ponto mais baixo (m)
+  declividadeTransversalMM: number // declividade transversal de cada lado, igual dos dois lados por simetria (m/m)
+}
+
 // União das geometrias implementadas. Ao adicionar uma nova (ex.:
 // trapezoidal), criar sua interface de parâmetros e incluí-la aqui.
-export type ParametrosGeometriaSarjeta = ParametrosGeometriaTriangular
+export type ParametrosGeometriaSarjeta = ParametrosGeometriaTriangular | ParametrosGeometriaTriangularSimetrica

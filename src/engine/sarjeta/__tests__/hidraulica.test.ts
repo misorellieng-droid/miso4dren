@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calcularVazao, calcularVelocidade } from '../hidraulica'
+import { calcularDeclividadeParaVelocidade, calcularVazao, calcularVelocidade } from '../hidraulica'
 
 describe('calcularVelocidade', () => {
   it('aplica Manning: V = (1/n) · Rh^(2/3) · √I', () => {
@@ -15,5 +15,20 @@ describe('calcularVelocidade', () => {
 describe('calcularVazao', () => {
   it('Q = A · V', () => {
     expect(calcularVazao(0.30750000000000005, 1.2920619824024049)).toBeCloseTo(0.3973090595887396, 9)
+  })
+})
+
+describe('calcularDeclividadeParaVelocidade', () => {
+  it('calcula a declividade que atinge a velocidade alvo', () => {
+    const i = calcularDeclividadeParaVelocidade(0.5, 0.07498500449850053, 0.02)
+    expect(i).toBeCloseTo(0.0031625259965767463, 9)
+  })
+
+  it('é a inversa exata de calcularVelocidade — plugando de volta retorna a velocidade alvo', () => {
+    const rh = 0.07498500449850053
+    const n = 0.02
+    const alvo = 0.5
+    const i = calcularDeclividadeParaVelocidade(alvo, rh, n)
+    expect(calcularVelocidade(rh, n, i)).toBeCloseTo(alvo, 9)
   })
 })
