@@ -4,7 +4,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { calcularSarjeta, type MemorialCalculoSarjeta, type TipoSecaoSarjeta } from '../engine/sarjeta'
+import { calcularSarjeta, type MemorialCalculoSarjeta, type ModoDeclividade, type TipoSecaoSarjeta } from '../engine/sarjeta'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listResultadosSarjeta, saveResultadoSarjeta, type ResultadoSarjetaRecord } from '../lib/resultadosStorage'
 import { supabase } from '../lib/supabase'
@@ -15,7 +15,11 @@ const TAB_BTN = 'rounded-lg border px-3 py-1.5 text-xs font-medium transition'
 const TAB_BTN_ACTIVE = `${TAB_BTN} border-brand bg-brand/10 text-brand`
 const TAB_BTN_INACTIVE = `${TAB_BTN} border-border text-text-secondary hover:border-brand/50 hover:text-text-primary`
 
-type ModoDeclividade = 'informada' | 'velocidade_minima'
+const MODO_DECLIVIDADE_LABELS: Record<ModoDeclividade, string> = {
+  informada: 'Declividade longitudinal informada',
+  velocidade_minima: 'Calculada (velocidade mínima)',
+  desnivel_fixo: 'Dente de serra (declividade calculada)',
+}
 
 const DEFAULT_FORM = {
   nomeVia: '',
@@ -24,6 +28,8 @@ const DEFAULT_FORM = {
   declividadeTransversalViaMM: '0.02',
   declividadeTransversalSarjetaMM: '0.06',
   declividadeTransversalMM: '0.02',
+  declividadeTransversalMinMM: '0.02',
+  declividadeTransversalMaxMM: '0.1',
   larguraImpluvioM: '10',
   larguraImpluvioLadoAM: '10',
   larguraImpluvioLadoBM: '10',
@@ -60,14 +66,22 @@ export function SarjetaCriticaPage() {
     }
   }, [revisaoAtiva])
 
-  const camposAtivos: FormField[] =
-    tipoSecao === 'triangular'
+  const denteDeSerra = tipoSecao === 'triangular_simetrica' && modoDeclividade === 'desnivel_fixo'
+
+  const camposAtivos: FormField[] = denteDeSerra
+    ? ['larguraSarjetaM', 'declividadeTransversalMinMM', 'declividadeTransversalMaxMM', 'larguraImpluvioLadoAM', 'larguraImpluvioLadoBM']
+    : tipoSecao === 'triangular'
       ? ['y0M', 'larguraSarjetaM', 'declividadeTransversalViaMM', 'declividadeTransversalSarjetaMM', 'larguraImpluvioM']
       : ['y0M', 'declividadeTransversalMM', 'larguraImpluvioLadoAM', 'larguraImpluvioLadoBM']
 
-  const camposDeclividade: FormField[] = modoDeclividade === 'informada' ? ['declividadeLongitudinal'] : ['velocidadeMinimaMs']
+  const camposDeclividade: FormField[] = denteDeSerra ? [] : modoDeclividade === 'informada' ? ['declividadeLongitudinal'] : ['velocidadeMinimaMs']
 
   const setCampo = (campo: FormField, valor: string) => setForm((f) => ({ ...f, [campo]: valor }))
+
+  const selecionarTipoSecao = (tipo: TipoSecaoSarjeta) => {
+    setTipoSecao(tipo)
+    if (tipo === 'triangular' && modoDeclividade === 'desnivel_fixo') setModoDeclividade('informada')
+  }
 
   const handleCalcular = () => {
     setError(null)
@@ -83,21 +97,44 @@ export function SarjetaCriticaPage() {
       setError('Preencha todos os parâmetros com valores numéricos positivos.')
       return
     }
+    if (denteDeSerra && valores.declividadeTransversalMaxMM <= valores.declividadeTransversalMinMM) {
+      setError('A declividade transversal máxima (ponto baixo) deve ser maior que a mínima (ponto alto).')
+      return
+    }
 
-    const larguraImpluvioM = tipoSecao === 'triangular' ? valores.larguraImpluvioM : valores.larguraImpluvioLadoAM + valores.larguraImpluvioLadoBM
+    const larguraImpluvioM =
+      tipoSecao === 'triangular' ? valores.larguraImpluvioM : valores.larguraImpluvioLadoAM + valores.larguraImpluvioLadoBM
 
     try {
       const i = calcularIntensidadeIdf(equacao, revisaoAtiva!.tempo_retorno_anos ?? 10, valores.tcMin)
-      const geometria =
-        tipoSecao === 'triangular'
-          ? ({
-              tipo: 'triangular' as const,
-              y0M: valores.y0M,
-              larguraSarjetaM: valores.larguraSarjetaM,
-              declividadeTransversalViaMM: valores.declividadeTransversalViaMM,
-              declividadeTransversalSarjetaMM: valores.declividadeTransversalSarjetaMM,
-            })
-          : ({ tipo: 'triangular_simetrica' as const, y0M: valores.y0M, declividadeTransversalMM: valores.declividadeTransversalMM })
+
+      let geometria: Parameters<typeof calcularSarjeta>[0]['geometria']
+      let modoParams: Pick<Parameters<typeof calcularSarjeta>[0], 'declividadeLongitudinalMM' | 'velocidadeMinimaMs' | 'desnivelFixoM'>
+
+      if (denteDeSerra) {
+        // y0 no ponto baixo (condição crítica) e no ponto alto vêm da própria
+        // largura da sarjeta × declividade transversal em cada extremo
+        const y0Max = (valores.larguraSarjetaM / 2) * valores.declividadeTransversalMaxMM
+        const y0Min = (valores.larguraSarjetaM / 2) * valores.declividadeTransversalMinMM
+        geometria = { tipo: 'triangular_simetrica', y0M: y0Max, declividadeTransversalMM: valores.declividadeTransversalMaxMM }
+        modoParams = { desnivelFixoM: y0Max - y0Min } as typeof modoParams
+      } else if (tipoSecao === 'triangular') {
+        geometria = {
+          tipo: 'triangular',
+          y0M: valores.y0M,
+          larguraSarjetaM: valores.larguraSarjetaM,
+          declividadeTransversalViaMM: valores.declividadeTransversalViaMM,
+          declividadeTransversalSarjetaMM: valores.declividadeTransversalSarjetaMM,
+        }
+        modoParams = (modoDeclividade === 'informada'
+          ? { declividadeLongitudinalMM: valores.declividadeLongitudinal }
+          : { velocidadeMinimaMs: valores.velocidadeMinimaMs }) as typeof modoParams
+      } else {
+        geometria = { tipo: 'triangular_simetrica', y0M: valores.y0M, declividadeTransversalMM: valores.declividadeTransversalMM }
+        modoParams = (modoDeclividade === 'informada'
+          ? { declividadeLongitudinalMM: valores.declividadeLongitudinal }
+          : { velocidadeMinimaMs: valores.velocidadeMinimaMs }) as typeof modoParams
+      }
 
       const resultado = calcularSarjeta({
         geometria,
@@ -105,10 +142,8 @@ export function SarjetaCriticaPage() {
         coefC: valores.coefC,
         intensidadeMmH: i,
         larguraImpluvioM,
-        ...(modoDeclividade === 'informada'
-          ? { declividadeLongitudinalMM: valores.declividadeLongitudinal }
-          : { velocidadeMinimaMs: valores.velocidadeMinimaMs }),
-      })
+        ...modoParams,
+      } as Parameters<typeof calcularSarjeta>[0])
       setIntensidade(i)
       setMemorial(resultado)
     } catch (err) {
@@ -132,14 +167,23 @@ export function SarjetaCriticaPage() {
         revisao_id: revisaoAtiva.id,
         nome_via: form.nomeVia.trim(),
         tipo_secao: tipoSecao,
-        y0_m: Number(form.y0M),
+        y0_m: denteDeSerra ? (Number(form.larguraSarjetaM) / 2) * Number(form.declividadeTransversalMaxMM) : Number(form.y0M),
         z: null,
-        largura_sarjeta_m: tipoSecao === 'triangular' ? Number(form.larguraSarjetaM) : null,
-        declividade_transversal_via_m_m: tipoSecao === 'triangular' ? Number(form.declividadeTransversalViaMM) : Number(form.declividadeTransversalMM),
-        declividade_transversal_sarjeta_m_m: tipoSecao === 'triangular' ? Number(form.declividadeTransversalSarjetaMM) : Number(form.declividadeTransversalMM),
+        largura_sarjeta_m: tipoSecao === 'triangular' || denteDeSerra ? Number(form.larguraSarjetaM) : null,
+        declividade_transversal_via_m_m: tipoSecao === 'triangular' ? Number(form.declividadeTransversalViaMM) : null,
+        declividade_transversal_sarjeta_m_m: denteDeSerra
+          ? Number(form.declividadeTransversalMaxMM)
+          : tipoSecao === 'triangular'
+            ? Number(form.declividadeTransversalSarjetaMM)
+            : Number(form.declividadeTransversalMM),
+        declividade_transversal_min_m_m: denteDeSerra ? Number(form.declividadeTransversalMinMM) : null,
         declividade_longitudinal: memorial.declividadeLongitudinalMM,
-        declividade_calculada_por_velocidade: memorial.declividadeCalculadaPorVelocidade,
+        declividade_calculada_por_velocidade: memorial.modoDeclividade !== 'informada',
+        modo_declividade: memorial.modoDeclividade,
         velocidade_minima_ms: modoDeclividade === 'velocidade_minima' ? Number(form.velocidadeMinimaMs) : null,
+        desnivel_m: denteDeSerra
+          ? (Number(form.larguraSarjetaM) / 2) * (Number(form.declividadeTransversalMaxMM) - Number(form.declividadeTransversalMinMM))
+          : null,
         coef_c: Number(form.coefC),
         largura_impluvio_m: larguraImpluvioM,
         manning_n: Number(form.manningN),
@@ -195,18 +239,46 @@ export function SarjetaCriticaPage() {
 
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Tipo de seção</div>
         <div className="mt-2 flex gap-2">
-          <button className={tipoSecao === 'triangular' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE} onClick={() => setTipoSecao('triangular')}>
+          <button className={tipoSecao === 'triangular' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE} onClick={() => selecionarTipoSecao('triangular')}>
             Triangular (via + sarjeta)
           </button>
           <button
             className={tipoSecao === 'triangular_simetrica' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE}
-            onClick={() => setTipoSecao('triangular_simetrica')}
+            onClick={() => selecionarTipoSecao('triangular_simetrica')}
           >
             Sarjetão em V simétrico
           </button>
         </div>
 
-        {tipoSecao === 'triangular' ? (
+        {denteDeSerra ? (
+          <>
+            <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">
+              Geometria do sarjetão (dente de serra)
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">
+              A borda superior da calha fica sempre no mesmo nível — a queda vem de variar a declividade transversal
+              entre o ponto alto (junto ao ponto alto do dente) e o ponto baixo (junto à caixa).
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-4">
+              <Field label="Largura total da sarjeta (m)" required>
+                <input type="number" step="any" className={fieldInputClass} value={form.larguraSarjetaM} onChange={(e) => setCampo('larguraSarjetaM', e.target.value)} />
+              </Field>
+              <div />
+              <Field label="Declividade transversal — ponto alto (m/m)" required hint="A mais suave, geralmente igual à da via">
+                <input type="number" step="any" className={fieldInputClass} value={form.declividadeTransversalMinMM} onChange={(e) => setCampo('declividadeTransversalMinMM', e.target.value)} />
+              </Field>
+              <Field label="Declividade transversal — ponto baixo (m/m)" required hint="A máxima, junto à caixa de captação">
+                <input type="number" step="any" className={fieldInputClass} value={form.declividadeTransversalMaxMM} onChange={(e) => setCampo('declividadeTransversalMaxMM', e.target.value)} />
+              </Field>
+              <Field label="Largura do impluvio — lado A (m)" required>
+                <input type="number" step="any" className={fieldInputClass} value={form.larguraImpluvioLadoAM} onChange={(e) => setCampo('larguraImpluvioLadoAM', e.target.value)} />
+              </Field>
+              <Field label="Largura do impluvio — lado B (m)" required>
+                <input type="number" step="any" className={fieldInputClass} value={form.larguraImpluvioLadoBM} onChange={(e) => setCampo('larguraImpluvioLadoBM', e.target.value)} />
+              </Field>
+            </div>
+          </>
+        ) : tipoSecao === 'triangular' ? (
           <>
             <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Geometria da sarjeta (triangular)</div>
             <div className="mt-2 grid grid-cols-2 gap-4">
@@ -254,7 +326,7 @@ export function SarjetaCriticaPage() {
         )}
 
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Declividade longitudinal</div>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
           <button className={modoDeclividade === 'informada' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE} onClick={() => setModoDeclividade('informada')}>
             Informar diretamente
           </button>
@@ -264,18 +336,35 @@ export function SarjetaCriticaPage() {
           >
             Calcular a partir da velocidade mínima
           </button>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-4">
-          {modoDeclividade === 'informada' ? (
-            <Field label="Declividade longitudinal (m/m)" required>
-              <input type="number" step="any" className={fieldInputClass} value={form.declividadeLongitudinal} onChange={(e) => setCampo('declividadeLongitudinal', e.target.value)} />
-            </Field>
-          ) : (
-            <Field label="Velocidade mínima de autolimpeza (m/s)" required hint="A declividade necessária pra atingir essa velocidade é calculada automaticamente">
-              <input type="number" step="any" className={fieldInputClass} value={form.velocidadeMinimaMs} onChange={(e) => setCampo('velocidadeMinimaMs', e.target.value)} />
-            </Field>
+          {tipoSecao === 'triangular_simetrica' && (
+            <button
+              className={modoDeclividade === 'desnivel_fixo' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE}
+              onClick={() => setModoDeclividade('desnivel_fixo')}
+            >
+              Dente de serra (declividade transversal variável)
+            </button>
           )}
         </div>
+        {!denteDeSerra && (
+          <div className="mt-2 grid grid-cols-2 gap-4">
+            {modoDeclividade === 'informada' ? (
+              <Field label="Declividade longitudinal (m/m)" required>
+                <input type="number" step="any" className={fieldInputClass} value={form.declividadeLongitudinal} onChange={(e) => setCampo('declividadeLongitudinal', e.target.value)} />
+              </Field>
+            ) : (
+              <Field label="Velocidade mínima de autolimpeza (m/s)" required hint="A declividade necessária pra atingir essa velocidade é calculada automaticamente">
+                <input type="number" step="any" className={fieldInputClass} value={form.velocidadeMinimaMs} onChange={(e) => setCampo('velocidadeMinimaMs', e.target.value)} />
+              </Field>
+            )}
+          </div>
+        )}
+        {denteDeSerra && (
+          <p className="mt-2 text-xs text-text-secondary">
+            A declividade longitudinal efetiva sai da diferença de profundidade entre o ponto alto e o ponto baixo
+            (definidos pela geometria acima), dividida pelo próprio comprimento crítico — sem precisar informar nada
+            aqui.
+          </p>
+        )}
 
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Hidráulica e bacia</div>
         <div className="mt-2 grid grid-cols-2 gap-4">
@@ -314,9 +403,11 @@ export function SarjetaCriticaPage() {
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Comprimento crítico</div>
                 <div className="font-sans text-xl font-bold text-brand">{memorial.comprimentoCriticoM.toFixed(2)} m</div>
               </div>
-              {memorial.declividadeCalculadaPorVelocidade && (
+              {memorial.modoDeclividade !== 'informada' && (
                 <div className="col-span-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Declividade de projeto necessária</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
+                    Declividade longitudinal efetiva ({MODO_DECLIVIDADE_LABELS[memorial.modoDeclividade]})
+                  </div>
                   <div className="font-sans text-lg font-bold text-text-primary">{(memorial.declividadeLongitudinalMM * 100).toFixed(3)}%</div>
                 </div>
               )}
@@ -336,10 +427,7 @@ export function SarjetaCriticaPage() {
                 <MemorialItem label="Perímetro molhado" value={`${memorial.perimetroMolhadoM.toFixed(4)} m`} />
                 <MemorialItem label="Raio hidráulico (Rh)" value={`${memorial.raioHidraulicoM.toFixed(5)} m`} />
                 <MemorialItem label="Rh^(2/3)" value={memorial.raioHidraulicoElevadoDoisTercos.toFixed(5)} />
-                <MemorialItem
-                  label={memorial.declividadeCalculadaPorVelocidade ? 'Declividade longitudinal (calculada)' : 'Declividade longitudinal'}
-                  value={`${(memorial.declividadeLongitudinalMM * 100).toFixed(4)}%`}
-                />
+                <MemorialItem label="Declividade longitudinal" value={`${(memorial.declividadeLongitudinalMM * 100).toFixed(4)}%`} />
                 <MemorialItem label="Velocidade" value={`${memorial.velocidadeMs.toFixed(4)} m/s`} />
                 <MemorialItem label="Vazão da sarjeta" value={`${memorial.vazaoM3s.toFixed(6)} m³/s`} />
                 <MemorialItem label="Numerador (Q)" value={memorial.numerador.toFixed(6)} />

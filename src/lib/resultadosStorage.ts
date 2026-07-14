@@ -12,7 +12,10 @@ export interface ResultadoSarjetaRecord {
   declividade_transversal_sarjeta_m_m: number | null
   declividade_longitudinal: number
   declividade_calculada_por_velocidade: boolean
+  modo_declividade: string // 'informada' | 'velocidade_minima' | 'desnivel_fixo'
   velocidade_minima_ms: number | null
+  desnivel_m: number | null
+  declividade_transversal_min_m_m: number | null
   coef_c: number
   largura_impluvio_m: number
   manning_n: number

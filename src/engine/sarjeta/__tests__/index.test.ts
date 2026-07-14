@@ -40,14 +40,14 @@ describe('calcularSarjeta (pipeline completo)', () => {
 
     expect(resultado.areaMolhadaM2).toBeCloseTo(1.125, 9)
     expect(resultado.raioHidraulicoM).toBeCloseTo(0.07498500449850053, 9)
-    expect(resultado.declividadeCalculadaPorVelocidade).toBe(true)
+    expect(resultado.modoDeclividade).toBe('velocidade_minima')
     expect(resultado.declividadeLongitudinalMM).toBeCloseTo(0.0031625259965767463, 9)
     expect(resultado.velocidadeMs).toBeCloseTo(0.5, 9)
     expect(resultado.vazaoM3s).toBeCloseTo(0.5625, 9)
     expect(resultado.comprimentoCriticoM).toBeCloseTo(1124.1007194244603, 6)
   })
 
-  it('com declividade informada diretamente, declividadeCalculadaPorVelocidade fica false', () => {
+  it('com declividade informada diretamente, modoDeclividade fica "informada"', () => {
     const resultado = calcularSarjeta({
       geometria: { tipo: 'triangular_simetrica', y0M: 0.15, declividadeTransversalMM: 0.02 },
       declividadeLongitudinalMM: 0.003,
@@ -56,8 +56,29 @@ describe('calcularSarjeta (pipeline completo)', () => {
       intensidadeMmH: 100,
       larguraImpluvioM: 20,
     })
-    expect(resultado.declividadeCalculadaPorVelocidade).toBe(false)
+    expect(resultado.modoDeclividade).toBe('informada')
     expect(resultado.declividadeLongitudinalMM).toBe(0.003)
+  })
+
+  it('sarjetão dente de serra: declividade transversal variando de 2% a 10%, largura 0,90m', () => {
+    // condição crítica (ponto baixo): y0 = (largura/2) × declMax = 0,45×0,10 = 0,045m
+    // ponto alto: y0 = 0,45×0,02 = 0,009m → desnível = 0,036m
+    const resultado = calcularSarjeta({
+      geometria: { tipo: 'triangular_simetrica', y0M: 0.045, declividadeTransversalMM: 0.1 },
+      desnivelFixoM: 0.036,
+      manningN: 0.02,
+      coefC: 0.9,
+      intensidadeMmH: 140,
+      larguraImpluvioM: 20,
+    })
+
+    expect(resultado.areaMolhadaM2).toBeCloseTo(0.020250000000000004, 9)
+    expect(resultado.raioHidraulicoM).toBeCloseTo(0.022388336779724762, 9)
+    expect(resultado.modoDeclividade).toBe('desnivel_fixo')
+    expect(resultado.comprimentoCriticoM).toBeCloseTo(7.7996838558205965, 6)
+    expect(resultado.declividadeLongitudinalMM).toBeCloseTo(0.004615571690528793, 9)
+    expect(resultado.velocidadeMs).toBeCloseTo(0.2698343961498112, 6)
+    expect(resultado.vazaoM3s).toBeCloseTo(0.005464146522033678, 9)
   })
 
   it('lança erro para geometria ainda não implementada', () => {
