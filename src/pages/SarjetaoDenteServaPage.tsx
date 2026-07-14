@@ -420,9 +420,13 @@ export function SarjetaoDenteServaPage() {
               </p>
             </div>
 
+            <div className="mt-4">
+              <SecaoTransversalSarjetao yMaxM={parametrosExibicao.yMaxM} larguraEspraiamentoM={parametrosExibicao.larguraEspraiamentoM} sxPista={parametrosExibicao.sxPista} />
+            </div>
+
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <PerfilSarjetao titulo="Perfil — Método 1" comprimentoM={resultado.metodo1.comprimentoEquilibrioM} deltaHM={resultado.deltaHM} />
-              <PerfilSarjetao titulo="Perfil — Método 2" comprimentoM={resultado.metodo2.comprimentoEquilibrioM} deltaHM={resultado.deltaHM} />
+              <PerfilSarjetao titulo="Perfil — Método 1" comprimentoM={resultado.metodo1.comprimentoEquilibrioM} deltaHM={resultado.deltaHM} yMaxM={parametrosExibicao.yMaxM} />
+              <PerfilSarjetao titulo="Perfil — Método 2" comprimentoM={resultado.metodo2.comprimentoEquilibrioM} deltaHM={resultado.deltaHM} yMaxM={parametrosExibicao.yMaxM} />
             </div>
 
             <button
@@ -629,16 +633,17 @@ function MemorialItem({ label, value }: { label: string; value: string }) {
 }
 
 /** Perfil do fundo do sarjetão entre dois pontos altos consecutivos (crista → caixa, no meio de L → crista), escala vertical exagerada pra ficar visível — Δh real anotado no rótulo. */
-function PerfilSarjetao({ titulo, comprimentoM, deltaHM }: { titulo: string; comprimentoM: number; deltaHM: number }) {
+function PerfilSarjetao({ titulo, comprimentoM, deltaHM, yMaxM }: { titulo: string; comprimentoM: number; deltaHM: number; yMaxM: number }) {
   const largura = 360
   const topo = 15
   const baseFundo = 85
   const meio = largura / 2
+  const bracoM = comprimentoM / 2
 
   return (
     <div className="rounded-lg border border-border bg-elevated/40 p-4">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">{titulo}</div>
-      <svg viewBox={`0 0 ${largura} 100`} className="w-full" role="img" aria-label={`Perfil do fundo do sarjetão — ${titulo}`}>
+      <svg viewBox={`0 0 ${largura} 112`} className="w-full" role="img" aria-label={`Perfil do fundo do sarjetão — ${titulo}`}>
         <polyline points={`0,${topo} ${meio},${baseFundo} ${largura},${topo}`} fill="none" stroke="currentColor" strokeWidth={2} className="text-brand" />
         <circle cx={0} cy={topo} r={3} className="fill-brand" />
         <circle cx={meio} cy={baseFundo} r={3} className="fill-accent-red" />
@@ -646,9 +651,81 @@ function PerfilSarjetao({ titulo, comprimentoM, deltaHM }: { titulo: string; com
         <text x={0} y={topo - 6} fontSize={9} className="fill-text-secondary">ponto alto</text>
         <text x={meio} y={baseFundo + 14} fontSize={9} textAnchor="middle" className="fill-text-secondary">caixa (ponto baixo)</text>
         <text x={largura} y={topo - 6} fontSize={9} textAnchor="end" className="fill-text-secondary">próximo ponto alto</text>
+        <text x={meio} y={baseFundo + 26} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          lâmina = y_max = {yMaxM.toFixed(3)}m
+        </text>
+        <text x={meio / 2} y={(topo + baseFundo) / 2} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          braço={bracoM.toFixed(2)}m
+        </text>
+        <text x={meio + meio / 2} y={(topo + baseFundo) / 2} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          braço={bracoM.toFixed(2)}m
+        </text>
       </svg>
       <div className="mt-1 text-center text-xs text-text-secondary">
         Distância entre caixas = {comprimentoM.toFixed(2)} m · Δh = {(deltaHM * 100).toFixed(2)} cm (escala vertical exagerada)
+      </div>
+    </div>
+  )
+}
+
+/** Seção transversal do sarjetão: espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto (tracejado) pra visualizar a diferença de premissa geométrica entre os dois. */
+function SecaoTransversalSarjetao({
+  yMaxM,
+  larguraEspraiamentoM: T,
+  sxPista,
+}: {
+  yMaxM: number
+  larguraEspraiamentoM: number
+  sxPista: number
+}) {
+  const largura = 420
+  const altura = 160
+  const padX = 24
+  const padTopo = 20
+  const padBase = 40
+  const escalaX = (largura - 2 * padX) / (2 * T)
+  const escalaY = (altura - padTopo - padBase) / yMaxM
+  const cx = largura / 2
+
+  const sxCoord = (x: number) => cx + x * escalaX
+  const sy = (profundidade: number) => padTopo + profundidade * escalaY
+
+  const poligonoTriangulo = `${sxCoord(-T)},${sy(0)} ${sxCoord(0)},${sy(yMaxM)} ${sxCoord(T)},${sy(0)}`
+
+  return (
+    <div className="rounded-lg border border-border bg-elevated/40 p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Seção transversal — área alagada</div>
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full" role="img" aria-label="Seção transversal do sarjetão com a área alagada">
+        <rect
+          x={sxCoord(-T)}
+          y={sy(yMaxM)}
+          width={sxCoord(T) - sxCoord(-T)}
+          height={sy(0) - sy(yMaxM)}
+          fill="none"
+          strokeDasharray="4 3"
+          className="stroke-text-secondary"
+          strokeWidth={1.5}
+        />
+        <polygon points={poligonoTriangulo} className="fill-brand/25" stroke="none" />
+        <polyline points={poligonoTriangulo} fill="none" className="stroke-brand" strokeWidth={2} />
+        <line x1={sxCoord(-T)} y1={sy(0)} x2={sxCoord(T)} y2={sy(0)} strokeDasharray="3 2" className="stroke-text-secondary" strokeWidth={1} />
+        <line x1={cx} y1={sy(0)} x2={cx} y2={sy(yMaxM)} strokeDasharray="2 2" className="stroke-accent-red" strokeWidth={1} />
+
+        <text x={cx} y={sy(yMaxM) - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          y_max={yMaxM.toFixed(3)}m
+        </text>
+        <text x={sxCoord(-T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          T={T.toFixed(2)}m
+        </text>
+        <text x={sxCoord(T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          T={T.toFixed(2)}m
+        </text>
+        <text x={cx} y={altura - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+          eixo do sarjetão (Sx da pista = {(sxPista * 100).toFixed(2)}%)
+        </text>
+      </svg>
+      <div className="mt-1 text-center text-xs text-text-secondary">
+        Sombreado = espraiamento triangular real (Método 2) · tracejado = retângulo equivalente (Método 1)
       </div>
     </div>
   )

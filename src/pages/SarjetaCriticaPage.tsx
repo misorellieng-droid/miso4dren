@@ -4,7 +4,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { calcularSarjeta, type MemorialCalculoSarjeta, type ModoDeclividade } from '../engine/sarjeta'
+import { calcularSarjeta, pontosPerfilTriangular, type MemorialCalculoSarjeta, type ModoDeclividade, type PontoPerfil } from '../engine/sarjeta'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listResultadosSarjeta, saveResultadoSarjeta, type ResultadoSarjetaRecord } from '../lib/resultadosStorage'
 import { exportSarjetaCriticaPdf, type ParametrosExibicaoCritica } from '../lib/exportSarjetaCriticaPdf'
@@ -342,6 +342,21 @@ export function SarjetaCriticaPage() {
               )}
             </div>
 
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <SecaoTransversalSarjeta
+                pontos={pontosPerfilTriangular({
+                  tipo: 'triangular',
+                  y0M: parametrosExibicao.y0M,
+                  larguraSarjetaM: parametrosExibicao.larguraSarjetaM,
+                  declividadeTransversalViaMM: parametrosExibicao.declividadeTransversalVia,
+                  declividadeTransversalSarjetaMM: parametrosExibicao.declividadeTransversalSarjeta,
+                })}
+                y0M={parametrosExibicao.y0M}
+                larguraSarjetaM={parametrosExibicao.larguraSarjetaM}
+              />
+              <PerfilLongitudinalSarjeta comprimentoCriticoM={memorial.comprimentoCriticoM} y0M={parametrosExibicao.y0M} />
+            </div>
+
             <button
               onClick={() => setMostrarMemorial((v) => !v)}
               className="mt-3 flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-brand"
@@ -453,6 +468,123 @@ function MemorialItem({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-[11px] text-text-secondary">{label}</div>
       <div className="font-mono text-sm text-text-primary">{value}</div>
+    </div>
+  )
+}
+
+/** Seção transversal da via + calha, com a região alagada (área molhada até Y0) sombreada. */
+function SecaoTransversalSarjeta({ pontos, y0M, larguraSarjetaM }: { pontos: PontoPerfil[]; y0M: number; larguraSarjetaM: number }) {
+  const largura = 380
+  const altura = 150
+  const padEsq = 44
+  const padDir = 16
+  const padTopo = 20
+  const padBase = 34
+  const tTotal = pontos[pontos.length - 1].x
+  const escalaX = (largura - padEsq - padDir) / tTotal
+  const escalaY = (altura - padTopo - padBase) / y0M
+
+  const sx = (x: number) => padEsq + x * escalaX
+  const sy = (profundidade: number) => padTopo + profundidade * escalaY
+
+  const poligono = [{ x: 0, y: 0 }, ...pontos].map((p) => `${sx(p.x)},${sy(p.y)}`).join(' ')
+  const temPontoIntermediario = pontos.length === 3 // caso A — espraiamento avança sobre a via
+
+  return (
+    <div className="rounded-lg border border-border bg-elevated/40 p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Seção transversal — área alagada</div>
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full" role="img" aria-label="Seção transversal com a área alagada até Y0">
+        {/* água — área molhada */}
+        <polygon points={poligono} className="fill-brand/25" stroke="none" />
+        {/* superfície d'água */}
+        <line x1={sx(0)} y1={sy(0)} x2={sx(tTotal)} y2={sy(0)} strokeDasharray="3 2" className="stroke-brand" strokeWidth={1} />
+        {/* perfil do fundo (meio-fio → sarjeta → via) */}
+        <polyline
+          points={pontos.map((p) => `${sx(p.x)},${sy(p.y)}`).join(' ')}
+          fill="none"
+          className="stroke-text-primary"
+          strokeWidth={2}
+        />
+        {/* meio-fio */}
+        <rect x={sx(0) - 4} y={sy(0) - 4} width={4} height={sy(y0M) - sy(0) + 4} className="fill-text-secondary" />
+        {temPontoIntermediario && (
+          <line x1={sx(larguraSarjetaM)} y1={sy(0)} x2={sx(larguraSarjetaM)} y2={altura - 8} strokeDasharray="2 2" className="stroke-text-secondary" strokeWidth={1} />
+        )}
+        <text x={sx(0) - 6} y={(sy(0) + sy(y0M)) / 2} fontSize={9} textAnchor="end" className="fill-text-secondary">
+          Y0={y0M.toFixed(3)}m
+        </text>
+        <text x={sx(0)} y={altura - 6} fontSize={9} className="fill-text-secondary">
+          meio-fio
+        </text>
+        {temPontoIntermediario && (
+          <text x={sx(larguraSarjetaM)} y={altura - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+            W={larguraSarjetaM.toFixed(2)}m
+          </text>
+        )}
+        <text x={sx(tTotal)} y={sy(0) - 6} fontSize={9} textAnchor="end" className="fill-text-secondary">
+          T={tTotal.toFixed(2)}m
+        </text>
+      </svg>
+      <div className="mt-1 text-center text-xs text-text-secondary">Região sombreada = área molhada aproximada na condição crítica (Y0)</div>
+    </div>
+  )
+}
+
+/** Perfil longitudinal esquemático: profundidade da lâmina crescendo de 0 (logo após uma caixa) até Y0 (crítico, logo antes da próxima). */
+function PerfilLongitudinalSarjeta({ comprimentoCriticoM, y0M }: { comprimentoCriticoM: number; y0M: number }) {
+  const largura = 380
+  const altura = 150
+  const padEsq = 16
+  const padDir = 16
+  const padTopo = 16
+  const baseY = 110
+  const numVaos = 2
+  const escalaX = (largura - padEsq - padDir) / (numVaos * comprimentoCriticoM)
+  const alturaLamina = baseY - padTopo
+
+  const sx = (x: number) => padEsq + x * escalaX
+  const sy = (profundidade: number) => baseY - (profundidade / y0M) * alturaLamina
+
+  let pathD = `M ${sx(0)} ${baseY}`
+  for (let i = 0; i < numVaos; i++) {
+    pathD += ` L ${sx((i + 1) * comprimentoCriticoM)} ${sy(y0M)} L ${sx((i + 1) * comprimentoCriticoM)} ${baseY}`
+  }
+  const areaD = `${pathD} L ${sx(0)} ${baseY} Z`
+
+  return (
+    <div className="rounded-lg border border-border bg-elevated/40 p-4">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Perfil longitudinal — caixas de captação</div>
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full" role="img" aria-label="Perfil longitudinal com as caixas, distância e lâmina d'água">
+        <line x1={padEsq} y1={baseY} x2={largura - padDir} y2={baseY} className="stroke-text-secondary" strokeWidth={1.5} />
+        <path d={areaD} className="fill-brand/25" stroke="none" />
+        <path d={pathD} fill="none" className="stroke-brand" strokeWidth={2} />
+        {Array.from({ length: numVaos + 1 }, (_, i) => i).map((i) => (
+          <g key={i}>
+            <circle cx={sx(i * comprimentoCriticoM)} cy={baseY} r={3.5} className="fill-accent-red" />
+            <text x={sx(i * comprimentoCriticoM)} y={baseY + 14} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+              caixa {i + 1}
+            </text>
+          </g>
+        ))}
+        {Array.from({ length: numVaos }, (_, i) => i).map((i) => (
+          <text
+            key={i}
+            x={(sx(i * comprimentoCriticoM) + sx((i + 1) * comprimentoCriticoM)) / 2}
+            y={baseY + 26}
+            fontSize={9}
+            textAnchor="middle"
+            className="fill-text-secondary"
+          >
+            L={comprimentoCriticoM.toFixed(2)}m
+          </text>
+        ))}
+        <text x={sx(comprimentoCriticoM) + 4} y={sy(y0M) - 4} fontSize={9} className="fill-text-secondary">
+          Y0={y0M.toFixed(3)}m (crítico)
+        </text>
+      </svg>
+      <div className="mt-1 text-center text-xs text-text-secondary">
+        Esquemático: a lâmina cresce de 0 (logo após uma caixa) até Y0 (crítico, logo antes da próxima)
+      </div>
     </div>
   )
 }

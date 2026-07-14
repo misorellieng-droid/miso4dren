@@ -47,3 +47,33 @@ export function calcularGeometriaTriangular(params: ParametrosGeometriaTriangula
 
   return { areaMolhadaM2, perimetroMolhadoM, raioHidraulicoM: areaMolhadaM2 / perimetroMolhadoM }
 }
+
+export interface PontoPerfil {
+  x: number // distância horizontal a partir do meio-fio (m)
+  y: number // profundidade da lâmina nesse ponto (m) — 0 na borda do espraiamento
+}
+
+/**
+ * Pontos do perfil do fundo da seção (meio-fio → sarjeta → via), pra desenho
+ * da área molhada — mesma lógica de casos de `calcularGeometriaTriangular`,
+ * só que devolvendo a polilinha em vez da área/perímetro integrados.
+ */
+export function pontosPerfilTriangular(params: ParametrosGeometriaTriangular): PontoPerfil[] {
+  const { y0M, larguraSarjetaM: w, declividadeTransversalViaMM: sx, declividadeTransversalSarjetaMM: sw } = params
+  const profundidadeNaBordaDaSarjeta = y0M - sw * w
+
+  if (profundidadeNaBordaDaSarjeta <= 0) {
+    const espraiamento = y0M / sw
+    return [
+      { x: 0, y: y0M },
+      { x: espraiamento, y: 0 },
+    ]
+  }
+
+  const larguraAdicionalNaVia = profundidadeNaBordaDaSarjeta / sx
+  return [
+    { x: 0, y: y0M },
+    { x: w, y: profundidadeNaBordaDaSarjeta },
+    { x: w + larguraAdicionalNaVia, y: 0 },
+  ]
+}

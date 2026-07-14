@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calcularGeometriaTriangular } from '../geometrias/triangular'
+import { calcularGeometriaTriangular, pontosPerfilTriangular } from '../geometrias/triangular'
 
 describe('calcularGeometriaTriangular', () => {
   it('caso A — espraiamento avança sobre a via (Sw > Sx)', () => {
@@ -60,5 +60,56 @@ describe('calcularGeometriaTriangular', () => {
         declividadeTransversalSarjetaMM: 0.06,
       })
     ).toThrow()
+  })
+})
+
+describe('pontosPerfilTriangular', () => {
+  it('caso A — três pontos: meio-fio, borda da sarjeta, borda do espraiamento sobre a via', () => {
+    const pontos = pontosPerfilTriangular({
+      tipo: 'triangular',
+      y0M: 0.13,
+      larguraSarjetaM: 0.5,
+      declividadeTransversalViaMM: 0.02,
+      declividadeTransversalSarjetaMM: 0.06,
+    })
+    expect(pontos).toHaveLength(3)
+    expect(pontos[0]).toEqual({ x: 0, y: 0.13 })
+    expect(pontos[1].x).toBeCloseTo(0.5, 9)
+    expect(pontos[1].y).toBeCloseTo(0.1, 9)
+    expect(pontos[2].x).toBeCloseTo(5.5, 9)
+    expect(pontos[2].y).toBeCloseTo(0, 9)
+  })
+
+  it('caso B — dois pontos: meio-fio e borda do espraiamento, contido na sarjeta', () => {
+    const pontos = pontosPerfilTriangular({
+      tipo: 'triangular',
+      y0M: 0.13,
+      larguraSarjetaM: 5,
+      declividadeTransversalViaMM: 0.02,
+      declividadeTransversalSarjetaMM: 0.5,
+    })
+    expect(pontos).toHaveLength(2)
+    expect(pontos[0]).toEqual({ x: 0, y: 0.13 })
+    expect(pontos[1].x).toBeCloseTo(0.26, 9)
+    expect(pontos[1].y).toBeCloseTo(0, 9)
+  })
+
+  it('a área sob a polilinha bate com calcularGeometriaTriangular (integração trapezoidal)', () => {
+    const params = {
+      tipo: 'triangular' as const,
+      y0M: 0.13,
+      larguraSarjetaM: 0.5,
+      declividadeTransversalViaMM: 0.02,
+      declividadeTransversalSarjetaMM: 0.06,
+    }
+    const pontos = pontosPerfilTriangular(params)
+    let area = 0
+    for (let i = 0; i < pontos.length - 1; i++) {
+      const a = pontos[i]
+      const b = pontos[i + 1]
+      area += ((a.y + b.y) / 2) * (b.x - a.x)
+    }
+    const geometria = calcularGeometriaTriangular(params)
+    expect(area).toBeCloseTo(geometria.areaMolhadaM2, 9)
   })
 })

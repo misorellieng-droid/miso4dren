@@ -6,7 +6,7 @@ import type { ParametrosGeometriaSarjeta } from './types'
 
 export * from './types'
 export { calcularGeometria } from './geometria'
-export { calcularGeometriaTriangular } from './geometrias/triangular'
+export { calcularGeometriaTriangular, pontosPerfilTriangular, type PontoPerfil } from './geometrias/triangular'
 export { calcularVelocidade, calcularVazao, calcularDeclividadeParaVelocidade } from './hidraulica'
 export { calcularComprimentoCritico } from './comprimentoCritico'
 

@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { MemorialCalculoSarjeta, ModoDeclividade } from '../engine/sarjeta'
+import { pontosPerfilTriangular, type MemorialCalculoSarjeta, type ModoDeclividade } from '../engine/sarjeta'
 
 /** Espelha os campos numéricos do formulário no momento do cálculo — usado tanto no memorial em tela quanto no PDF. */
 export interface ParametrosExibicaoCritica {
@@ -86,6 +86,122 @@ function paragrafo(doc: jsPDF, cursor: Cursor, texto: string) {
   garantirEspaco(doc, cursor, linhas.length * 12 + 4)
   doc.text(linhas, MARGIN_X, cursor.y)
   cursor.y += linhas.length * 12 + 6
+}
+
+const AREA_MOLHADA_RGB: [number, number, number] = [252, 231, 214] // brand claro, aproxima a sombra translúcida usada na tela
+
+function desenharPoligono(doc: jsPDF, pontos: Array<[number, number]>, estilo: string) {
+  if (pontos.length < 2) return
+  const deltas: Array<[number, number]> = []
+  for (let i = 1; i < pontos.length; i++) {
+    deltas.push([pontos[i][0] - pontos[i - 1][0], pontos[i][1] - pontos[i - 1][1]])
+  }
+  doc.lines(deltas, pontos[0][0], pontos[0][1], [1, 1], estilo, true)
+}
+
+/** Seção transversal com a área molhada sombreada — mesma lógica de pontosPerfilTriangular usada no desenho em tela. */
+function desenharSecaoTransversal(doc: jsPDF, cursor: Cursor, p: ParametrosExibicaoCritica) {
+  const pontos = pontosPerfilTriangular({
+    tipo: 'triangular',
+    y0M: p.y0M,
+    larguraSarjetaM: p.larguraSarjetaM,
+    declividadeTransversalViaMM: p.declividadeTransversalVia,
+    declividadeTransversalSarjetaMM: p.declividadeTransversalSarjeta,
+  })
+  const alturaDisp = 95
+  garantirEspaco(doc, cursor, alturaDisp + 44)
+
+  const origemX = MARGIN_X + 10
+  const origemY = cursor.y + 14
+  const larguraDisp = 495
+  const tTotal = pontos[pontos.length - 1].x
+  const escalaX = larguraDisp / tTotal
+  const escalaY = alturaDisp / p.y0M
+
+  const px = (x: number) => origemX + x * escalaX
+  const py = (profundidade: number) => origemY + profundidade * escalaY
+
+  const poligono: Array<[number, number]> = [[px(0), py(0)], ...pontos.map((pt) => [px(pt.x), py(pt.y)] as [number, number])]
+  doc.setFillColor(...AREA_MOLHADA_RGB)
+  desenharPoligono(doc, poligono, 'F')
+
+  doc.setDrawColor(...BRAND_RGB)
+  doc.setLineWidth(0.75)
+  doc.line(px(0), py(0), px(tTotal), py(0)) // superfície d'água
+
+  doc.setDrawColor(20, 20, 20)
+  doc.setLineWidth(1)
+  for (let i = 0; i < pontos.length - 1; i++) {
+    doc.line(px(pontos[i].x), py(pontos[i].y), px(pontos[i + 1].x), py(pontos[i + 1].y))
+  }
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(90, 90, 90)
+  doc.text(`Y0 = ${fmt(p.y0M, 3)} m`, origemX, py(p.y0M / 2))
+  doc.text(`T = ${fmt(tTotal, 2)} m (espraiamento total)`, px(tTotal), py(0) - 6, { align: 'right' })
+  doc.text('meio-fio', origemX, origemY + alturaDisp + 12)
+  if (pontos.length === 3) {
+    doc.text(`W = ${fmt(p.larguraSarjetaM, 2)} m`, px(p.larguraSarjetaM), origemY + alturaDisp + 12, { align: 'center' })
+  }
+  doc.setTextColor(20, 20, 20)
+
+  cursor.y = origemY + alturaDisp + 24
+}
+
+/** Perfil longitudinal esquemático: lâmina crescendo de 0 (logo após uma caixa) até Y0 (crítico, logo antes da próxima) — 2 vãos. */
+function desenharPerfilLongitudinal(doc: jsPDF, cursor: Cursor, comprimentoCriticoM: number, y0M: number) {
+  garantirEspaco(doc, cursor, 116)
+
+  const origemX = MARGIN_X + 10
+  const baseY = cursor.y + 80
+  const larguraDisp = 495
+  const numVaos = 2
+  const escalaX = larguraDisp / (numVaos * comprimentoCriticoM)
+  const alturaLamina = 65
+
+  const px = (x: number) => origemX + x * escalaX
+  const py = (profundidade: number) => baseY - (profundidade / y0M) * alturaLamina
+
+  doc.setDrawColor(140, 140, 140)
+  doc.setLineWidth(1)
+  doc.line(origemX, baseY, px(numVaos * comprimentoCriticoM), baseY)
+
+  doc.setFillColor(...AREA_MOLHADA_RGB)
+  doc.setDrawColor(...BRAND_RGB)
+  doc.setLineWidth(1.25)
+  for (let i = 0; i < numVaos; i++) {
+    const xIni = i * comprimentoCriticoM
+    const xFim = (i + 1) * comprimentoCriticoM
+    desenharPoligono(
+      doc,
+      [
+        [px(xIni), baseY],
+        [px(xFim), py(y0M)],
+        [px(xFim), baseY],
+      ],
+      'FD'
+    )
+  }
+
+  doc.setFillColor(200, 60, 40)
+  for (let i = 0; i <= numVaos; i++) {
+    doc.circle(px(i * comprimentoCriticoM), baseY, 2.2, 'F')
+  }
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(90, 90, 90)
+  for (let i = 0; i <= numVaos; i++) {
+    doc.text(`caixa ${i + 1}`, px(i * comprimentoCriticoM), baseY + 12, { align: 'center' })
+  }
+  for (let i = 0; i < numVaos; i++) {
+    doc.text(`L = ${fmt(comprimentoCriticoM, 2)} m`, (px(i * comprimentoCriticoM) + px((i + 1) * comprimentoCriticoM)) / 2, baseY + 24, { align: 'center' })
+  }
+  doc.text(`Y0 = ${fmt(y0M, 3)} m (crítico)`, px(comprimentoCriticoM) + 4, py(y0M) - 4)
+  doc.setTextColor(20, 20, 20)
+
+  cursor.y = baseY + 36
 }
 
 function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, memorial: MemorialCalculoSarjeta, intensidadeMmH: number) {
@@ -202,6 +318,15 @@ export function exportSarjetaCriticaPdf(data: DadosSarjetaCriticaPdf): void {
     `L = ${fmt(memorial.vazaoM3s, 6)} / (2,78e-7 x ${fmt(p.coefC, 2)} x ${fmt(data.intensidadeMmH, 2)} x ${fmt(p.larguraImpluvioM, 2)}) = ${fmt(memorial.comprimentoCriticoM, 2)} m`
   )
   cursor.y += 10
+
+  tituloSecao(doc, cursor, '6. Seção transversal e perfil longitudinal')
+  paragrafo(
+    doc,
+    cursor,
+    'Região sombreada = área molhada aproximada na condição crítica (Y0). Esquemático — não substitui o detalhamento executivo.'
+  )
+  desenharSecaoTransversal(doc, cursor, p)
+  desenharPerfilLongitudinal(doc, cursor, memorial.comprimentoCriticoM, p.y0M)
 
   subtitulo(doc, cursor, 'Resultado final')
   blocoResultadoFinal(doc, cursor, memorial, data.intensidadeMmH)

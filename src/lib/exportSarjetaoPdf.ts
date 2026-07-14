@@ -117,6 +117,115 @@ function tabelaIteracoesTc(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetod
   cursor.y = (doc as any).lastAutoTable.finalY + 16
 }
 
+const AREA_MOLHADA_RGB: [number, number, number] = [252, 231, 214] // brand claro, aproxima a sombra translúcida usada na tela
+
+function desenharPoligono(doc: jsPDF, pontos: Array<[number, number]>, estilo: string) {
+  if (pontos.length < 2) return
+  const deltas: Array<[number, number]> = []
+  for (let i = 1; i < pontos.length; i++) {
+    deltas.push([pontos[i][0] - pontos[i - 1][0], pontos[i][1] - pontos[i - 1][1]])
+  }
+  doc.lines(deltas, pontos[0][0], pontos[0][1], [1, 1], estilo, true)
+}
+
+/** Espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto (tracejado). */
+function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: ParametrosExibicao) {
+  const alturaDisp = 95
+  garantirEspaco(doc, cursor, alturaDisp + 44)
+
+  const T = p.larguraEspraiamentoM
+  const origemY = cursor.y + 14
+  const centroX = MARGIN_X + 257
+  const larguraDisp = 480
+  const escalaX = larguraDisp / (2 * T)
+  const escalaY = alturaDisp / p.yMaxM
+
+  const px = (x: number) => centroX + x * escalaX
+  const py = (profundidade: number) => origemY + profundidade * escalaY
+
+  // retângulo equivalente do Método 1
+  doc.setDrawColor(140, 140, 140)
+  doc.setLineWidth(0.75)
+  doc.rect(px(-T), py(p.yMaxM), px(T) - px(-T), py(0) - py(p.yMaxM), 'S')
+
+  // triângulo real (Método 2)
+  doc.setFillColor(...AREA_MOLHADA_RGB)
+  desenharPoligono(
+    doc,
+    [
+      [px(-T), py(0)],
+      [px(0), py(p.yMaxM)],
+      [px(T), py(0)],
+    ],
+    'F'
+  )
+  doc.setDrawColor(...BRAND_RGB)
+  doc.setLineWidth(1)
+  doc.line(px(-T), py(0), px(0), py(p.yMaxM))
+  doc.line(px(0), py(p.yMaxM), px(T), py(0))
+
+  doc.setDrawColor(140, 140, 140)
+  doc.setLineWidth(0.5)
+  doc.line(px(-T), py(0), px(T), py(0))
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(90, 90, 90)
+  doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, centroX, py(p.yMaxM) - 6, { align: 'center' })
+  doc.text(`T = ${fmt(T, 2)} m`, px(-T / 2), py(0) + 12, { align: 'center' })
+  doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
+  doc.text(`eixo do sarjetão (Sx da pista = ${pct(p.sxPista, 2)})`, centroX, origemY + alturaDisp + 24, { align: 'center' })
+  doc.setTextColor(20, 20, 20)
+
+  cursor.y = origemY + alturaDisp + 36
+}
+
+/** Perfil crista→caixa→crista com braço, distância e lâmina rotulados — mesma forma do desenho em tela. */
+function desenharPerfilLongitudinalSarjetao(doc: jsPDF, cursor: Cursor, titulo: string, comprimentoM: number, yMaxM: number) {
+  garantirEspaco(doc, cursor, 110)
+
+  subtitulo(doc, cursor, titulo)
+
+  const origemX = MARGIN_X + 10
+  const topoY = cursor.y + 6
+  const baseY = topoY + 60
+  const larguraDisp = 495
+  const meioX = origemX + larguraDisp / 2
+
+  doc.setFillColor(...AREA_MOLHADA_RGB)
+  desenharPoligono(
+    doc,
+    [
+      [origemX, topoY],
+      [meioX, baseY],
+      [origemX + larguraDisp, topoY],
+    ],
+    'F'
+  )
+  doc.setDrawColor(...BRAND_RGB)
+  doc.setLineWidth(1.25)
+  doc.line(origemX, topoY, meioX, baseY)
+  doc.line(meioX, baseY, origemX + larguraDisp, topoY)
+
+  doc.setFillColor(200, 60, 40)
+  doc.circle(origemX, topoY, 2.2, 'F')
+  doc.circle(meioX, baseY, 2.2, 'F')
+  doc.circle(origemX + larguraDisp, topoY, 2.2, 'F')
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(90, 90, 90)
+  doc.text('ponto alto', origemX, topoY - 6)
+  doc.text('caixa (ponto baixo)', meioX, baseY + 12, { align: 'center' })
+  doc.text('próximo ponto alto', origemX + larguraDisp, topoY - 6, { align: 'right' })
+  doc.text(`lâmina = y_max = ${fmt(yMaxM, 3)} m`, meioX, baseY + 24, { align: 'center' })
+  doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (origemX + meioX) / 2, (topoY + baseY) / 2, { align: 'center' })
+  doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (meioX + origemX + larguraDisp) / 2, (topoY + baseY) / 2, { align: 'center' })
+  doc.setTextColor(20, 20, 20)
+
+  cursor.y = baseY + 36
+}
+
 function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetodoSarjetao) {
   garantirEspaco(doc, cursor, 70)
   doc.setDrawColor(220, 220, 220)
@@ -314,6 +423,16 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
     cursor,
     `Diferença entre os métodos: ${fmt(memorial.diferencaPercentual, 1)}%. Recomenda-se adotar o menor comprimento entre os dois -- ${fmt(memorial.comprimentoRecomendadoM, 2)} m (${METODO_LABELS[memorial.metodoRecomendado]}) -- pelo lado da segurança. A diferença decorre de premissas geométricas distintas (retângulo equivalente vs. integração triangular calibrada); nenhum dos dois métodos deve ser descartado como incorreto -- a escolha final depende de qual geometria descreve melhor o trecho real.`
   )
+
+  tituloSecao(doc, cursor, '6. Seção transversal e perfil longitudinal')
+  paragrafo(
+    doc,
+    cursor,
+    'Região sombreada = área alagada aproximada na condição crítica. Esquemático -- não substitui o detalhamento executivo.'
+  )
+  desenharSecaoTransversalSarjetao(doc, cursor, p)
+  desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.manning_generico}`, memorial.metodo1.comprimentoEquilibrioM, p.yMaxM)
+  desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.hec22}`, memorial.metodo2.comprimentoEquilibrioM, p.yMaxM)
 
   const totalPaginas = doc.getNumberOfPages()
   for (let i = 1; i <= totalPaginas; i++) {
