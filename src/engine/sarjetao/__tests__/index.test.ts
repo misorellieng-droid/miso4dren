@@ -65,4 +65,31 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
   it('lança erro se a declividade do ponto baixo não for maior que a do ponto alto', () => {
     expect(() => calcularSarjetaoDenteServa({ ...parametrosBase, sxSarjetaoBaixo: 0.02 })).toThrow(/ponto baixo/)
   })
+
+  it('expõe geometria (área, Rh) e o histórico de iterações de Tc pra montar a memória de cálculo ponto a ponto', () => {
+    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+
+    // Método 1: retangular, decompõe em A/P/Rh
+    expect(resultado.metodo1.areaMolhadaM2).toBeCloseTo(2.5 * 0.05, 9)
+    expect(resultado.metodo1.raioHidraulicoM).toBeCloseTo((2.5 * 0.05) / (2 * 2.5), 9)
+
+    // Método 2: fórmula integrada, não decompõe em Rh
+    expect(resultado.metodo2.raioHidraulicoM).toBeNull()
+    expect(resultado.metodo2.areaMolhadaM2).toBeCloseTo((2.5 * 0.05) / 2, 9)
+
+    for (const metodo of [resultado.metodo1, resultado.metodo2]) {
+      // uma entrada de histórico por iteração de Tc, na ordem certa
+      expect(metodo.historicoIteracoesTc).toHaveLength(metodo.iteracoesTc)
+      expect(metodo.historicoIteracoesTc.map((h) => h.numero)).toEqual(
+        Array.from({ length: metodo.iteracoesTc }, (_, i) => i + 1)
+      )
+      // a última iteração do histórico bate com o resultado final convergido
+      const ultima = metodo.historicoIteracoesTc[metodo.historicoIteracoesTc.length - 1]
+      expect(ultima.comprimentoM).toBeCloseTo(metodo.comprimentoEquilibrioM, 9)
+      expect(ultima.intensidadeMmH).toBeCloseTo(metodo.intensidadeConvergidaMmH, 9)
+      expect(ultima.vazaoM3s).toBeCloseTo(metodo.vazaoM3s, 9)
+      // a primeira iteração usa o Tc inicial informado
+      expect(metodo.historicoIteracoesTc[0].tcMin).toBe(parametrosBase.tcInicialMin)
+    }
+  })
 })

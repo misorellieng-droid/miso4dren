@@ -2,7 +2,7 @@ import { calcularIntensidadeIdf } from '../idf'
 import { resolverPorBisseccao } from './bisseccao'
 import { calcularCapacidadeHec22, calcularCapacidadeManningGenerica } from './capacidade'
 import { calcularVazaoAfluente } from './racional'
-import type { MemorialSarjetaoDenteServa, MetodoCapacidade, ParametrosSarjetao, ResultadoCapacidade, ResultadoMetodoSarjetao } from './types'
+import type { IteracaoTc, MemorialSarjetaoDenteServa, MetodoCapacidade, ParametrosSarjetao, ResultadoCapacidade, ResultadoMetodoSarjetao } from './types'
 
 export * from './types'
 export { resolverPorBisseccao } from './bisseccao'
@@ -58,6 +58,7 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
   let vazaoM3s = 0
   let iteracoesTc = 0
   let convergiuTc = false
+  const historicoIteracoesTc: IteracaoTc[] = []
 
   for (iteracoesTc = 1; iteracoesTc <= maxIteracoesTc; iteracoesTc++) {
     intensidadeMmH = calcularIntensidadeIdf(equacaoIdf, tempoRetornoAnos, tc)
@@ -95,6 +96,16 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
     const variacaoRelativaL = Number.isFinite(comprimentoAnteriorM) ? Math.abs(L - comprimentoAnteriorM) / comprimentoAnteriorM : Infinity
     comprimentoAnteriorM = L
 
+    historicoIteracoesTc.push({
+      numero: iteracoesTc,
+      tcMin: tc,
+      intensidadeMmH,
+      comprimentoM: L,
+      declividadeLongitudinalMM: SL,
+      vazaoM3s,
+      vazaoCapacidadeM3s: capacidade.vazaoCapacidadeM3s,
+    })
+
     if (variacaoRelativaL < toleranciaRelativaL) {
       convergiuTc = true
       break
@@ -109,12 +120,15 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
     iteracoesTc,
     convergiuTc,
     laminaCriticaM: parametros.yMaxM,
+    areaMolhadaM2: capacidade.areaMolhadaM2,
+    raioHidraulicoM: capacidade.raioHidraulicoM,
     velocidadeMs: capacidade.velocidadeMs,
     vazaoM3s,
     vazaoCapacidadeM3s: capacidade.vazaoCapacidadeM3s,
     declividadeLongitudinalMM: deltaHM / (comprimentoAnteriorM / 2),
     tcConvergidoMin: tc,
     intensidadeConvergidaMmH: intensidadeMmH,
+    historicoIteracoesTc,
   }
 }
 

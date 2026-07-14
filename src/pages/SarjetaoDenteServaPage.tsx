@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Mountain, Save } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, FileDown, Loader2, Mountain, Save } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { calcularSarjetaoDenteServa, type MemorialSarjetaoDenteServa, type ResultadoMetodoSarjetao } from '../engine/sarjetao'
+import { calcularSarjetaoDenteServa, type MemorialSarjetaoDenteServa, type MetodoCapacidade, type ResultadoMetodoSarjetao } from '../engine/sarjetao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listResultadosSarjetao, saveResultadoSarjetao, type ResultadoSarjetaoRecord } from '../lib/resultadosSarjetaoStorage'
+import { exportSarjetaoPdf, type ParametrosExibicao } from '../lib/exportSarjetaoPdf'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
+const SECONDARY_BTN =
+  'flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary shadow-sm transition hover:border-brand/50 hover:text-brand disabled:opacity-60'
 
-const METODO_LABELS: Record<'manning_generico' | 'hec22', string> = {
+const METODO_LABELS: Record<MetodoCapacidade, string> = {
   manning_generico: 'Método 1 — Manning genérico (retangular equivalente)',
   hec22: 'Método 2 — HEC-22/FHWA (triangular integrado)',
 }
@@ -197,6 +200,40 @@ export function SarjetaoDenteServaPage() {
     }
   }
 
+  const handleExportarPdf = () => {
+    if (!revisaoAtiva || !resultado || !form.nomeTrecho.trim()) {
+      setError('Informe o nome do trecho antes de exportar.')
+      return
+    }
+    exportSarjetaoPdf({
+      nomeTrecho: form.nomeTrecho.trim(),
+      projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+      revisaoNome: revisaoAtiva.nome,
+      equacaoNome: equacao?.nome ?? null,
+      tempoRetornoAnos: revisaoAtiva.tempo_retorno_anos ?? 10,
+      parametros: parametrosExibicao,
+      memorial: resultado,
+    })
+  }
+
+  // espelha os campos numéricos do form no momento do último cálculo — usado pra reconstituir
+  // as fórmulas plugadas no memorial e na exportação em PDF, sem duplicar estado
+  const parametrosExibicao: ParametrosExibicao = {
+    larguraViaM: Number(form.larguraViaM),
+    coefC: Number(form.coefC),
+    telhadoAtivo,
+    larguraTelhadoM: telhadoAtivo ? Number(form.larguraTelhadoM) : undefined,
+    coefCTelhado: telhadoAtivo ? Number(form.coefCTelhado) : undefined,
+    larguraSarjetaoM: Number(form.larguraSarjetaoM),
+    sxSarjetaoAlto: Number(form.sxSarjetaoAltoPct) / 100,
+    sxSarjetaoBaixo: Number(form.sxSarjetaoBaixoPct) / 100,
+    yMaxM: Number(form.yMaxM),
+    sxPista: Number(form.sxPistaPct) / 100,
+    larguraEspraiamentoM: Number(form.espraiamentoM),
+    manningN: Number(form.manningN),
+    tcInicialMin: Number(form.tcInicialMin),
+  }
+
   if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-4xl">
@@ -348,6 +385,12 @@ export function SarjetaoDenteServaPage() {
               Salvar resultado
             </button>
           )}
+          {resultado && (
+            <button onClick={handleExportarPdf} className={SECONDARY_BTN}>
+              <FileDown size={16} />
+              Exportar memória de cálculo (PDF)
+            </button>
+          )}
         </div>
 
         {resultado && (
@@ -392,8 +435,8 @@ export function SarjetaoDenteServaPage() {
 
             {mostrarMemorial && (
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <MemorialMetodo titulo="Método 1 — Manning genérico" resultado={resultado.metodo1} />
-                <MemorialMetodo titulo="Método 2 — HEC-22/FHWA" resultado={resultado.metodo2} />
+                <MemorialMetodo metodo="manning_generico" resultado={resultado.metodo1} parametros={parametrosExibicao} deltaHM={resultado.deltaHM} />
+                <MemorialMetodo metodo="hec22" resultado={resultado.metodo2} parametros={parametrosExibicao} deltaHM={resultado.deltaHM} />
               </div>
             )}
           </>
@@ -463,15 +506,112 @@ function MetodoCard({
   )
 }
 
-function MemorialMetodo({ titulo, resultado }: { titulo: string; resultado: ResultadoMetodoSarjetao }) {
+const FORMULA_LINE = 'block font-mono text-[11px] leading-relaxed text-text-primary'
+
+function MemorialMetodo({
+  metodo,
+  resultado,
+  parametros: p,
+  deltaHM,
+}: {
+  metodo: MetodoCapacidade
+  resultado: ResultadoMetodoSarjetao
+  parametros: ParametrosExibicao
+  deltaHM: number
+}) {
+  const bracoM = resultado.comprimentoEquilibrioM / 2
+
   return (
     <div className="rounded-lg border border-border bg-elevated/40 p-4 text-sm">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">{titulo}</div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">{METODO_LABELS[metodo]}</div>
+
+      {metodo === 'manning_generico' ? (
+        <>
+          <div className="mb-1 text-[11px] font-semibold text-text-secondary">1. Geometria (seção retangular equivalente)</div>
+          <span className={FORMULA_LINE}>A = T × y_max = {p.larguraEspraiamentoM.toFixed(4)} × {p.yMaxM.toFixed(4)} = {resultado.areaMolhadaM2.toFixed(5)} m²</span>
+          <span className={FORMULA_LINE}>P = 2 × T = 2 × {p.larguraEspraiamentoM.toFixed(4)} = {(2 * p.larguraEspraiamentoM).toFixed(4)} m</span>
+          <span className={FORMULA_LINE}>
+            Rh = A / P = {resultado.areaMolhadaM2.toFixed(5)} / {(2 * p.larguraEspraiamentoM).toFixed(4)} = {(resultado.raioHidraulicoM ?? 0).toFixed(5)} m
+          </span>
+
+          <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">2. Capacidade hidráulica (no braço)</div>
+          <span className={FORMULA_LINE}>Qcap = (1/n) · A · Rh^(2/3) · SL^(1/2)</span>
+          <span className={FORMULA_LINE}>
+            Qcap = (1/{p.manningN.toFixed(4)}) × {resultado.areaMolhadaM2.toFixed(5)} × {(resultado.raioHidraulicoM ?? 0).toFixed(5)}^(2/3) × SL^(1/2)
+          </span>
+        </>
+      ) : (
+        <>
+          <div className="mb-1 text-[11px] font-semibold text-text-secondary">1. Geometria de referência (área triangular equivalente)</div>
+          <span className={FORMULA_LINE}>
+            A_eq = T × y_max / 2 = {p.larguraEspraiamentoM.toFixed(4)} × {p.yMaxM.toFixed(4)} / 2 = {resultado.areaMolhadaM2.toFixed(5)} m²
+          </span>
+
+          <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">2. Capacidade hidráulica (seção triangular integrada)</div>
+          <span className={FORMULA_LINE}>Qcap = (0,375/n) · Sx_pista^(5/3) · SL^(1/2) · T^(8/3)</span>
+          <span className={FORMULA_LINE}>
+            Qcap = (0,375/{p.manningN.toFixed(4)}) × {p.sxPista.toFixed(4)}^(5/3) × SL^(1/2) × {p.larguraEspraiamentoM.toFixed(4)}^(8/3)
+          </span>
+          <p className="mt-1 text-[11px] text-text-secondary">
+            Sx_pista aqui é o da pista fora do sarjetão — não o Sx do próprio sarjetão.
+          </p>
+        </>
+      )}
+
+      <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">3. Δh e SL no braço</div>
+      <span className={FORMULA_LINE}>Δh = (largura_sarjetão / 2) × (Sx_baixo − Sx_alto) = {deltaHM.toFixed(4)} m</span>
+      <span className={FORMULA_LINE}>
+        braço = L / 2 = {resultado.comprimentoEquilibrioM.toFixed(2)} / 2 = {bracoM.toFixed(2)} m
+      </span>
+      <span className={FORMULA_LINE}>
+        SL = Δh / braço = {deltaHM.toFixed(4)} / {bracoM.toFixed(2)} = {(resultado.declividadeLongitudinalMM * 100).toFixed(4)}%
+      </span>
+
+      <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">4. Vazão afluente (método racional, no braço)</div>
+      <span className={FORMULA_LINE}>Q = K · i · (C_pista · largura_via {p.telhadoAtivo ? '+ C_telhado · largura_telhado' : ''}) · braço</span>
+      <span className={FORMULA_LINE}>
+        Q = 2,78e-7 × i × ({p.coefC.toFixed(2)} × {p.larguraViaM.toFixed(2)}
+        {p.telhadoAtivo ? ` + ${(p.coefCTelhado ?? 0).toFixed(2)} × ${(p.larguraTelhadoM ?? 0).toFixed(2)}` : ''}) × braço
+      </span>
+
+      <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">
+        5. Iteração de Tc até convergência ({resultado.historicoIteracoesTc.length} passada{resultado.historicoIteracoesTc.length > 1 ? 's' : ''}, tolerância 1% em L)
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px]">
+          <thead>
+            <tr className="border-b border-border text-left text-text-secondary">
+              <th className="py-1 pr-2 font-medium">#</th>
+              <th className="py-1 pr-2 font-medium">Tc (min)</th>
+              <th className="py-1 pr-2 font-medium">i (mm/h)</th>
+              <th className="py-1 pr-2 font-medium">L (m)</th>
+              <th className="py-1 pr-2 font-medium">SL braço (%)</th>
+              <th className="py-1 pr-2 font-medium">Q (m³/s)</th>
+              <th className="py-1 font-medium">Qcap (m³/s)</th>
+            </tr>
+          </thead>
+          <tbody className="font-mono">
+            {resultado.historicoIteracoesTc.map((h) => (
+              <tr key={h.numero} className="border-b border-border/50 last:border-0">
+                <td className="py-1 pr-2 text-text-secondary">{h.numero}</td>
+                <td className="py-1 pr-2">{h.tcMin.toFixed(2)}</td>
+                <td className="py-1 pr-2">{h.intensidadeMmH.toFixed(1)}</td>
+                <td className="py-1 pr-2">{h.comprimentoM.toFixed(2)}</td>
+                <td className="py-1 pr-2">{(h.declividadeLongitudinalMM * 100).toFixed(4)}</td>
+                <td className="py-1 pr-2">{h.vazaoM3s.toFixed(5)}</td>
+                <td className="py-1">{h.vazaoCapacidadeM3s.toFixed(5)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">6. Resultado no ponto de equilíbrio</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border bg-surface p-3">
+        <MemorialItem label="L — distância entre caixas" value={`${resultado.comprimentoEquilibrioM.toFixed(2)} m`} />
+        <MemorialItem label="Braço (crista → caixa)" value={`${bracoM.toFixed(2)} m`} />
         <MemorialItem label="Iterações (bisseção)" value={String(resultado.iteracoes)} />
-        <MemorialItem label="Iterações (Tc)" value={String(resultado.iteracoesTc)} />
-        <MemorialItem label="Convergiu (bisseção)" value={resultado.convergiu ? 'Sim' : 'Não'} />
-        <MemorialItem label="Convergiu (Tc)" value={resultado.convergiuTc ? 'Sim' : 'Não'} />
+        <MemorialItem label="Convergiu (bisseção / Tc)" value={`${resultado.convergiu ? 'Sim' : 'Não'} / ${resultado.convergiuTc ? 'Sim' : 'Não'}`} />
         <MemorialItem label="Vazão de capacidade" value={`${resultado.vazaoCapacidadeM3s.toFixed(6)} m³/s`} />
         <MemorialItem label="Vazão afluente" value={`${resultado.vazaoM3s.toFixed(6)} m³/s`} />
       </div>
