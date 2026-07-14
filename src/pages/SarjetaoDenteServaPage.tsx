@@ -41,7 +41,8 @@ export function SarjetaoDenteServaPage() {
   const [historico, setHistorico] = useState<ResultadoSarjetaoRecord[]>([])
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
   const [telhadoAtivo, setTelhadoAtivo] = useState(false)
-  const [espraiamentoEditado, setEspraiamentoEditado] = useState(false)
+  // qual dos dois campos é a entrada "mestre": o outro vira sempre calculado a partir deste
+  const [campoControlador, setCampoControlador] = useState<'yMax' | 'espraiamento'>('yMax')
   const [resultado, setResultado] = useState<MemorialSarjetaoDenteServa | null>(null)
   const [mostrarMemorial, setMostrarMemorial] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -57,16 +58,25 @@ export function SarjetaoDenteServaPage() {
     }
   }, [revisaoAtiva])
 
-  // T = y_max / Sx da pista, recalculado automaticamente até o engenheiro editar o campo na mão
+  // y_max e T (espraiamento) são reciprocamente derivados via T = y_max / Sx da pista:
+  // o campo controlador é a entrada manual, o outro é sempre recalculado a partir dele.
   useEffect(() => {
-    if (espraiamentoEditado) return
-    const yMax = Number(form.yMaxM)
     const sx = Number(form.sxPistaPct) / 100
-    if (Number.isFinite(yMax) && yMax > 0 && Number.isFinite(sx) && sx > 0) {
-      setForm((f) => ({ ...f, espraiamentoM: (yMax / sx).toFixed(4) }))
+    if (!Number.isFinite(sx) || sx <= 0) return
+
+    if (campoControlador === 'yMax') {
+      const yMax = Number(form.yMaxM)
+      if (Number.isFinite(yMax) && yMax > 0) {
+        setForm((f) => ({ ...f, espraiamentoM: (yMax / sx).toFixed(4) }))
+      }
+    } else {
+      const T = Number(form.espraiamentoM)
+      if (Number.isFinite(T) && T > 0) {
+        setForm((f) => ({ ...f, yMaxM: (T * sx).toFixed(4) }))
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.yMaxM, form.sxPistaPct, espraiamentoEditado])
+  }, [form.yMaxM, form.espraiamentoM, form.sxPistaPct, campoControlador])
 
   const setCampo = (campo: FormField, valor: string) => setForm((f) => ({ ...f, [campo]: valor }))
 
@@ -148,7 +158,7 @@ export function SarjetaoDenteServaPage() {
         lamina_max_m: Number(form.yMaxM),
         sx_pista_m_m: Number(form.sxPistaPct) / 100,
         espraiamento_m: Number(form.espraiamentoM),
-        espraiamento_editado: espraiamentoEditado,
+        espraiamento_editado: campoControlador === 'espraiamento',
         manning_n: Number(form.manningN),
         tempo_retorno_anos: revisaoAtiva.tempo_retorno_anos ?? 10,
         tc_inicial_min: Number(form.tcInicialMin),
@@ -272,8 +282,21 @@ export function SarjetaoDenteServaPage() {
 
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Hidráulica de projeto</div>
         <div className="mt-2 grid grid-cols-2 gap-4">
-          <Field label="Lâmina d'água admissível — y_max (m)" required>
-            <input type="number" step="any" className={fieldInputClass} value={form.yMaxM} onChange={(e) => setCampo('yMaxM', e.target.value)} />
+          <Field
+            label="Lâmina d'água admissível — y_max (m)"
+            required
+            hint={campoControlador === 'espraiamento' ? 'Calculado automaticamente: T × Sx da pista' : undefined}
+          >
+            <input
+              type="number"
+              step="any"
+              className={fieldInputClass}
+              value={form.yMaxM}
+              onChange={(e) => {
+                setCampoControlador('yMax')
+                setCampo('yMaxM', e.target.value)
+              }}
+            />
           </Field>
           <Field label="Sx da pista fora do sarjetão (%)" required hint="Só usado no Método 2 (HEC-22) e no T automático — NÃO é o Sx do sarjetão acima">
             <input type="number" step="any" className={fieldInputClass} value={form.sxPistaPct} onChange={(e) => setCampo('sxPistaPct', e.target.value)} />
@@ -281,7 +304,7 @@ export function SarjetaoDenteServaPage() {
           <Field
             label="Espraiamento T (m)"
             required
-            hint={espraiamentoEditado ? 'Sobrescrito manualmente — edite y_max ou Sx da pista pra recalcular automaticamente' : 'Calculado automaticamente: y_max / Sx da pista'}
+            hint={campoControlador === 'yMax' ? 'Calculado automaticamente: y_max / Sx da pista' : undefined}
           >
             <input
               type="number"
@@ -289,7 +312,7 @@ export function SarjetaoDenteServaPage() {
               className={fieldInputClass}
               value={form.espraiamentoM}
               onChange={(e) => {
-                setEspraiamentoEditado(true)
+                setCampoControlador('espraiamento')
                 setCampo('espraiamentoM', e.target.value)
               }}
             />
