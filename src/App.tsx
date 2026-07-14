@@ -6,6 +6,7 @@ import { ProjetosPage } from './pages/ProjetosPage'
 import { ProjetoDetailPage } from './pages/ProjetoDetailPage'
 import { BaciasPage } from './pages/BaciasPage'
 import { SarjetaCriticaPage } from './pages/SarjetaCriticaPage'
+import { SarjetaoDenteServaPage } from './pages/SarjetaoDenteServaPage'
 import { RedePluvialPage } from './pages/RedePluvialPage'
 import { ConformidadePage } from './pages/ConformidadePage'
 import { RelatoriosPage } from './pages/RelatoriosPage'
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="projetos/:id" element={<ProjetoDetailPage />} />
         <Route path="bacias" element={<BaciasPage />} />
         <Route path="sarjeta-critica" element={<SarjetaCriticaPage />} />
+        <Route path="sarjetao-dente-serra" element={<SarjetaoDenteServaPage />} />
         <Route path="rede-pluvial" element={<RedePluvialPage />} />
         <Route path="conformidade" element={<ConformidadePage />} />
         <Route path="relatorios" element={<RelatoriosPage />} />

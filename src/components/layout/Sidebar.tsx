@@ -12,6 +12,7 @@ import {
   FolderKanban,
   FolderOpen,
   LogOut,
+  Mountain,
   Settings,
   Waves,
 } from 'lucide-react'
@@ -45,6 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'Cálculos',
     items: [
       { to: '/sarjeta-critica', label: 'Sarjeta Crítica', icon: Waves },
+      { to: '/sarjetao-dente-serra', label: 'Sarjetão Dente de Serra', icon: Mountain },
       { to: '/rede-pluvial', label: 'Rede Pluvial', icon: Droplets },
     ],
   },
