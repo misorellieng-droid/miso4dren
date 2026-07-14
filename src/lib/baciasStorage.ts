@@ -1,5 +1,6 @@
 import type { BaciaImportada } from '../engine/csvBacias'
 import { vincularBaciasCaixas } from '../engine/vinculo'
+import { upsertCaptacao } from './captacaoStorage'
 import { listCaixas } from './redeStorage'
 import { supabase } from './supabase'
 
@@ -12,8 +13,9 @@ export interface BaciaRecord {
   tc_min: number | null
   pour_point_x: number
   pour_point_y: number
-  caixa_destino_id: string | null
+  caixa_destino_id: string | null // legado — ver bacia_dispositivo (captacaoStorage.ts)
   vinculo_status: string
+  destino_restante_nao_captado: string | null
 }
 
 function requireSupabase() {
@@ -32,6 +34,12 @@ export async function updateBaciaVinculo(id: string, caixaDestinoId: string | nu
     .from('bacias')
     .update({ caixa_destino_id: caixaDestinoId, vinculo_status: status })
     .eq('id', id)
+  if (error) throw error
+}
+
+/** Declaração explícita do destino do percentual não captado por nenhum dispositivo (soma de captações < 100%). */
+export async function updateDestinoRestante(id: string, destino: string | null): Promise<void> {
+  const { error } = await requireSupabase().from('bacias').update({ destino_restante_nao_captado: destino }).eq('id', id)
   if (error) throw error
 }
 
@@ -67,8 +75,17 @@ export async function importarBaciasCsv(revisaoId: string, bacias: BaciaImportad
   )
 
   for (const r of resultados) {
-    if (r.vinculoStatus === 'automatico') {
+    if (r.vinculoStatus === 'automatico' && r.caixaDestinoId) {
+      // grava o legado (visibilidade histórica) e já semeia a captação nova
+      // com 100% — o engenheiro divide depois se a bacia alimentar mais de
+      // um dispositivo. upsertCaptacao isolado: bacia_dispositivo é nova
+      // (migração 009) e pode ainda não existir no banco.
       await updateBaciaVinculo(r.baciaId, r.caixaDestinoId, 'automatico')
+      try {
+        await upsertCaptacao(r.baciaId, r.caixaDestinoId, 100, 'manual')
+      } catch {
+        // migração 009 ainda não aplicada — vínculo legado já foi gravado acima
+      }
     }
   }
 }

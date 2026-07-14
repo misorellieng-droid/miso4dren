@@ -9,6 +9,7 @@ import { resolverLamina } from '../engine/bissecao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
+import { listCaptacoesPorRevisao, type CaptacaoRecord } from '../lib/captacaoStorage'
 import { listResultadosRedeByRevisao, saveResultadoRede, type ResultadoRedeRecord } from '../lib/resultadosStorage'
 import { supabase } from '../lib/supabase'
 
@@ -32,6 +33,7 @@ export function RedePluvialPage() {
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
+  const [captacoes, setCaptacoes] = useState<CaptacaoRecord[]>([])
   const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [limites, setLimites] = useState(DEFAULT_LIMITES)
   const [resultados, setResultados] = useState<LinhaResultado[]>([])
@@ -45,6 +47,13 @@ export function RedePluvialPage() {
     setCaixas(c)
     setTrechos(t)
     setBacias(b)
+    // isolado de propósito: bacia_dispositivo é nova (migração 009) e pode
+    // ainda não existir no banco — o resto da página continua funcionando
+    try {
+      setCaptacoes(await listCaptacoesPorRevisao(revisaoAtiva.id))
+    } catch {
+      setCaptacoes([])
+    }
     if (revisaoAtiva.equacao_idf_id) {
       const eqs = await listEquacoesIdf()
       setEquacao(eqs.find((e) => e.id === revisaoAtiva.equacao_idf_id) ?? null)
@@ -69,8 +78,9 @@ export function RedePluvialPage() {
       setError('A revisão não tem equação IDF vinculada — configure em Cadastros → Projetos.')
       return
     }
-    const baciasVinculadas = bacias.filter((b) => b.caixa_destino_id)
-    const baciasSemTc = baciasVinculadas.filter((b) => b.tc_min == null)
+    const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
+    const baciasCaptadas = bacias.filter((b) => baciaIdsCaptadas.has(b.id))
+    const baciasSemTc = baciasCaptadas.filter((b) => b.tc_min == null)
     if (baciasSemTc.length > 0) {
       setAvisos((prev) => [...prev, `${baciasSemTc.length} bacia(s) sem Tc próprio — usando 10 min como padrão.`])
     }
@@ -80,15 +90,22 @@ export function RedePluvialPage() {
       const caixaIds = caixas.map((c) => c.id)
       const trechosGrafo = trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id }))
 
-      // Passo 1 — Q de entrada por bacia (método racional) e acúmulo no grafo
-      const qEntradaPorCaixa = new Map<string, number>()
-      const qEntradaPorBaciaId = new Map<string, number>()
-      for (const b of baciasVinculadas) {
+      // Passo 1a — Q total de cada bacia (método racional)
+      const qTotalPorBaciaId = new Map<string, number>()
+      for (const b of baciasCaptadas) {
         const tcMin = b.tc_min ?? 10
         const intensidade = calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcMin)
-        const q = calcularQEntradaBacia(b.coef_c, intensidade, b.area_m2)
-        qEntradaPorBaciaId.set(b.id, q)
-        qEntradaPorCaixa.set(b.caixa_destino_id!, (qEntradaPorCaixa.get(b.caixa_destino_id!) ?? 0) + q)
+        qTotalPorBaciaId.set(b.id, calcularQEntradaBacia(b.coef_c, intensidade, b.area_m2))
+      }
+
+      // Passo 1b — rateia por captação: Q_dispositivo = Σ (Q_total_bacia × percentual/100),
+      // depois soma o acumulado de montante no grafo
+      const qEntradaPorCaixa = new Map<string, number>()
+      for (const cap of captacoes) {
+        const qTotal = qTotalPorBaciaId.get(cap.bacia_id)
+        if (qTotal == null) continue
+        const qParcela = qTotal * (cap.percentual / 100)
+        qEntradaPorCaixa.set(cap.dispositivo_id, (qEntradaPorCaixa.get(cap.dispositivo_id) ?? 0) + qParcela)
       }
 
       const qProjetoPorTrecho = acumularVazao(caixaIds, trechosGrafo, qEntradaPorCaixa)
@@ -147,9 +164,11 @@ export function RedePluvialPage() {
         comprimentoM: t.comprimento_m,
       }))
       const tcInicialPorCaixa = new Map<string, number>()
-      for (const b of baciasVinculadas) {
-        const atual = tcInicialPorCaixa.get(b.caixa_destino_id!) ?? 0
-        tcInicialPorCaixa.set(b.caixa_destino_id!, Math.max(atual, b.tc_min ?? 10))
+      for (const cap of captacoes) {
+        const bacia = bacias.find((b) => b.id === cap.bacia_id)
+        if (!bacia) continue
+        const atual = tcInicialPorCaixa.get(cap.dispositivo_id) ?? 0
+        tcInicialPorCaixa.set(cap.dispositivo_id, Math.max(atual, bacia.tc_min ?? 10))
       }
       const tcPorCaixa = calcularTcSistema(caixaIds, trechosComComprimento, velocidadePorTrecho, tcInicialPorCaixa)
 
