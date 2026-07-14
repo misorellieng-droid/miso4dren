@@ -28,19 +28,30 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
 
     expect(resultado.deltaHM).toBeCloseTo(0.036, 9)
 
+    // comprimentoEquilibrioM é a distância CHEIA entre caixas — o ponto alto fica
+    // no meio, então a verificação de capacidade internamente usa o braço (L/2)
     expect(resultado.metodo1.convergiu).toBe(true)
     expect(resultado.metodo1.convergiuTc).toBe(true)
-    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(28.05232543945312, 3)
+    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(56.151062011718736, 3)
     expect(resultado.metodo1.laminaCriticaM).toBe(0.05)
 
     expect(resultado.metodo2.convergiu).toBe(true)
     expect(resultado.metodo2.convergiuTc).toBe(true)
-    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(18.76131896972656, 3)
+    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(37.52024536132812, 3)
 
     // os dois métodos divergem bastante para essa geometria — é o ponto central do módulo
-    expect(resultado.diferencaPercentual).toBeCloseTo(33.12027193531549, 1)
+    expect(resultado.diferencaPercentual).toBeCloseTo(33.179811713093436, 1)
     expect(resultado.comprimentoRecomendadoM).toBeCloseTo(resultado.metodo2.comprimentoEquilibrioM, 9)
     expect(resultado.metodoRecomendado).toBe('hec22')
+  })
+
+  it('a distância entre caixas é o dobro do braço: dobrar Δh dobra SL, então L cai por ~2^(2/3) mas o braço continua sendo L/2', () => {
+    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+    // verificação direta: SL usado na capacidade corresponde a Δh / (L/2), não Δh / L
+    const bracoM1 = resultado.metodo1.comprimentoEquilibrioM / 2
+    expect(resultado.metodo1.declividadeLongitudinalMM).toBeCloseTo(resultado.deltaHM / bracoM1, 9)
+    const bracoM2 = resultado.metodo2.comprimentoEquilibrioM / 2
+    expect(resultado.metodo2.declividadeLongitudinalMM).toBeCloseTo(resultado.deltaHM / bracoM2, 9)
   })
 
   it('em cada método, a vazão afluente no L de equilíbrio bate com a vazão de capacidade (definição de equilíbrio)', () => {

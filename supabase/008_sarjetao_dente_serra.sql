@@ -76,6 +76,8 @@ create table resultados_sarjetao_dente_serra (
 
 comment on column resultados_sarjetao_dente_serra.sx_pista_m_m is 'Declividade transversal da via FORA do sarjetão — usada só no Método 2 (HEC-22) e no espraiamento automático. Não confundir com sx_sarjetao_alto_m_m/sx_sarjetao_baixo_m_m, que são do próprio sarjetão.';
 comment on column resultados_sarjetao_dente_serra.metodo_recomendado is '''manning_generico'' | ''hec22'' — o de menor comprimento (lado da segurança).';
+comment on column resultados_sarjetao_dente_serra.m1_comprimento_m is 'Distância CHEIA entre duas caixas consecutivas. O ponto alto (divisor de águas) fica no meio desse intervalo — a verificação de capacidade (m1_declividade_longitudinal_m_m, m1_velocidade_ms, m1_vazao_m3s) é feita sobre um braço só (metade deste valor), já que a água de um lado do divisor não se mistura com a do outro até chegar na caixa.';
+comment on column resultados_sarjetao_dente_serra.m2_comprimento_m is 'Mesma observação de m1_comprimento_m, para o Método 2.';
 
 alter table resultados_sarjetao_dente_serra enable row level security;
 

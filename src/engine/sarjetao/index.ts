@@ -21,11 +21,20 @@ interface ResolverMetodoParams {
 /**
  * Resolve um dos dois métodos até convergência dupla: bisseção em L (pra um
  * dado Tc/i) dentro de um loop externo que recalcula Tc a partir do tempo de
- * percurso no próprio sarjetão (L / velocidade), até o L parar de variar mais
- * que `toleranciaRelativaL` de uma iteração pra outra (ou o limite de
+ * percurso no braço do sarjetão (L/2 / velocidade), até o L parar de variar
+ * mais que `toleranciaRelativaL` de uma iteração pra outra (ou o limite de
  * iterações). O Tc inicial é só uma semente — cada método converge pro seu
  * próprio Tc/i, já que velocidade e L diferem entre os dois métodos mesmo
  * usando a mesma vazão afluente e a mesma regra de SL(L).
+ *
+ * L é a distância cheia entre caixas consecutivas — mas o ponto alto (divisor
+ * de águas) fica no meio desse intervalo, então a água escoa em duas direções
+ * a partir dele, cada braço com metade de L. A verificação de capacidade do
+ * sarjetão (SL e a vazão acumulada) precisa ser feita sobre um braço só —
+ * água de um lado não se mistura com a do outro até chegar na caixa —, daí
+ * `bracoM = L/2` sendo o comprimento realmente usado tanto pra SL = Δh/braço
+ * quanto pra vazão afluente Q(braço). L continua sendo o que é resolvido pela
+ * bisseção e reportado ao final; braço é só um intermediário interno.
  */
 function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMetodoParams): ResultadoMetodoSarjetao {
   const {
@@ -54,7 +63,8 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
     intensidadeMmH = calcularIntensidadeIdf(equacaoIdf, tempoRetornoAnos, tc)
 
     const f = (L: number) => {
-      const SL = deltaHM / L
+      const bracoM = L / 2
+      const SL = deltaHM / bracoM
       const { vazaoCapacidadeM3s } = calcularCapacidade(SL)
       const { vazaoM3s: q } = calcularVazaoAfluente({
         larguraViaM,
@@ -62,14 +72,15 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
         larguraTelhadoM: telhadoAtivo ? larguraTelhadoM : undefined,
         coefCTelhado: telhadoAtivo ? coefCTelhado : undefined,
         intensidadeMmH,
-        comprimentoM: L,
+        comprimentoM: bracoM,
       })
       return q - vazaoCapacidadeM3s
     }
 
     bisseccao = resolverPorBisseccao({ f })
     const L = bisseccao.valor
-    const SL = deltaHM / L
+    const bracoM = L / 2
+    const SL = deltaHM / bracoM
     capacidade = calcularCapacidade(SL)
     vazaoM3s = calcularVazaoAfluente({
       larguraViaM,
@@ -77,10 +88,10 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
       larguraTelhadoM: telhadoAtivo ? larguraTelhadoM : undefined,
       coefCTelhado: telhadoAtivo ? coefCTelhado : undefined,
       intensidadeMmH,
-      comprimentoM: L,
+      comprimentoM: bracoM,
     }).vazaoM3s
 
-    const tempoPercursoMin = L / (capacidade.velocidadeMs * 60)
+    const tempoPercursoMin = bracoM / (capacidade.velocidadeMs * 60)
     const variacaoRelativaL = Number.isFinite(comprimentoAnteriorM) ? Math.abs(L - comprimentoAnteriorM) / comprimentoAnteriorM : Infinity
     comprimentoAnteriorM = L
 
@@ -101,7 +112,7 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
     velocidadeMs: capacidade.velocidadeMs,
     vazaoM3s,
     vazaoCapacidadeM3s: capacidade.vazaoCapacidadeM3s,
-    declividadeLongitudinalMM: deltaHM / comprimentoAnteriorM,
+    declividadeLongitudinalMM: deltaHM / (comprimentoAnteriorM / 2),
     tcConvergidoMin: tc,
     intensidadeConvergidaMmH: intensidadeMmH,
   }

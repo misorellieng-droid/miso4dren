@@ -445,13 +445,14 @@ function MetodoCard({
     <div className={`rounded-lg border p-4 ${destaque ? 'border-brand/40 bg-brand/5' : 'border-border bg-elevated/40'}`}>
       <div className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{METODO_LABELS[nome]}</div>
       <div className="mt-1 font-sans text-2xl font-bold text-text-primary">{resultado.comprimentoEquilibrioM.toFixed(2)} m</div>
+      <div className="text-[11px] text-text-secondary">Distância entre caixas (o ponto alto fica no meio, a {(resultado.comprimentoEquilibrioM / 2).toFixed(2)} m de cada uma)</div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-secondary">
-        <div>Velocidade: {resultado.velocidadeMs.toFixed(3)} m/s</div>
-        <div>Vazão: {resultado.vazaoM3s.toFixed(5)} m³/s</div>
+        <div>Velocidade no braço: {resultado.velocidadeMs.toFixed(3)} m/s</div>
+        <div>Vazão no braço: {resultado.vazaoM3s.toFixed(5)} m³/s</div>
         <div>Tc convergido: {resultado.tcConvergidoMin.toFixed(2)} min</div>
         <div>Intensidade: {resultado.intensidadeConvergidaMmH.toFixed(1)} mm/h</div>
         <div>Lâmina crítica: {resultado.laminaCriticaM.toFixed(3)} m</div>
-        <div>SL efetiva: {(resultado.declividadeLongitudinalMM * 100).toFixed(3)}%</div>
+        <div>SL efetiva (no braço): {(resultado.declividadeLongitudinalMM * 100).toFixed(3)}%</div>
       </div>
       {!(resultado.convergiu && resultado.convergiuTc) && (
         <div className="mt-2 flex items-center gap-1.5 text-[11px] text-accent-amber">
@@ -507,7 +508,7 @@ function PerfilSarjetao({ titulo, comprimentoM, deltaHM }: { titulo: string; com
         <text x={largura} y={topo - 6} fontSize={9} textAnchor="end" className="fill-text-secondary">próximo ponto alto</text>
       </svg>
       <div className="mt-1 text-center text-xs text-text-secondary">
-        L = {comprimentoM.toFixed(2)} m · Δh = {(deltaHM * 100).toFixed(2)} cm (escala vertical exagerada)
+        Distância entre caixas = {comprimentoM.toFixed(2)} m · Δh = {(deltaHM * 100).toFixed(2)} cm (escala vertical exagerada)
       </div>
     </div>
   )

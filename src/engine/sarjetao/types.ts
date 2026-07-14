@@ -45,7 +45,18 @@ export interface ResultadoCapacidade {
   vazaoCapacidadeM3s: number
 }
 
-/** Saída de um dos dois métodos, já convergida em L e Tc. */
+/**
+ * Saída de um dos dois métodos, já convergida em L e Tc.
+ *
+ * `comprimentoEquilibrioM` (L) é a distância CHEIA entre duas caixas
+ * consecutivas. O ponto alto (divisor de águas) fica no meio desse
+ * intervalo, então a verificação de capacidade (SL, vazão afluente,
+ * velocidade, tempo de percurso) é feita sobre um braço só — L/2 —, já que a
+ * água de um lado do divisor não se mistura com a do outro até chegar na
+ * caixa. `velocidadeMs`, `vazaoM3s`, `vazaoCapacidadeM3s` e
+ * `declividadeLongitudinalMM` abaixo são todos valores do braço (L/2), não
+ * de L inteiro.
+ */
 export interface ResultadoMetodoSarjetao {
   comprimentoEquilibrioM: number
   iteracoes: number // iterações da bisseção na última passada de Tc
@@ -53,10 +64,10 @@ export interface ResultadoMetodoSarjetao {
   iteracoesTc: number
   convergiuTc: boolean
   laminaCriticaM: number // = yMaxM, verificação: é a lâmina de projeto atingida no ponto crítico
-  velocidadeMs: number
-  vazaoM3s: number // vazão afluente no L de equilíbrio
-  vazaoCapacidadeM3s: number // vazão de capacidade no L de equilíbrio (≈ vazaoM3s, por definição de equilíbrio)
-  declividadeLongitudinalMM: number // SL = Δh / L, no L de equilíbrio
+  velocidadeMs: number // no braço (L/2)
+  vazaoM3s: number // vazão afluente no braço (L/2) de equilíbrio
+  vazaoCapacidadeM3s: number // vazão de capacidade no braço (L/2) de equilíbrio (≈ vazaoM3s, por definição de equilíbrio)
+  declividadeLongitudinalMM: number // SL = Δh / (L/2), no L de equilíbrio
   tcConvergidoMin: number
   intensidadeConvergidaMmH: number
 }
