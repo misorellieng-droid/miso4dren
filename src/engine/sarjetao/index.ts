@@ -134,15 +134,20 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
 
 /**
  * Sequência completa do módulo "sarjetão em dente de serra": Δh derivado da
- * geometria (meia-largura do sarjetão × variação de Sx entre ponto alto e
- * baixo) → dois métodos de capacidade resolvidos independentemente por
+ * geometria → dois métodos de capacidade resolvidos independentemente por
  * bisseção com convergência de Tc → comparação lado a lado, sem descartar
  * nenhum dos dois (são premissas geométricas diferentes — retangular
  * equivalente vs. triangular integrada — e podem divergir bastante).
+ *
+ * Δh = largura_efetiva × (Sx_baixo − Sx_alto), onde largura_efetiva é a
+ * meia-largura do sarjetão se `tipoSecao === 'simetrico'` (duas faces
+ * espelhadas, cada uma com metade da largura total) ou a largura inteira se
+ * `tipoSecao === 'um_lado'` (uma sarjeta comum, de um lado só — não há face
+ * espelhada pra justificar dividir por dois).
  */
 export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): MemorialSarjetaoDenteServa {
-  const meiaLarguraSarjetaoM = parametros.larguraSarjetaoM / 2
-  const deltaHM = meiaLarguraSarjetaoM * (parametros.sxSarjetaoBaixo - parametros.sxSarjetaoAlto)
+  const larguraEfetivaM = parametros.tipoSecao === 'simetrico' ? parametros.larguraSarjetaoM / 2 : parametros.larguraSarjetaoM
+  const deltaHM = larguraEfetivaM * (parametros.sxSarjetaoBaixo - parametros.sxSarjetaoAlto)
 
   if (deltaHM <= 0) {
     throw new Error('A declividade transversal do ponto baixo deve ser maior que a do ponto alto do sarjetão.')

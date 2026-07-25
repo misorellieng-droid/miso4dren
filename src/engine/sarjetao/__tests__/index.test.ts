@@ -8,6 +8,7 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
   // independente replicando a mesma sequência de cálculo (ver histórico do
   // commit que introduziu este arquivo).
   const parametrosBase = {
+    tipoSecao: 'simetrico' as const,
     larguraViaM: 20,
     coefC: 0.9,
     telhadoAtivo: false,
@@ -91,5 +92,20 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
       // a primeira iteração usa o Tc inicial informado
       expect(metodo.historicoIteracoesTc[0].tcMin).toBe(parametrosBase.tcInicialMin)
     }
+  })
+
+  it('um_lado com largura W dá resultado idêntico a simetrico com largura 2W (mesmo Δh, só muda o fator da fórmula)', () => {
+    const simetrico = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'simetrico', larguraSarjetaoM: 0.9 })
+    const umLado = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'um_lado', larguraSarjetaoM: 0.45 })
+
+    expect(umLado.deltaHM).toBeCloseTo(simetrico.deltaHM, 12)
+    expect(umLado.metodo1.comprimentoEquilibrioM).toBeCloseTo(simetrico.metodo1.comprimentoEquilibrioM, 9)
+    expect(umLado.metodo2.comprimentoEquilibrioM).toBeCloseTo(simetrico.metodo2.comprimentoEquilibrioM, 9)
+  })
+
+  it('um_lado usa a largura inteira em Δh (não divide por 2 como o simétrico)', () => {
+    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'um_lado', larguraSarjetaoM: 0.9 })
+    const deltaHEsperado = 0.9 * (parametrosBase.sxSarjetaoBaixo - parametrosBase.sxSarjetaoAlto)
+    expect(resultado.deltaHM).toBeCloseTo(deltaHEsperado, 12)
   })
 })

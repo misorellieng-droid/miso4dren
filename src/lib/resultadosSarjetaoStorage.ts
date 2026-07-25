@@ -1,9 +1,11 @@
+import type { TipoSecaoSarjetao } from '../engine/sarjetao'
 import { supabase } from './supabase'
 
 export interface ResultadoSarjetaoRecord {
   id: string
   revisao_id: string
   nome_trecho: string
+  tipo_secao: TipoSecaoSarjetao
 
   largura_via_m: number
   coef_c: number

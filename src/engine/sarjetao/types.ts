@@ -10,15 +10,34 @@ import type { EquacaoIdf } from '../types'
  * automaticamente como `yMaxM / sxPista` (o app faz isso na camada de UI e
  * passa o valor já resolvido pra cá, editável pelo engenheiro).
  */
+/**
+ * Tipo de seção do sarjetão:
+ * - 'simetrico': V alimentado igualmente dos dois lados (ex.: pátio entre
+ *   dois galpões) — `larguraSarjetaoM` é a largura TOTAL do trough, e só a
+ *   metade dela (uma face) entra na fórmula de Δh.
+ * - 'um_lado': sarjeta comum, de um lado só (via + calha, como no módulo de
+ *   sarjeta crítica), mas também sem declividade longitudinal — o desnível
+ *   vem da variação da declividade transversal da PRÓPRIA sarjeta ao longo
+ *   do comprimento. Como não há face espelhada, `larguraSarjetaoM` entra
+ *   INTEIRA na fórmula de Δh (é a única face que existe).
+ *
+ * As duas fórmulas de capacidade (Método 1 e Método 2) e o método racional
+ * não mudam entre os dois tipos — são genéricas em relação à seção,
+ * dirigidas só por T/y_max/Sx da pista. A única diferença física é o fator
+ * de largura na fórmula de Δh.
+ */
+export type TipoSecaoSarjetao = 'simetrico' | 'um_lado'
+
 export interface ParametrosSarjetao {
-  larguraViaM: number // largura de pista contribuinte total (os dois lados até os divisores de água), usada no método racional
+  tipoSecao: TipoSecaoSarjetao
+  larguraViaM: number // largura de pista contribuinte total (nos dois lados até os divisores de água, se simétrico; só do lado da sarjeta, se um_lado), usada no método racional
   coefC: number
 
   telhadoAtivo: boolean
   larguraTelhadoM?: number // largura de cobertura contribuinte (análoga à largura de pista), só usada se telhadoAtivo
   coefCTelhado?: number
 
-  larguraSarjetaoM: number // largura total do sarjetão — a metade entra na fórmula de Δh
+  larguraSarjetaoM: number // largura do sarjetão — metade entra em Δh se simétrico, inteira se um_lado (ver TipoSecaoSarjetao)
   sxSarjetaoAlto: number // declividade transversal do sarjetão no ponto alto (m/m)
   sxSarjetaoBaixo: number // declividade transversal do sarjetão no ponto baixo, junto à caixa (m/m)
 

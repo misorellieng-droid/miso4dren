@@ -3,7 +3,13 @@ import { AlertTriangle, ChevronDown, ChevronUp, FileDown, Loader2, Mountain, Sav
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { calcularSarjetaoDenteServa, type MemorialSarjetaoDenteServa, type MetodoCapacidade, type ResultadoMetodoSarjetao } from '../engine/sarjetao'
+import {
+  calcularSarjetaoDenteServa,
+  type MemorialSarjetaoDenteServa,
+  type MetodoCapacidade,
+  type ResultadoMetodoSarjetao,
+  type TipoSecaoSarjetao,
+} from '../engine/sarjetao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listResultadosSarjetao, saveResultadoSarjetao, type ResultadoSarjetaoRecord } from '../lib/resultadosSarjetaoStorage'
 import { exportSarjetaoPdf, type ParametrosExibicao } from '../lib/exportSarjetaoPdf'
@@ -13,10 +19,18 @@ const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 const SECONDARY_BTN =
   'flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary shadow-sm transition hover:border-brand/50 hover:text-brand disabled:opacity-60'
+const TAB_BTN = 'rounded-lg border px-3 py-1.5 text-xs font-medium transition'
+const TAB_BTN_ACTIVE = `${TAB_BTN} border-brand bg-brand/10 text-brand`
+const TAB_BTN_INACTIVE = `${TAB_BTN} border-border text-text-secondary hover:border-brand/50 hover:text-text-primary`
 
 const METODO_LABELS: Record<MetodoCapacidade, string> = {
   manning_generico: 'Método 1 — Manning genérico (retangular equivalente)',
   hec22: 'Método 2 — HEC-22/FHWA (triangular integrado)',
+}
+
+const TIPO_SECAO_LABELS: Record<TipoSecaoSarjetao, string> = {
+  simetrico: 'Sarjetão em V simétrico',
+  um_lado: 'Sarjeta de um lado só',
 }
 
 const DEFAULT_FORM = {
@@ -43,6 +57,7 @@ export function SarjetaoDenteServaPage() {
   const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [historico, setHistorico] = useState<ResultadoSarjetaoRecord[]>([])
   const [form, setForm] = useState<FormState>(DEFAULT_FORM)
+  const [tipoSecao, setTipoSecao] = useState<TipoSecaoSarjetao>('simetrico')
   const [telhadoAtivo, setTelhadoAtivo] = useState(false)
   // qual dos dois campos é a entrada "mestre": o outro vira sempre calculado a partir deste
   const [campoControlador, setCampoControlador] = useState<'yMax' | 'espraiamento'>('yMax')
@@ -116,6 +131,7 @@ export function SarjetaoDenteServaPage() {
 
     try {
       const r = calcularSarjetaoDenteServa({
+        tipoSecao,
         larguraViaM: valores.larguraViaM,
         coefC: valores.coefC,
         telhadoAtivo,
@@ -150,6 +166,7 @@ export function SarjetaoDenteServaPage() {
       await saveResultadoSarjetao({
         revisao_id: revisaoAtiva.id,
         nome_trecho: form.nomeTrecho.trim(),
+        tipo_secao: tipoSecao,
         largura_via_m: Number(form.larguraViaM),
         coef_c: Number(form.coefC),
         telhado_ativo: telhadoAtivo,
@@ -219,6 +236,7 @@ export function SarjetaoDenteServaPage() {
   // espelha os campos numéricos do form no momento do último cálculo — usado pra reconstituir
   // as fórmulas plugadas no memorial e na exportação em PDF, sem duplicar estado
   const parametrosExibicao: ParametrosExibicao = {
+    tipoSecao,
     larguraViaM: Number(form.larguraViaM),
     coefC: Number(form.coefC),
     telhadoAtivo,
@@ -267,9 +285,27 @@ export function SarjetaoDenteServaPage() {
           <input className={fieldInputClass} value={form.nomeTrecho} onChange={(e) => setCampo('nomeTrecho', e.target.value)} />
         </Field>
 
+        <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Tipo de seção</div>
+        <p className="mt-1 text-xs text-text-secondary">
+          Nos dois casos a via não tem declividade longitudinal — o desnível entre caixas vem só da variação da
+          declividade transversal do sarjetão. Só muda quantas faces contribuem pro Δh.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <button className={tipoSecao === 'simetrico' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE} onClick={() => setTipoSecao('simetrico')}>
+            {TIPO_SECAO_LABELS.simetrico}
+          </button>
+          <button className={tipoSecao === 'um_lado' ? TAB_BTN_ACTIVE : TAB_BTN_INACTIVE} onClick={() => setTipoSecao('um_lado')}>
+            {TIPO_SECAO_LABELS.um_lado}
+          </button>
+        </div>
+
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Via e bacia contribuinte</div>
         <div className="mt-2 grid grid-cols-2 gap-4">
-          <Field label="Largura total da via contribuinte (m)" required hint="Soma dos dois lados até os divisores de água">
+          <Field
+            label="Largura total da via contribuinte (m)"
+            required
+            hint={tipoSecao === 'simetrico' ? 'Soma dos dois lados até os divisores de água' : 'Largura de pista contribuinte até o divisor de águas, deste lado'}
+          >
             <input type="number" step="any" className={fieldInputClass} value={form.larguraViaM} onChange={(e) => setCampo('larguraViaM', e.target.value)} />
           </Field>
           <Field label="Coeficiente de escoamento C (pista)" required>
@@ -305,7 +341,15 @@ export function SarjetaoDenteServaPage() {
 
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Geometria do sarjetão (dente de serra)</div>
         <div className="mt-2 grid grid-cols-2 gap-4">
-          <Field label="Largura do sarjetão (m)" required hint="Meia-largura de cada lado do eixo — usada no Δh">
+          <Field
+            label={tipoSecao === 'simetrico' ? 'Largura do sarjetão (m)' : 'Largura da sarjeta (m)'}
+            required
+            hint={
+              tipoSecao === 'simetrico'
+                ? 'Largura total do trough — a metade de cada lado do eixo entra no Δh'
+                : 'Sarjeta de um lado só — a largura inteira entra no Δh (não há face espelhada)'
+            }
+          >
             <input type="number" step="any" className={fieldInputClass} value={form.larguraSarjetaoM} onChange={(e) => setCampo('larguraSarjetaoM', e.target.value)} />
           </Field>
           <div />
@@ -421,7 +465,12 @@ export function SarjetaoDenteServaPage() {
             </div>
 
             <div className="mt-4">
-              <SecaoTransversalSarjetao yMaxM={parametrosExibicao.yMaxM} larguraEspraiamentoM={parametrosExibicao.larguraEspraiamentoM} sxPista={parametrosExibicao.sxPista} />
+              <SecaoTransversalSarjetao
+                tipoSecao={tipoSecao}
+                yMaxM={parametrosExibicao.yMaxM}
+                larguraEspraiamentoM={parametrosExibicao.larguraEspraiamentoM}
+                sxPista={parametrosExibicao.sxPista}
+              />
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -563,7 +612,15 @@ function MemorialMetodo({
       )}
 
       <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">3. Δh e SL no braço</div>
-      <span className={FORMULA_LINE}>Δh = (largura_sarjetão / 2) × (Sx_baixo − Sx_alto) = {deltaHM.toFixed(4)} m</span>
+      {p.tipoSecao === 'simetrico' ? (
+        <span className={FORMULA_LINE}>
+          Δh = (largura_sarjetão / 2) × (Sx_baixo − Sx_alto) = ({p.larguraSarjetaoM.toFixed(4)} / 2) × ({p.sxSarjetaoBaixo.toFixed(4)} − {p.sxSarjetaoAlto.toFixed(4)}) = {deltaHM.toFixed(4)} m
+        </span>
+      ) : (
+        <span className={FORMULA_LINE}>
+          Δh = largura_sarjeta × (Sx_baixo − Sx_alto) = {p.larguraSarjetaoM.toFixed(4)} × ({p.sxSarjetaoBaixo.toFixed(4)} − {p.sxSarjetaoAlto.toFixed(4)}) = {deltaHM.toFixed(4)} m
+        </span>
+      )}
       <span className={FORMULA_LINE}>
         braço = L / 2 = {resultado.comprimentoEquilibrioM.toFixed(2)} / 2 = {bracoM.toFixed(2)} m
       </span>
@@ -668,38 +725,51 @@ function PerfilSarjetao({ titulo, comprimentoM, deltaHM, yMaxM }: { titulo: stri
   )
 }
 
-/** Seção transversal do sarjetão: espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto (tracejado) pra visualizar a diferença de premissa geométrica entre os dois. */
+/**
+ * Seção transversal: espraiamento triangular real (Método 2) sombreado, com
+ * o retângulo equivalente do Método 1 sobreposto (tracejado) pra visualizar
+ * a diferença de premissa geométrica entre os dois. No tipo 'simetrico'
+ * espelha ±T dos dois lados do eixo do sarjetão; no 'um_lado' desenha só um
+ * lado (0 a T), a partir do meio-fio — não há face espelhada.
+ */
 function SecaoTransversalSarjetao({
+  tipoSecao,
   yMaxM,
   larguraEspraiamentoM: T,
   sxPista,
 }: {
+  tipoSecao: TipoSecaoSarjetao
   yMaxM: number
   larguraEspraiamentoM: number
   sxPista: number
 }) {
+  const simetrico = tipoSecao === 'simetrico'
   const largura = 420
   const altura = 160
   const padX = 24
   const padTopo = 20
   const padBase = 40
-  const escalaX = (largura - 2 * padX) / (2 * T)
+  const xMin = simetrico ? -T : 0
+  const xMax = T
+  const escalaX = (largura - 2 * padX) / (xMax - xMin)
   const escalaY = (altura - padTopo - padBase) / yMaxM
-  const cx = largura / 2
+  const origemX = simetrico ? largura / 2 : padX
 
-  const sxCoord = (x: number) => cx + x * escalaX
+  const sxCoord = (x: number) => origemX + x * escalaX
   const sy = (profundidade: number) => padTopo + profundidade * escalaY
 
-  const poligonoTriangulo = `${sxCoord(-T)},${sy(0)} ${sxCoord(0)},${sy(yMaxM)} ${sxCoord(T)},${sy(0)}`
+  const poligonoTriangulo = simetrico
+    ? `${sxCoord(-T)},${sy(0)} ${sxCoord(0)},${sy(yMaxM)} ${sxCoord(T)},${sy(0)}`
+    : `${sxCoord(0)},${sy(yMaxM)} ${sxCoord(T)},${sy(0)} ${sxCoord(0)},${sy(0)}`
 
   return (
     <div className="rounded-lg border border-border bg-elevated/40 p-4">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">Seção transversal — área alagada</div>
       <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full" role="img" aria-label="Seção transversal do sarjetão com a área alagada">
         <rect
-          x={sxCoord(-T)}
+          x={sxCoord(xMin)}
           y={sy(yMaxM)}
-          width={sxCoord(T) - sxCoord(-T)}
+          width={sxCoord(xMax) - sxCoord(xMin)}
           height={sy(0) - sy(yMaxM)}
           fill="none"
           strokeDasharray="4 3"
@@ -708,21 +778,38 @@ function SecaoTransversalSarjetao({
         />
         <polygon points={poligonoTriangulo} className="fill-brand/25" stroke="none" />
         <polyline points={poligonoTriangulo} fill="none" className="stroke-brand" strokeWidth={2} />
-        <line x1={sxCoord(-T)} y1={sy(0)} x2={sxCoord(T)} y2={sy(0)} strokeDasharray="3 2" className="stroke-text-secondary" strokeWidth={1} />
-        <line x1={cx} y1={sy(0)} x2={cx} y2={sy(yMaxM)} strokeDasharray="2 2" className="stroke-accent-red" strokeWidth={1} />
+        <line x1={sxCoord(xMin)} y1={sy(0)} x2={sxCoord(xMax)} y2={sy(0)} strokeDasharray="3 2" className="stroke-text-secondary" strokeWidth={1} />
+        {simetrico ? (
+          <line x1={origemX} y1={sy(0)} x2={origemX} y2={sy(yMaxM)} strokeDasharray="2 2" className="stroke-accent-red" strokeWidth={1} />
+        ) : (
+          <rect x={sxCoord(0) - 3} y={sy(0) - 3} width={3} height={sy(yMaxM) - sy(0) + 3} className="fill-text-secondary" />
+        )}
 
-        <text x={cx} y={sy(yMaxM) - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+        <text x={simetrico ? origemX : sxCoord(0)} y={sy(yMaxM) - 6} fontSize={9} textAnchor={simetrico ? 'middle' : 'start'} className="fill-text-secondary">
           y_max={yMaxM.toFixed(3)}m
         </text>
-        <text x={sxCoord(-T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
-          T={T.toFixed(2)}m
-        </text>
-        <text x={sxCoord(T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
-          T={T.toFixed(2)}m
-        </text>
-        <text x={cx} y={altura - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
-          eixo do sarjetão (Sx da pista = {(sxPista * 100).toFixed(2)}%)
-        </text>
+        {simetrico ? (
+          <>
+            <text x={sxCoord(-T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+              T={T.toFixed(2)}m
+            </text>
+            <text x={sxCoord(T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+              T={T.toFixed(2)}m
+            </text>
+            <text x={origemX} y={altura - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+              eixo do sarjetão (Sx da pista = {(sxPista * 100).toFixed(2)}%)
+            </text>
+          </>
+        ) : (
+          <>
+            <text x={sxCoord(T / 2)} y={sy(0) + 16} fontSize={9} textAnchor="middle" className="fill-text-secondary">
+              T={T.toFixed(2)}m
+            </text>
+            <text x={sxCoord(0)} y={altura - 6} fontSize={9} className="fill-text-secondary">
+              meio-fio (Sx da pista = {(sxPista * 100).toFixed(2)}%)
+            </text>
+          </>
+        )}
       </svg>
       <div className="mt-1 text-center text-xs text-text-secondary">
         Sombreado = espraiamento triangular real (Método 2) · tracejado = retângulo equivalente (Método 1)

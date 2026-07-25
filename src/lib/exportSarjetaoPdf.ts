@@ -1,9 +1,10 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao } from '../engine/sarjetao'
+import type { MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
 
 /** Espelha os campos numéricos do formulário no momento do cálculo — usado tanto no memorial em tela quanto no PDF. */
 export interface ParametrosExibicao {
+  tipoSecao: TipoSecaoSarjetao
   larguraViaM: number
   coefC: number
   telhadoAtivo: boolean
@@ -128,8 +129,9 @@ function desenharPoligono(doc: jsPDF, pontos: Array<[number, number]>, estilo: s
   doc.lines(deltas, pontos[0][0], pontos[0][1], [1, 1], estilo, true)
 }
 
-/** Espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto (tracejado). */
+/** Espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto — mirrado nos dois lados se simétrico, só de um lado (com marca de meio-fio) se um_lado. */
 function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: ParametrosExibicao) {
+  const simetrico = p.tipoSecao === 'simetrico'
   const alturaDisp = 95
   garantirEspaco(doc, cursor, alturaDisp + 44)
 
@@ -137,44 +139,73 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
   const origemY = cursor.y + 14
   const centroX = MARGIN_X + 257
   const larguraDisp = 480
-  const escalaX = larguraDisp / (2 * T)
+  const xMin = simetrico ? -T : 0
+  const xMax = T
+  const escalaX = larguraDisp / (xMax - xMin)
   const escalaY = alturaDisp / p.yMaxM
+  const origemX = simetrico ? centroX : MARGIN_X + 17
 
-  const px = (x: number) => centroX + x * escalaX
+  const px = (x: number) => origemX + x * escalaX
   const py = (profundidade: number) => origemY + profundidade * escalaY
 
   // retângulo equivalente do Método 1
   doc.setDrawColor(140, 140, 140)
   doc.setLineWidth(0.75)
-  doc.rect(px(-T), py(p.yMaxM), px(T) - px(-T), py(0) - py(p.yMaxM), 'S')
+  doc.rect(px(xMin), py(p.yMaxM), px(xMax) - px(xMin), py(0) - py(p.yMaxM), 'S')
 
   // triângulo real (Método 2)
   doc.setFillColor(...AREA_MOLHADA_RGB)
   desenharPoligono(
     doc,
-    [
-      [px(-T), py(0)],
-      [px(0), py(p.yMaxM)],
-      [px(T), py(0)],
-    ],
+    simetrico
+      ? [
+          [px(-T), py(0)],
+          [px(0), py(p.yMaxM)],
+          [px(T), py(0)],
+        ]
+      : [
+          [px(0), py(p.yMaxM)],
+          [px(T), py(0)],
+          [px(0), py(0)],
+        ],
     'F'
   )
   doc.setDrawColor(...BRAND_RGB)
   doc.setLineWidth(1)
-  doc.line(px(-T), py(0), px(0), py(p.yMaxM))
-  doc.line(px(0), py(p.yMaxM), px(T), py(0))
+  if (simetrico) {
+    doc.line(px(-T), py(0), px(0), py(p.yMaxM))
+    doc.line(px(0), py(p.yMaxM), px(T), py(0))
+  } else {
+    doc.line(px(0), py(p.yMaxM), px(T), py(0))
+  }
 
   doc.setDrawColor(140, 140, 140)
   doc.setLineWidth(0.5)
-  doc.line(px(-T), py(0), px(T), py(0))
+  doc.line(px(xMin), py(0), px(xMax), py(0))
+
+  // marca do eixo do sarjetão (simétrico) ou do meio-fio (um_lado)
+  if (simetrico) {
+    doc.setDrawColor(200, 60, 40)
+    doc.setLineWidth(0.75)
+    doc.line(px(0), py(0), px(0), py(p.yMaxM))
+  } else {
+    doc.setFillColor(120, 120, 120)
+    doc.rect(px(0) - 1.2, py(p.yMaxM), 2.4, py(0) - py(p.yMaxM), 'F')
+  }
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(90, 90, 90)
-  doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, centroX, py(p.yMaxM) - 6, { align: 'center' })
-  doc.text(`T = ${fmt(T, 2)} m`, px(-T / 2), py(0) + 12, { align: 'center' })
-  doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
-  doc.text(`eixo do sarjetão (Sx da pista = ${pct(p.sxPista, 2)})`, centroX, origemY + alturaDisp + 24, { align: 'center' })
+  if (simetrico) {
+    doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, origemX, py(p.yMaxM) - 6, { align: 'center' })
+    doc.text(`T = ${fmt(T, 2)} m`, px(-T / 2), py(0) + 12, { align: 'center' })
+    doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
+    doc.text(`eixo do sarjetão (Sx da pista = ${pct(p.sxPista, 2)})`, centroX, origemY + alturaDisp + 24, { align: 'center' })
+  } else {
+    doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, px(0), py(p.yMaxM) - 6, { align: 'left' })
+    doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
+    doc.text(`meio-fio (Sx da pista = ${pct(p.sxPista, 2)})`, origemX, origemY + alturaDisp + 24, { align: 'left' })
+  }
   doc.setTextColor(20, 20, 20)
 
   cursor.y = origemY + alturaDisp + 36
@@ -294,7 +325,19 @@ function secaoMetodo(doc: jsPDF, cursor: Cursor, metodo: MetodoCapacidade, resul
   }
 
   subtitulo(doc, cursor, 'Desnível e declividade longitudinal do braço')
-  linhaFormula(doc, cursor, `delta_h = (largura_sarjetao / 2) x (Sx_baixo - Sx_alto) = ${fmt(deltaHM, 4)} m`)
+  if (p.tipoSecao === 'simetrico') {
+    linhaFormula(
+      doc,
+      cursor,
+      `delta_h = (largura_sarjetao / 2) x (Sx_baixo - Sx_alto) = (${fmt(p.larguraSarjetaoM, 4)} / 2) x (${fmt(p.sxSarjetaoBaixo, 4)} - ${fmt(p.sxSarjetaoAlto, 4)}) = ${fmt(deltaHM, 4)} m`
+    )
+  } else {
+    linhaFormula(
+      doc,
+      cursor,
+      `delta_h = largura_sarjeta x (Sx_baixo - Sx_alto) = ${fmt(p.larguraSarjetaoM, 4)} x (${fmt(p.sxSarjetaoBaixo, 4)} - ${fmt(p.sxSarjetaoAlto, 4)}) = ${fmt(deltaHM, 4)} m`
+    )
+  }
   linhaFormula(doc, cursor, `braco = L / 2 = ${fmt(resultado.comprimentoEquilibrioM, 2)} / 2 = ${fmt(resultado.comprimentoEquilibrioM / 2, 2)} m`)
   linhaFormula(
     doc,
@@ -353,6 +396,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
     margin: { left: MARGIN_X, right: MARGIN_X },
     head: [['Parâmetro', 'Valor']],
     body: [
+      ['Tipo de seção', p.tipoSecao === 'simetrico' ? 'Sarjetão em V simétrico' : 'Sarjeta de um lado só'],
       ['Largura total da via contribuinte', `${fmt(p.larguraViaM, 2)} m`],
       ['Coeficiente de escoamento C (pista)', fmt(p.coefC, 2)],
       ['Contribuição de telhado', p.telhadoAtivo ? 'Ativa' : 'Inativa'],
