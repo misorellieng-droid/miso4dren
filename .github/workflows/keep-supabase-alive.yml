@@ -1,0 +1,30 @@
+name: Manter Supabase ativo (miso4dren)
+
+# Projetos Supabase no plano free pausam depois de ~7 dias sem atividade de
+# API — foi exatamente isso que causou o "Erro ao carregar projetos" em
+# produção. Esse workflow faz uma leitura simples e barata numa tabela
+# aberta todo dia, só pra contar como atividade e evitar a pausa automática.
+#
+# A anon key abaixo NÃO é um segredo — é a mesma chave pública já embutida
+# no bundle JS servido pelo app em produção (protegida por RLS, não por
+# sigilo), então não há problema em ela estar em texto puro num workflow
+# público.
+
+on:
+  schedule:
+    - cron: '17 12 * * *' # todo dia às 12:17 UTC
+  workflow_dispatch: {} # permite rodar manualmente pela aba Actions do GitHub
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: https://nnqauixcsmvrhypxrbpi.supabase.co
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ucWF1aXhjc212cmh5cHhyYnBpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4NjczNjYsImV4cCI6MjA5OTQ0MzM2Nn0.8TRWrvmEPJNhjQ7CeX6xBPr5ZXQ4AtzahykjI2GAK_0
+        run: |
+          curl -sf -o /dev/null -w "HTTP %{http_code}\n" \
+            "$SUPABASE_URL/rest/v1/materiais_manning?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY"
