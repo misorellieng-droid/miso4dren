@@ -304,7 +304,11 @@ export function SarjetaoDenteServaPage() {
           <Field
             label="Largura total da via contribuinte (m)"
             required
-            hint={tipoSecao === 'simetrico' ? 'Soma dos dois lados até os divisores de água' : 'Largura de pista contribuinte até o divisor de águas, deste lado'}
+            hint={
+              tipoSecao === 'simetrico'
+                ? 'Soma dos dois lados até os divisores de água — pode somar valores diferentes se o sarjetão não estiver no eixo da via'
+                : 'Largura de pista contribuinte até o divisor de águas, deste lado'
+            }
           >
             <input type="number" step="any" className={fieldInputClass} value={form.larguraViaM} onChange={(e) => setCampo('larguraViaM', e.target.value)} />
           </Field>
