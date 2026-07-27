@@ -233,6 +233,7 @@ export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): Memo
     sxSarjetaoAdotadoMM,
     larguraSarjetaoEfetivaM: larguraEfetivaM,
     resultado,
+    vazaoTotalCaixaM3s: resultado.vazaoM3s * 2,
     faixaEspraiamento,
   }
 }

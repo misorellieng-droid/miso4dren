@@ -152,5 +152,14 @@ export interface MemorialSarjetaoDenteServa {
   sxSarjetaoAdotadoMM: number // Sx que gerou o resultado principal (baixo/médio/alto, conforme cenarioAdotado)
   larguraSarjetaoEfetivaM: number // W — a mesma largura usada no Δh e na composição de T (metade se simétrico, inteira se um_lado)
   resultado: ResultadoMetodoSarjetao
+  /**
+   * Vazão TOTAL que chega na caixa — soma dos dois braços que a alimentam
+   * (uma crista de cada lado), não a vazão de UM braço só (que é
+   * `resultado.vazaoM3s`, usada pra checar a capacidade do CANAL). Como o
+   * método racional é linear no comprimento, isso equivale a
+   * `2 × resultado.vazaoM3s` — pra dimensionar a caixa/tubulação enterrada
+   * a jusante, não o sarjetão em si.
+   */
+  vazaoTotalCaixaM3s: number
   faixaEspraiamento: FaixaEspraiamentoSarjetao
 }

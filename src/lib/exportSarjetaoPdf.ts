@@ -309,7 +309,36 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMet
   cursor.y += alturaBox + 18
 }
 
-function secaoMetodo(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetodoSarjetao, p: ParametrosExibicao, deltaHM: number, sxSarjetaoAdotadoMM: number) {
+function blocoVazaoTotalCaixa(doc: jsPDF, cursor: Cursor, vazaoTotalCaixaM3s: number, vazaoBracoM3s: number) {
+  garantirEspaco(doc, cursor, 45)
+  doc.setDrawColor(220, 220, 220)
+  doc.setFillColor(250, 246, 240)
+  const alturaBox = 40
+  doc.roundedRect(MARGIN_X, cursor.y, 515, alturaBox, 3, 3, 'FD')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9.5)
+  doc.setTextColor(20, 20, 20)
+  doc.text(`Vazão total na caixa = ${fmt(vazaoTotalCaixaM3s, 5)} m³/s`, MARGIN_X + 10, cursor.y + 16)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(60, 60, 60)
+  const linhas = doc.splitTextToSize(
+    `Soma dos dois braços que chegam na caixa (uma crista de cada lado) -- 2 x vazao do braco (${fmt(vazaoBracoM3s, 5)} m3/s). Use este valor pra dimensionar a caixa e a tubulacao enterrada a jusante -- nao e a mesma grandeza que a capacidade do canal (sarjetao), ja verificada por braco acima.`,
+    495
+  )
+  doc.text(linhas, MARGIN_X + 10, cursor.y + 29)
+  cursor.y += alturaBox + 18
+}
+
+function secaoMetodo(
+  doc: jsPDF,
+  cursor: Cursor,
+  resultado: ResultadoMetodoSarjetao,
+  p: ParametrosExibicao,
+  deltaHM: number,
+  sxSarjetaoAdotadoMM: number,
+  vazaoTotalCaixaM3s: number
+) {
   tituloSecao(doc, cursor, `4. ${METODO_LABEL}`)
 
   const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
@@ -371,6 +400,9 @@ function secaoMetodo(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetodoSarje
 
   subtitulo(doc, cursor, 'Resultado no ponto de equilíbrio')
   blocoResultadoFinal(doc, cursor, resultado)
+
+  subtitulo(doc, cursor, 'Vazão total na caixa (dimensionamento de caixa e tubulação enterrada)')
+  blocoVazaoTotalCaixa(doc, cursor, vazaoTotalCaixaM3s, resultado.vazaoM3s)
 }
 
 /** Memória de cálculo completa, ponto a ponto — layout formatado pra impressão/anexo de projeto. */
@@ -469,7 +501,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cursor.y = (doc as any).lastAutoTable.finalY + 20
 
-  secaoMetodo(doc, cursor, memorial.resultado, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
+  secaoMetodo(doc, cursor, memorial.resultado, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM, memorial.vazaoTotalCaixaM3s)
 
   tituloSecao(doc, cursor, '5. Seção transversal e perfil longitudinal')
   paragrafo(doc, cursor, 'Região sombreada = área alagada real. Esquemático -- não substitui o detalhamento executivo.')

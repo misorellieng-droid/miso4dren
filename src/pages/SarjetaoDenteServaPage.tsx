@@ -501,6 +501,14 @@ export function SarjetaoDenteServaPage() {
               <ResultadoCard resultado={resultado.resultado} />
             </div>
 
+            <div className="mt-4 rounded-lg border border-border bg-elevated/40 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Vazão total na caixa</div>
+              <div className="font-sans text-xl font-bold text-text-primary">{resultado.vazaoTotalCaixaM3s.toFixed(5)} m³/s</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-text-secondary">
+                Soma dos dois braços que chegam na caixa (uma crista de cada lado) — 2 × vazão do braço acima ({resultado.resultado.vazaoM3s.toFixed(5)} m³/s). Use este valor pra dimensionar a caixa e a tubulação enterrada a jusante — não é a mesma grandeza que a capacidade do canal (sarjetão), que já é verificada por braço.
+              </p>
+            </div>
+
             <FaixaEspraiamentoCard faixa={resultado.faixaEspraiamento} cenarioAdotado={resultado.cenarioAdotado} />
 
             <div className="mt-4">

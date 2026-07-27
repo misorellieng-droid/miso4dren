@@ -168,4 +168,15 @@ describe('calcularSarjetaoDenteServa (pipeline completo, único método — HEC-
     //    exatamente o que os dois cálculos acima confirmam.
     expect(bracoM).toBeCloseTo(L / 2, 12)
   })
+
+  it('vazaoTotalCaixaM3s: a caixa recebe os DOIS braços (uma crista de cada lado) — vazão total é o dobro da vazão de um braço só', () => {
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    expect(memorial.vazaoTotalCaixaM3s).toBeCloseTo(memorial.resultado.vazaoM3s * 2, 9)
+
+    // consistência com o método racional linear: 2×Q(braço) == Q(comprimento L), calculado independentemente
+    const K = 2.78e-7
+    const L = memorial.resultado.comprimentoEquilibrioM
+    const vazaoViaLCompleto = K * memorial.resultado.intensidadeConvergidaMmH * (parametrosBase.coefC * parametrosBase.larguraViaM) * L
+    expect(memorial.vazaoTotalCaixaM3s).toBeCloseTo(vazaoViaLCompleto, 6)
+  })
 })
