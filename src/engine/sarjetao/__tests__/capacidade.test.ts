@@ -48,16 +48,17 @@ describe('calcularCapacidadeHec22 (Método 2)', () => {
   })
 })
 
-describe('numeroFaces — seção simétrica soma as duas faces espelhadas, não computa só uma', () => {
-  it('Método 1: área e perímetro dobram com numeroFaces=2, Rh fica igual, vazão dobra', () => {
+describe('numeroFaces — seção simétrica soma a ÁREA das duas faces espelhadas, não computa só uma', () => {
+  it('Método 1: área dobra com numeroFaces=2, mas o perímetro (2T) NÃO dobra — T já é medido a partir do eixo, então 2T já é a largura total do retângulo equivalente', () => {
     const umaFace = calcularCapacidadeManningGenerica(PARAMS)
     const duasFaces = calcularCapacidadeManningGenerica(PARAMS_2_FACES)
     expect(duasFaces.areaMolhadaM2).toBeCloseTo(umaFace.areaMolhadaM2 * 2, 12)
-    expect(duasFaces.raioHidraulicoM).toBeCloseTo(umaFace.raioHidraulicoM, 12)
-    expect(duasFaces.vazaoCapacidadeM3s).toBeCloseTo(umaFace.vazaoCapacidadeM3s * 2, 9)
+    expect(duasFaces.raioHidraulicoM).toBeCloseTo(umaFace.raioHidraulicoM * 2, 12) // P igual, A dobra -> Rh dobra
+    // Q = (1/n)*A*Rh^(2/3)*sqrt(SL): A dobra e Rh dobra -> Q escala por 2 * 2^(2/3) = 2^(5/3)
+    expect(duasFaces.vazaoCapacidadeM3s).toBeCloseTo(umaFace.vazaoCapacidadeM3s * Math.pow(2, 5 / 3), 9)
   })
 
-  it('Método 2: área e perímetro dobram com numeroFaces=2, Rh fica igual, vazão dobra', () => {
+  it('Método 2: área E perímetro reais dobram com numeroFaces=2 (duas faces físicas de verdade) — Rh fica igual, vazão dobra', () => {
     const umaFace = calcularCapacidadeHec22(PARAMS)
     const duasFaces = calcularCapacidadeHec22(PARAMS_2_FACES)
     expect(duasFaces.areaMolhadaM2).toBeCloseTo(umaFace.areaMolhadaM2 * 2, 12)

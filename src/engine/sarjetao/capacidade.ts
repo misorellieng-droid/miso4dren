@@ -35,15 +35,21 @@ function geometriaTotal(params: ParametrosCapacidadeComposta) {
  * real, composta pelos dois triângulos (calha + via, ver
  * calcularGeometriaCompostaSarjetao), somada nas duas faces se simétrico —
  * não mais T·y_max de um plano só. A simplificação que sobra, e que dá nome
- * ao método, é tratar o perímetro de cada face como 2T (canal largo e raso,
- * T ≫ y_max), em vez do comprimento de arco real dos dois planos — por isso
- * o Rh (e a capacidade) diverge do Método 2, pra mais ou pra menos
- * dependendo da geometria.
+ * ao método, é tratar o perímetro como 2T (canal largo e raso, T ≫ y_max),
+ * em vez do comprimento de arco real dos dois planos.
+ *
+ * O perímetro NÃO é multiplicado por numeroFaces: T já é medido a partir do
+ * eixo/fundo do V (uma face), então 2T já corresponde à largura total do
+ * "retângulo equivalente" (de -T a +T) quando simétrico — multiplicar de
+ * novo pelas duas faces contaria a largura em dobro. Isso não é uma
+ * superfície real (não é a pista nem a calha, é só a aproximação genérica
+ * de largura do método) — só a ÁREA real (que É fisicamente a soma das
+ * duas faces) precisa do fator numeroFaces.
  */
 export function calcularCapacidadeManningGenerica(params: ParametrosCapacidadeComposta): ResultadoCapacidade {
-  const { manningN, declividadeLongitudinalMM: SL, numeroFaces } = params
+  const { manningN, declividadeLongitudinalMM: SL } = params
   const { areaMolhadaM2, larguraEspraiamentoM: T } = geometriaTotal(params)
-  const perimetroMolhadoM = 2 * T * numeroFaces
+  const perimetroMolhadoM = 2 * T
   const raioHidraulicoM = areaMolhadaM2 / perimetroMolhadoM
   const vazaoCapacidadeM3s = (1 / manningN) * areaMolhadaM2 * Math.pow(raioHidraulicoM, 2 / 3) * Math.sqrt(SL)
   return { areaMolhadaM2, raioHidraulicoM, velocidadeMs: vazaoCapacidadeM3s / areaMolhadaM2, vazaoCapacidadeM3s }

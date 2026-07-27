@@ -332,12 +332,19 @@ function secaoMetodo(
   const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxSarjetaoAdotadoMM, sxPista: p.sxPista })
   const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
 
-  const notaFaces = p.tipoSecao === 'simetrico' ? 'A e P somam as DUAS faces espelhadas do V (o dobro de uma face so).' : 'Sarjeta de um lado so -- A e P sao de uma face unica.'
+  const notaFacesM1 =
+    p.tipoSecao === 'simetrico'
+      ? 'A soma as DUAS faces espelhadas do V (o dobro de uma face so), mas P continua 2T -- T e medido a partir do eixo, entao 2T ja e a largura total do retangulo equivalente (nao e uma superficie real, e so a aproximacao generica de largura do metodo).'
+      : 'Sarjeta de um lado so -- A e P abaixo sao de uma face unica.'
+  const notaFacesM2 =
+    p.tipoSecao === 'simetrico'
+      ? 'A e P abaixo ja somam as DUAS faces espelhadas do V -- sao superficies reais, e o canal completo escoa o dobro de uma face so.'
+      : 'Sarjeta de um lado so -- A e P abaixo sao de uma face unica.'
 
   if (metodo === 'manning_generico') {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro aproximado 2T')
     linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
-    paragrafo(doc, cursor, notaFaces)
+    paragrafo(doc, cursor, notaFacesM1)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = 2 x T = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
@@ -348,7 +355,7 @@ function secaoMetodo(
   } else {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
     linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
-    paragrafo(doc, cursor, notaFaces)
+    paragrafo(doc, cursor, notaFacesM2)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
