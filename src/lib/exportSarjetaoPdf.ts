@@ -332,9 +332,12 @@ function secaoMetodo(
   const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxSarjetaoAdotadoMM, sxPista: p.sxPista })
   const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
 
+  const notaFaces = p.tipoSecao === 'simetrico' ? 'A e P somam as DUAS faces espelhadas do V (o dobro de uma face so).' : 'Sarjeta de um lado so -- A e P sao de uma face unica.'
+
   if (metodo === 'manning_generico') {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro aproximado 2T')
     linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    paragrafo(doc, cursor, notaFaces)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = 2 x T = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
@@ -345,6 +348,7 @@ function secaoMetodo(
   } else {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
     linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    paragrafo(doc, cursor, notaFaces)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4

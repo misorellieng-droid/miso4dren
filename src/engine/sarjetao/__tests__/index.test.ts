@@ -74,10 +74,12 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
       sxPista: parametrosBase.sxPista,
     })
 
-    // Método 1 e Método 2 usam a MESMA área real composta — só o perímetro difere (2T vs. arco real)
-    expect(resultado.metodo1.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2, 9)
-    expect(resultado.metodo2.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2, 9)
-    expect(resultado.metodo2.raioHidraulicoM).toBeCloseTo(geometria.raioHidraulicoM, 9)
+    // Método 1 e Método 2 usam a MESMA área real composta — só o perímetro difere (2T vs. arco real).
+    // tipoSecao='simetrico' tem DUAS faces espelhadas somadas — a área total é o dobro de uma face só
+    // (ver bug reportado: a área não podia ficar restrita a uma face, o V completo escoa o dobro).
+    expect(resultado.metodo1.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2 * 2, 9)
+    expect(resultado.metodo2.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2 * 2, 9)
+    expect(resultado.metodo2.raioHidraulicoM).toBeCloseTo(geometria.raioHidraulicoM, 9) // Rh não muda ao dobrar A e P juntos
     expect(resultado.metodo1.raioHidraulicoM).not.toBeCloseTo(resultado.metodo2.raioHidraulicoM, 6)
 
     // T adotado no resultado principal também vem do Sx médio, não é mais o valor bruto de entrada
@@ -97,13 +99,20 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
     }
   })
 
-  it('um_lado com largura W dá resultado idêntico a simetrico com largura 2W (mesmo Δh, só muda o fator da fórmula)', () => {
+  it('um_lado com largura W tem o mesmo Δh que simetrico com largura 2W, mas simetrico escoa o DOBRO (duas faces, não uma)', () => {
     const simetrico = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'simetrico', larguraSarjetaoM: 0.9 })
     const umLado = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'um_lado', larguraSarjetaoM: 0.45 })
 
+    // mesma largura de face (W=0,45) nos dois casos -> mesmo Δh
     expect(umLado.deltaHM).toBeCloseTo(simetrico.deltaHM, 12)
-    expect(umLado.metodo1.comprimentoEquilibrioM).toBeCloseTo(simetrico.metodo1.comprimentoEquilibrioM, 9)
-    expect(umLado.metodo2.comprimentoEquilibrioM).toBeCloseTo(simetrico.metodo2.comprimentoEquilibrioM, 9)
+
+    // simétrico soma as duas faces espelhadas -> área total é o dobro da de um_lado (uma face só)
+    expect(simetrico.metodo1.areaMolhadaM2).toBeCloseTo(umLado.metodo1.areaMolhadaM2 * 2, 9)
+    expect(simetrico.metodo2.areaMolhadaM2).toBeCloseTo(umLado.metodo2.areaMolhadaM2 * 2, 9)
+
+    // mais capacidade -> precisa de um comprimento maior pra acumular vazão suficiente pra atingi-la
+    expect(simetrico.metodo1.comprimentoEquilibrioM).toBeGreaterThan(umLado.metodo1.comprimentoEquilibrioM)
+    expect(simetrico.metodo2.comprimentoEquilibrioM).toBeGreaterThan(umLado.metodo2.comprimentoEquilibrioM)
   })
 
   it('um_lado usa a largura inteira em Δh (não divide por 2 como o simétrico)', () => {

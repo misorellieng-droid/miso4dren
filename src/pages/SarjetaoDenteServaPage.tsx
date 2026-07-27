@@ -723,7 +723,10 @@ function MemorialMetodo({
         Dois planos de declividade transversal — a calha do sarjetão (cenário {CENARIO_LABELS[cenarioAdotado]}, Sx ={' '}
         {(sxSarjetaoAdotadoMM * 100).toFixed(2)}%) e a via fora dela (Sx da pista = {(p.sxPista * 100).toFixed(2)}%) — mesma
         composição de dois planos da Sarjeta Crítica, não um único plano homogêneo.{' '}
-        {metodo === 'manning_generico' ? 'Perímetro aproximado como 2T (canal largo e raso).' : 'Perímetro real (comprimento de arco dos dois planos).'}
+        {metodo === 'manning_generico' ? 'Perímetro aproximado como 2T (canal largo e raso).' : 'Perímetro real (comprimento de arco dos dois planos).'}{' '}
+        {p.tipoSecao === 'simetrico'
+          ? 'A e P abaixo já somam as DUAS faces espelhadas do V (o canal completo escoa o dobro de uma face só).'
+          : 'Sarjeta de um lado só — A e P abaixo são de uma face única.'}
       </p>
       <span className={FORMULA_LINE}>T = {T.toFixed(4)} m</span>
       <span className={FORMULA_LINE}>

@@ -163,6 +163,7 @@ function resolverAmbosMetodos(parametros: ParametrosSarjetao, deltaHM: number, l
     sxSarjetao: sxSarjetaoParaGeometria,
     sxPista: parametros.sxPista,
     manningN: parametros.manningN,
+    numeroFaces: (parametros.tipoSecao === 'simetrico' ? 2 : 1) as 1 | 2,
   }
 
   const metodo1 = resolverMetodo({

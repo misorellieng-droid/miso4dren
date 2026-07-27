@@ -3,7 +3,16 @@ import { calcularCapacidadeHec22, calcularCapacidadeManningGenerica } from '../c
 import { calcularGeometriaCompostaSarjetao } from '../espraiamento'
 
 // Caso A (espraiamento avança pra pista): y_max=4,5cm, calha de 0,45m a 2%, pista a 1%.
-const PARAMS = { yMaxM: 0.045, larguraSarjetaoEfetivaM: 0.45, sxSarjetao: 0.02, sxPista: 0.01, manningN: 0.016, declividadeLongitudinalMM: 0.0045 }
+const PARAMS = {
+  yMaxM: 0.045,
+  larguraSarjetaoEfetivaM: 0.45,
+  sxSarjetao: 0.02,
+  sxPista: 0.01,
+  manningN: 0.016,
+  declividadeLongitudinalMM: 0.0045,
+  numeroFaces: 1 as const,
+}
+const PARAMS_2_FACES = { ...PARAMS, numeroFaces: 2 as const }
 
 describe('calcularCapacidadeManningGenerica (Método 1)', () => {
   it('usa a área REAL composta (calha + via) e P=2T — não T·y_max de um plano só', () => {
@@ -36,5 +45,23 @@ describe('calcularCapacidadeHec22 (Método 2)', () => {
     const m2 = calcularCapacidadeHec22(PARAMS)
     expect(m1.areaMolhadaM2).toBeCloseTo(m2.areaMolhadaM2, 12)
     expect(m1.raioHidraulicoM).not.toBeCloseTo(m2.raioHidraulicoM, 6)
+  })
+})
+
+describe('numeroFaces — seção simétrica soma as duas faces espelhadas, não computa só uma', () => {
+  it('Método 1: área e perímetro dobram com numeroFaces=2, Rh fica igual, vazão dobra', () => {
+    const umaFace = calcularCapacidadeManningGenerica(PARAMS)
+    const duasFaces = calcularCapacidadeManningGenerica(PARAMS_2_FACES)
+    expect(duasFaces.areaMolhadaM2).toBeCloseTo(umaFace.areaMolhadaM2 * 2, 12)
+    expect(duasFaces.raioHidraulicoM).toBeCloseTo(umaFace.raioHidraulicoM, 12)
+    expect(duasFaces.vazaoCapacidadeM3s).toBeCloseTo(umaFace.vazaoCapacidadeM3s * 2, 9)
+  })
+
+  it('Método 2: área e perímetro dobram com numeroFaces=2, Rh fica igual, vazão dobra', () => {
+    const umaFace = calcularCapacidadeHec22(PARAMS)
+    const duasFaces = calcularCapacidadeHec22(PARAMS_2_FACES)
+    expect(duasFaces.areaMolhadaM2).toBeCloseTo(umaFace.areaMolhadaM2 * 2, 12)
+    expect(duasFaces.raioHidraulicoM).toBeCloseTo(umaFace.raioHidraulicoM, 12)
+    expect(duasFaces.vazaoCapacidadeM3s).toBeCloseTo(umaFace.vazaoCapacidadeM3s * 2, 9)
   })
 })
