@@ -105,6 +105,37 @@ export interface ResultadoMetodoSarjetao {
   historicoIteracoesTc: IteracaoTc[] // uma entrada por passada do loop de Tc, na ordem em que ocorreram — a memória de cálculo ponto a ponto
 }
 
+/** Resultado resumido de um método, recalculado com um T alternativo — só pra faixa de avaliação, não é o resultado adotado. */
+export interface ResultadoFaixaEspraiamento {
+  larguraEspraiamentoM: number
+  comprimentoEquilibrioM: number
+  vazaoCapacidadeM3s: number
+}
+
+/**
+ * Faixa de avaliação do espraiamento: o T adotado no resultado principal usa
+ * a declividade MÉDIA do sarjetão (entre o ponto alto e o ponto baixo) — mas
+ * como essa declividade varia ao longo do braço (mais suave na crista, mais
+ * íngreme na caixa), T também varia. Este bloco recalcula T e o comprimento
+ * de equilíbrio nos dois extremos (Sx_alto e Sx_baixo), pra dar ao
+ * engenheiro uma faixa mín/máx pra avaliar, sem que isso altere o resultado
+ * principal adotado.
+ */
+export interface FaixaEspraiamentoSarjetao {
+  sxSarjetaoMedioMM: number
+  larguraEspraiamentoAdotadoM: number
+  minimo: {
+    sxSarjetaoMM: number // Sx_baixo — mais íngreme, contém mais a lâmina, dá o menor T
+    metodo1: ResultadoFaixaEspraiamento
+    metodo2: ResultadoFaixaEspraiamento
+  }
+  maximo: {
+    sxSarjetaoMM: number // Sx_alto — mais suave, espraia mais pra pista, dá o maior T
+    metodo1: ResultadoFaixaEspraiamento
+    metodo2: ResultadoFaixaEspraiamento
+  }
+}
+
 /** Comparação lado a lado dos dois métodos — nenhum é descartado. */
 export interface MemorialSarjetaoDenteServa {
   deltaHM: number
@@ -114,4 +145,5 @@ export interface MemorialSarjetaoDenteServa {
   diferencaPercentual: number
   comprimentoRecomendadoM: number // o menor dos dois, lado da segurança
   metodoRecomendado: MetodoCapacidade
+  faixaEspraiamento: FaixaEspraiamentoSarjetao
 }

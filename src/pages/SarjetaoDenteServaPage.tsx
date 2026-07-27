@@ -4,7 +4,10 @@ import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import {
+  calcularEspraiamentoComposto,
+  calcularLaminaParaEspraiamentoComposto,
   calcularSarjetaoDenteServa,
+  type FaixaEspraiamentoSarjetao,
   type MemorialSarjetaoDenteServa,
   type MetodoCapacidade,
   type ResultadoMetodoSarjetao,
@@ -76,25 +79,38 @@ export function SarjetaoDenteServaPage() {
     }
   }, [revisaoAtiva])
 
-  // y_max e T (espraiamento) são reciprocamente derivados via T = y_max / Sx da pista:
-  // o campo controlador é a entrada manual, o outro é sempre recalculado a partir dele.
+  // y_max e T (espraiamento) são reciprocamente derivados pela composição de dois planos
+  // (calha do sarjetão + pista fora dela — ver calcularEspraiamentoComposto): usa a
+  // declividade MÉDIA do sarjetão (entre o ponto alto e o ponto baixo) como a declividade
+  // única da calha nessa composição. O campo controlador é a entrada manual, o outro é
+  // sempre recalculado a partir dele.
   useEffect(() => {
-    const sx = Number(form.sxPistaPct) / 100
-    if (!Number.isFinite(sx) || sx <= 0) return
+    const sxPista = Number(form.sxPistaPct) / 100
+    const sxAlto = Number(form.sxSarjetaoAltoPct) / 100
+    const sxBaixo = Number(form.sxSarjetaoBaixoPct) / 100
+    const larguraSarjetao = Number(form.larguraSarjetaoM)
+    if (!Number.isFinite(sxPista) || sxPista <= 0) return
+    if (!Number.isFinite(sxAlto) || sxAlto <= 0 || !Number.isFinite(sxBaixo) || sxBaixo <= 0) return
+    if (!Number.isFinite(larguraSarjetao) || larguraSarjetao <= 0) return
+
+    const sxMedio = (sxAlto + sxBaixo) / 2
+    const larguraEfetiva = tipoSecao === 'simetrico' ? larguraSarjetao / 2 : larguraSarjetao
 
     if (campoControlador === 'yMax') {
       const yMax = Number(form.yMaxM)
       if (Number.isFinite(yMax) && yMax > 0) {
-        setForm((f) => ({ ...f, espraiamentoM: (yMax / sx).toFixed(4) }))
+        const T = calcularEspraiamentoComposto({ yMaxM: yMax, larguraSarjetaoEfetivaM: larguraEfetiva, sxSarjetao: sxMedio, sxPista })
+        setForm((f) => ({ ...f, espraiamentoM: T.toFixed(4) }))
       }
     } else {
       const T = Number(form.espraiamentoM)
       if (Number.isFinite(T) && T > 0) {
-        setForm((f) => ({ ...f, yMaxM: (T * sx).toFixed(4) }))
+        const yMax = calcularLaminaParaEspraiamentoComposto({ larguraEspraiamentoM: T, larguraSarjetaoEfetivaM: larguraEfetiva, sxSarjetao: sxMedio, sxPista })
+        setForm((f) => ({ ...f, yMaxM: yMax.toFixed(4) }))
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.yMaxM, form.espraiamentoM, form.sxPistaPct, campoControlador])
+  }, [form.yMaxM, form.espraiamentoM, form.sxPistaPct, form.sxSarjetaoAltoPct, form.sxSarjetaoBaixoPct, form.larguraSarjetaoM, tipoSecao, campoControlador])
 
   const setCampo = (campo: FormField, valor: string) => setForm((f) => ({ ...f, [campo]: valor }))
 
@@ -370,7 +386,7 @@ export function SarjetaoDenteServaPage() {
           <Field
             label="Lâmina d'água admissível — y_max (m)"
             required
-            hint={campoControlador === 'espraiamento' ? 'Calculado automaticamente: T × Sx da pista' : undefined}
+            hint={campoControlador === 'espraiamento' ? 'Calculado automaticamente a partir de T (composição calha + pista)' : undefined}
           >
             <input
               type="number"
@@ -389,7 +405,11 @@ export function SarjetaoDenteServaPage() {
           <Field
             label="Espraiamento T (m)"
             required
-            hint={campoControlador === 'yMax' ? 'Calculado automaticamente: y_max / Sx da pista' : undefined}
+            hint={
+              campoControlador === 'yMax'
+                ? 'Calculado automaticamente: composição da calha do sarjetão (Sx médio) + Sx da pista — ver faixa mín/máx no resultado'
+                : undefined
+            }
           >
             <input
               type="number"
@@ -467,6 +487,8 @@ export function SarjetaoDenteServaPage() {
                 predominante sobre a pista).
               </p>
             </div>
+
+            <FaixaEspraiamentoCard faixa={resultado.faixaEspraiamento} metodo1LM={resultado.metodo1.comprimentoEquilibrioM} metodo2LM={resultado.metodo2.comprimentoEquilibrioM} />
 
             <div className="mt-4">
               <SecaoTransversalSarjetao
@@ -559,6 +581,64 @@ function MetodoCard({
           <AlertTriangle size={12} /> Não convergiu totalmente — confira os parâmetros.
         </div>
       )}
+    </div>
+  )
+}
+
+function FaixaEspraiamentoCard({
+  faixa,
+  metodo1LM,
+  metodo2LM,
+}: {
+  faixa: FaixaEspraiamentoSarjetao
+  metodo1LM: number
+  metodo2LM: number
+}) {
+  return (
+    <div className="mt-4 rounded-lg border border-accent-amber/30 bg-accent-amber/5 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Faixa de avaliação do espraiamento</div>
+      <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+        O T adotado acima usa a declividade média do sarjetão ({(faixa.sxSarjetaoMedioMM * 100).toFixed(2)}%) — mas essa
+        declividade varia de fato ao longo do braço, mais suave na crista e mais íngreme na caixa. A tabela abaixo
+        recalcula T e o comprimento de equilíbrio nos dois extremos, só para avaliação — não altera o resultado
+        adotado acima.
+      </p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border text-left text-text-secondary">
+              <th className="py-1 pr-3 font-medium">Cenário</th>
+              <th className="py-1 pr-3 font-medium">Sx do sarjetão</th>
+              <th className="py-1 pr-3 font-medium">T</th>
+              <th className="py-1 pr-3 font-medium">L Método 1</th>
+              <th className="py-1 font-medium">L Método 2</th>
+            </tr>
+          </thead>
+          <tbody className="font-mono">
+            <tr className="border-b border-border/50">
+              <td className="py-1 pr-3 font-sans text-text-secondary">Mínimo (ponto baixo, mais íngreme)</td>
+              <td className="py-1 pr-3">{(faixa.minimo.sxSarjetaoMM * 100).toFixed(2)}%</td>
+              <td className="py-1 pr-3">{faixa.minimo.metodo1.larguraEspraiamentoM.toFixed(2)} m</td>
+              <td className="py-1 pr-3">{faixa.minimo.metodo1.comprimentoEquilibrioM.toFixed(2)} m</td>
+              <td className="py-1">{faixa.minimo.metodo2.comprimentoEquilibrioM.toFixed(2)} m</td>
+            </tr>
+            <tr className="border-b border-border/50 text-brand">
+              <td className="py-1 pr-3 font-sans font-semibold">Adotado (Sx médio)</td>
+              <td className="py-1 pr-3">{(faixa.sxSarjetaoMedioMM * 100).toFixed(2)}%</td>
+              <td className="py-1 pr-3">{faixa.larguraEspraiamentoAdotadoM.toFixed(2)} m</td>
+              <td className="py-1 pr-3">{metodo1LM.toFixed(2)} m</td>
+              <td className="py-1">{metodo2LM.toFixed(2)} m</td>
+            </tr>
+            <tr>
+              <td className="py-1 pr-3 font-sans text-text-secondary">Máximo (ponto alto, mais suave)</td>
+              <td className="py-1 pr-3">{(faixa.maximo.sxSarjetaoMM * 100).toFixed(2)}%</td>
+              <td className="py-1 pr-3">{faixa.maximo.metodo1.larguraEspraiamentoM.toFixed(2)} m</td>
+              <td className="py-1 pr-3">{faixa.maximo.metodo1.comprimentoEquilibrioM.toFixed(2)} m</td>
+              <td className="py-1">{faixa.maximo.metodo2.comprimentoEquilibrioM.toFixed(2)} m</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

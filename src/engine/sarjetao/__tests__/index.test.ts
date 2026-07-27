@@ -108,4 +108,18 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
     const deltaHEsperado = 0.9 * (parametrosBase.sxSarjetaoBaixo - parametrosBase.sxSarjetaoAlto)
     expect(resultado.deltaHM).toBeCloseTo(deltaHEsperado, 12)
   })
+
+  it('faixaEspraiamento: T mínimo (Sx_baixo, mais íngreme) é sempre menor que T máximo (Sx_alto, mais suave)', () => {
+    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+    expect(resultado.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM).toBeLessThan(resultado.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM)
+    expect(resultado.faixaEspraiamento.sxSarjetaoMedioMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
+    expect(resultado.faixaEspraiamento.minimo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoBaixo)
+    expect(resultado.faixaEspraiamento.maximo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoAlto)
+  })
+
+  it('faixaEspraiamento não altera o resultado principal (metodo1/metodo2 continuam usando o T adotado)', () => {
+    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+    expect(resultado.larguraEspraiamentoM).toBe(parametrosBase.larguraEspraiamentoM)
+    expect(resultado.faixaEspraiamento.larguraEspraiamentoAdotadoM).toBe(parametrosBase.larguraEspraiamentoM)
+  })
 })

@@ -423,18 +423,66 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   cursor.y = (doc as any).lastAutoTable.finalY + 20
 
   tituloSecao(doc, cursor, '2. Desnível do sarjetão (delta_h)')
-  linhaFormula(doc, cursor, 'delta_h = (largura_sarjetao / 2) x (Sx_baixo - Sx_alto)')
-  linhaFormula(
+  if (p.tipoSecao === 'simetrico') {
+    linhaFormula(doc, cursor, 'delta_h = (largura_sarjetao / 2) x (Sx_baixo - Sx_alto)')
+    linhaFormula(
+      doc,
+      cursor,
+      `delta_h = (${fmt(p.larguraSarjetaoM, 2)} / 2) x (${fmt(p.sxSarjetaoBaixo, 3)} - ${fmt(p.sxSarjetaoAlto, 3)}) = ${fmt(memorial.deltaHM, 4)} m (${fmt(memorial.deltaHM * 100, 2)} cm)`
+    )
+  } else {
+    linhaFormula(doc, cursor, 'delta_h = largura_sarjeta x (Sx_baixo - Sx_alto)')
+    linhaFormula(
+      doc,
+      cursor,
+      `delta_h = ${fmt(p.larguraSarjetaoM, 2)} x (${fmt(p.sxSarjetaoBaixo, 3)} - ${fmt(p.sxSarjetaoAlto, 3)}) = ${fmt(memorial.deltaHM, 4)} m (${fmt(memorial.deltaHM * 100, 2)} cm)`
+    )
+  }
+  cursor.y += 10
+
+  tituloSecao(doc, cursor, '3. Faixa de avaliação do espraiamento')
+  paragrafo(
     doc,
     cursor,
-    `delta_h = (${fmt(p.larguraSarjetaoM, 2)} / 2) x (${fmt(p.sxSarjetaoBaixo, 3)} - ${fmt(p.sxSarjetaoAlto, 3)}) = ${fmt(memorial.deltaHM, 4)} m (${fmt(memorial.deltaHM * 100, 2)} cm)`
+    `O T adotado na secao 1 usa a declividade media do sarjetao (${pct(memorial.faixaEspraiamento.sxSarjetaoMedioMM, 2)}) -- mas essa declividade varia de fato ao longo do braco (mais suave na crista, mais ingreme na caixa). A tabela abaixo recalcula T e o comprimento de equilibrio nos dois extremos, so para avaliacao -- nao altera o resultado adotado.`
   )
-  cursor.y += 10
+  autoTable(doc, {
+    startY: cursor.y,
+    margin: { left: MARGIN_X, right: MARGIN_X },
+    head: [['Cenário', 'Sx do sarjetão', 'T', 'L Método 1', 'L Método 2']],
+    body: [
+      [
+        'Mínimo (ponto baixo, mais íngreme)',
+        pct(memorial.faixaEspraiamento.minimo.sxSarjetaoMM, 2),
+        `${fmt(memorial.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM, 2)} m`,
+        `${fmt(memorial.faixaEspraiamento.minimo.metodo1.comprimentoEquilibrioM, 2)} m`,
+        `${fmt(memorial.faixaEspraiamento.minimo.metodo2.comprimentoEquilibrioM, 2)} m`,
+      ],
+      [
+        'Adotado (Sx médio)',
+        pct(memorial.faixaEspraiamento.sxSarjetaoMedioMM, 2),
+        `${fmt(memorial.faixaEspraiamento.larguraEspraiamentoAdotadoM, 2)} m`,
+        `${fmt(memorial.metodo1.comprimentoEquilibrioM, 2)} m`,
+        `${fmt(memorial.metodo2.comprimentoEquilibrioM, 2)} m`,
+      ],
+      [
+        'Máximo (ponto alto, mais suave)',
+        pct(memorial.faixaEspraiamento.maximo.sxSarjetaoMM, 2),
+        `${fmt(memorial.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM, 2)} m`,
+        `${fmt(memorial.faixaEspraiamento.maximo.metodo1.comprimentoEquilibrioM, 2)} m`,
+        `${fmt(memorial.faixaEspraiamento.maximo.metodo2.comprimentoEquilibrioM, 2)} m`,
+      ],
+    ],
+    styles: { fontSize: 8.5, cellPadding: 4 },
+    headStyles: { fillColor: BRAND_RGB },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cursor.y = (doc as any).lastAutoTable.finalY + 20
 
   secaoMetodo(doc, cursor, 'manning_generico', memorial.metodo1, p, memorial.deltaHM)
   secaoMetodo(doc, cursor, 'hec22', memorial.metodo2, p, memorial.deltaHM)
 
-  tituloSecao(doc, cursor, '5. Comparação e recomendação')
+  tituloSecao(doc, cursor, '6. Comparação e recomendação')
   garantirEspaco(doc, cursor, 40)
   autoTable(doc, {
     startY: cursor.y,
@@ -468,7 +516,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
     `Diferença entre os métodos: ${fmt(memorial.diferencaPercentual, 1)}%. Recomenda-se adotar o menor comprimento entre os dois -- ${fmt(memorial.comprimentoRecomendadoM, 2)} m (${METODO_LABELS[memorial.metodoRecomendado]}) -- pelo lado da segurança. A diferença decorre de premissas geométricas distintas (retângulo equivalente vs. integração triangular calibrada); nenhum dos dois métodos deve ser descartado como incorreto -- a escolha final depende de qual geometria descreve melhor o trecho real.`
   )
 
-  tituloSecao(doc, cursor, '6. Seção transversal e perfil longitudinal')
+  tituloSecao(doc, cursor, '7. Seção transversal e perfil longitudinal')
   paragrafo(
     doc,
     cursor,
