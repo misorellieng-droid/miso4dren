@@ -1,13 +1,18 @@
+import { calcularGeometriaTriangular } from '../sarjeta/geometrias/triangular'
+
 /**
- * Espraiamento (T) composto por dois planos — a própria calha do sarjetão
+ * Geometria composta por dois planos — a própria calha do sarjetão
  * (declividade transversal própria, tipicamente mais íngreme) e a pista fora
- * dela (mais suave). Mesma lógica de dois planos já usada na Sarjeta Crítica
- * (ver src/engine/sarjeta/geometrias/triangular.ts, casos A/B), reaproveitada
- * aqui porque o sarjetão em dente de serra tem exatamente o mesmo problema:
- * usar só a declividade da pista pro espraiamento (T = y_max / Sx_pista)
- * ignora a calha, que costuma ser bem mais estreita e íngreme — em calhas
- * estreitas isso pode superestimar MUITO o T real (a lâmina fica contida
- * dentro da própria calha antes de sequer alcançar a pista).
+ * dela (mais suave), tratadas como dois triângulos distintos (não um único
+ * plano homogêneo médio). Mesma lógica de dois planos já usada na Sarjeta
+ * Crítica (ver src/engine/sarjeta/geometrias/triangular.ts, casos A/B),
+ * reaproveitada aqui porque o sarjetão em dente de serra tem exatamente o
+ * mesmo problema: usar só a declividade da pista pro espraiamento (T = y_max
+ * / Sx_pista) ignora a calha, que costuma ser bem mais estreita e íngreme —
+ * em calhas estreitas isso pode superestimar MUITO o T real (a lâmina fica
+ * contida dentro da própria calha antes de sequer alcançar a pista), e
+ * tratar a área/perímetro como se fossem de um único plano superestima
+ * também a capacidade.
  *
  * Referencial: x=0 no fundo/eixo da calha, onde a lâmina vale y_max; a
  * profundidade decresce linearmente até 0 na borda do espraiamento (T).
@@ -47,4 +52,32 @@ export function calcularLaminaParaEspraiamentoComposto(params: ParametrosLaminaP
     return T * sxSarjetao
   }
   return sxSarjetao * w + (T - w) * sxPista
+}
+
+export interface GeometriaCompostaSarjetao {
+  larguraEspraiamentoM: number
+  areaMolhadaM2: number
+  perimetroMolhadoM: number
+  raioHidraulicoM: number
+}
+
+/**
+ * Área/perímetro/Rh REAIS da seção composta — o triângulo da via (Sx_pista) e
+ * o triângulo/trapézio da calha do sarjetão (Sx do sarjetão) somados como
+ * duas peças distintas, não um único plano homogêneo. Reaproveita
+ * integralmente a mesma composição de dois planos já usada e validada na
+ * Sarjeta Crítica (`calcularGeometriaTriangular`, casos A/B) — o problema é
+ * fisicamente idêntico, só muda o nome dos parâmetros.
+ */
+export function calcularGeometriaCompostaSarjetao(params: ParametrosEspraiamentoComposto): GeometriaCompostaSarjetao {
+  const { yMaxM, larguraSarjetaoEfetivaM: w, sxSarjetao, sxPista } = params
+  const { areaMolhadaM2, perimetroMolhadoM, raioHidraulicoM } = calcularGeometriaTriangular({
+    tipo: 'triangular',
+    y0M: yMaxM,
+    larguraSarjetaM: w,
+    declividadeTransversalSarjetaMM: sxSarjetao,
+    declividadeTransversalViaMM: sxPista,
+  })
+  const larguraEspraiamentoM = calcularEspraiamentoComposto(params)
+  return { larguraEspraiamentoM, areaMolhadaM2, perimetroMolhadoM, raioHidraulicoM }
 }

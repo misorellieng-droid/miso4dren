@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { calcularEspraiamentoComposto } from '../engine/sarjetao'
 import type { MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
 
 /** Espelha os campos numéricos do formulário no momento do cálculo — usado tanto no memorial em tela quanto no PDF. */
@@ -295,33 +296,31 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMet
 function secaoMetodo(doc: jsPDF, cursor: Cursor, metodo: MetodoCapacidade, resultado: ResultadoMetodoSarjetao, p: ParametrosExibicao, deltaHM: number) {
   tituloSecao(doc, cursor, METODO_LABELS[metodo])
 
+  const sxMedio = (p.sxSarjetaoAlto + p.sxSarjetaoBaixo) / 2
+  const larguraEfetivaM = p.tipoSecao === 'simetrico' ? p.larguraSarjetaoM / 2 : p.larguraSarjetaoM
+  const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxMedio, sxPista: p.sxPista })
+  const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
+
   if (metodo === 'manning_generico') {
-    subtitulo(doc, cursor, 'Geometria da seção (retangular equivalente)')
-    linhaFormula(doc, cursor, `A = T x y_max = ${fmt(p.larguraEspraiamentoM, 4)} x ${fmt(p.yMaxM, 4)} = ${fmt(resultado.areaMolhadaM2, 5)} m2`)
-    linhaFormula(doc, cursor, `P = 2 x T = 2 x ${fmt(p.larguraEspraiamentoM, 4)} = ${fmt(2 * p.larguraEspraiamentoM, 4)} m`)
-    linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(2 * p.larguraEspraiamentoM, 4)} = ${fmt(resultado.raioHidraulicoM ?? 0, 5)} m`)
+    subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro aproximado 2T')
+    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx medio ${fmt(sxMedio * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = 2 x T = ${fmt(perimetroMolhadoM, 4)} m`)
+    linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
 
     subtitulo(doc, cursor, 'Capacidade hidráulica (no braço, L/2)')
     linhaFormula(doc, cursor, 'Qcap = (1/n) x A x Rh^(2/3) x SL^(1/2)')
-    linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM ?? 0, 5)}^(2/3) x SL^(1/2)`)
+    linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
   } else {
-    subtitulo(doc, cursor, 'Geometria de referência (área triangular equivalente, só para reportar velocidade)')
-    linhaFormula(doc, cursor, `A_eq = T x y_max / 2 = ${fmt(p.larguraEspraiamentoM, 4)} x ${fmt(p.yMaxM, 4)} / 2 = ${fmt(resultado.areaMolhadaM2, 5)} m2`)
+    subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
+    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx medio ${fmt(sxMedio * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
+    linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
 
-    subtitulo(doc, cursor, 'Capacidade hidráulica (seção triangular integrada, no braço)')
-    linhaFormula(doc, cursor, 'Qcap = (0,375/n) x Sx_pista^(5/3) x SL^(1/2) x T^(8/3)')
-    linhaFormula(
-      doc,
-      cursor,
-      `Qcap = (0,375/${fmt(p.manningN, 4)}) x ${fmt(p.sxPista, 4)}^(5/3) x SL^(1/2) x ${fmt(p.larguraEspraiamentoM, 4)}^(8/3)`
-    )
-    paragrafo(
-      doc,
-      cursor,
-      'Atenção: o Sx usado aqui é o da PISTA fora do sarjetão (retroanalisado de y_max/T), não o Sx do próprio sarjetão — são geometrias distintas.'
-    )
+    subtitulo(doc, cursor, 'Capacidade hidráulica (no braço, L/2)')
+    linhaFormula(doc, cursor, 'Qcap = (1/n) x A x Rh^(2/3) x SL^(1/2)')
+    linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
   }
 
   subtitulo(doc, cursor, 'Desnível e declividade longitudinal do braço')

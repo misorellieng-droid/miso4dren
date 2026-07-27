@@ -657,43 +657,31 @@ function MemorialMetodo({
   deltaHM: number
 }) {
   const bracoM = resultado.comprimentoEquilibrioM / 2
+  const sxMedio = (p.sxSarjetaoAlto + p.sxSarjetaoBaixo) / 2
+  const larguraEfetivaM = p.tipoSecao === 'simetrico' ? p.larguraSarjetaoM / 2 : p.larguraSarjetaoM
+  const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxMedio, sxPista: p.sxPista })
+  const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
 
   return (
     <div className="rounded-lg border border-border bg-elevated/40 p-4 text-sm">
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">{METODO_LABELS[metodo]}</div>
 
-      {metodo === 'manning_generico' ? (
-        <>
-          <div className="mb-1 text-[11px] font-semibold text-text-secondary">1. Geometria (seção retangular equivalente)</div>
-          <span className={FORMULA_LINE}>A = T × y_max = {p.larguraEspraiamentoM.toFixed(4)} × {p.yMaxM.toFixed(4)} = {resultado.areaMolhadaM2.toFixed(5)} m²</span>
-          <span className={FORMULA_LINE}>P = 2 × T = 2 × {p.larguraEspraiamentoM.toFixed(4)} = {(2 * p.larguraEspraiamentoM).toFixed(4)} m</span>
-          <span className={FORMULA_LINE}>
-            Rh = A / P = {resultado.areaMolhadaM2.toFixed(5)} / {(2 * p.larguraEspraiamentoM).toFixed(4)} = {(resultado.raioHidraulicoM ?? 0).toFixed(5)} m
-          </span>
+      <div className="mb-1 text-[11px] font-semibold text-text-secondary">1. Geometria da seção composta (calha do sarjetão + via)</div>
+      <p className="mb-1 text-[11px] text-text-secondary">
+        Dois planos de declividade transversal — a calha do sarjetão (Sx médio = {(sxMedio * 100).toFixed(2)}%) e a via fora dela
+        (Sx da pista = {(p.sxPista * 100).toFixed(2)}%) — mesma composição de dois planos da Sarjeta Crítica, não um único plano
+        homogêneo. {metodo === 'manning_generico' ? 'Perímetro aproximado como 2T (canal largo e raso).' : 'Perímetro real (comprimento de arco dos dois planos).'}
+      </p>
+      <span className={FORMULA_LINE}>T = {T.toFixed(4)} m</span>
+      <span className={FORMULA_LINE}>
+        A = {resultado.areaMolhadaM2.toFixed(5)} m² · P = {perimetroMolhadoM.toFixed(4)} m · Rh = A/P = {resultado.raioHidraulicoM.toFixed(5)} m
+      </span>
 
-          <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">2. Capacidade hidráulica (no braço)</div>
-          <span className={FORMULA_LINE}>Qcap = (1/n) · A · Rh^(2/3) · SL^(1/2)</span>
-          <span className={FORMULA_LINE}>
-            Qcap = (1/{p.manningN.toFixed(4)}) × {resultado.areaMolhadaM2.toFixed(5)} × {(resultado.raioHidraulicoM ?? 0).toFixed(5)}^(2/3) × SL^(1/2)
-          </span>
-        </>
-      ) : (
-        <>
-          <div className="mb-1 text-[11px] font-semibold text-text-secondary">1. Geometria de referência (área triangular equivalente)</div>
-          <span className={FORMULA_LINE}>
-            A_eq = T × y_max / 2 = {p.larguraEspraiamentoM.toFixed(4)} × {p.yMaxM.toFixed(4)} / 2 = {resultado.areaMolhadaM2.toFixed(5)} m²
-          </span>
-
-          <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">2. Capacidade hidráulica (seção triangular integrada)</div>
-          <span className={FORMULA_LINE}>Qcap = (0,375/n) · Sx_pista^(5/3) · SL^(1/2) · T^(8/3)</span>
-          <span className={FORMULA_LINE}>
-            Qcap = (0,375/{p.manningN.toFixed(4)}) × {p.sxPista.toFixed(4)}^(5/3) × SL^(1/2) × {p.larguraEspraiamentoM.toFixed(4)}^(8/3)
-          </span>
-          <p className="mt-1 text-[11px] text-text-secondary">
-            Sx_pista aqui é o da pista fora do sarjetão — não o Sx do próprio sarjetão.
-          </p>
-        </>
-      )}
+      <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">2. Capacidade hidráulica (no braço)</div>
+      <span className={FORMULA_LINE}>Qcap = (1/n) · A · Rh^(2/3) · SL^(1/2)</span>
+      <span className={FORMULA_LINE}>
+        Qcap = (1/{p.manningN.toFixed(4)}) × {resultado.areaMolhadaM2.toFixed(5)} × {resultado.raioHidraulicoM.toFixed(5)}^(2/3) × SL^(1/2)
+      </span>
 
       <div className="mb-1 mt-3 text-[11px] font-semibold text-text-secondary">3. Δh e SL no braço</div>
       {p.tipoSecao === 'simetrico' ? (

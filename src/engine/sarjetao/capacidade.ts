@@ -1,19 +1,32 @@
+import { calcularGeometriaCompostaSarjetao } from './espraiamento'
 import type { ResultadoCapacidade } from './types'
 
-/**
- * Método 1 — Manning genérico, seção retangular equivalente:
- * A = T·y_max, P ≈ 2T (y_max ≪ T), Rh = A/P, Q = (1/n)·A·Rh^(2/3)·SL^(1/2).
- */
-export interface CapacidadeManningGenericaParams {
-  larguraEspraiamentoM: number // T
-  laminaMaxM: number // y_max
+export interface ParametrosCapacidadeComposta {
+  yMaxM: number
+  larguraSarjetaoEfetivaM: number // W — largura da calha do sarjetão (mesma usada no Δh)
+  sxSarjetao: number // declividade transversal da calha nesse ponto (alto, baixo ou médio — ver faixaEspraiamento)
+  sxPista: number // declividade transversal da via fora da calha
   manningN: number
-  declividadeLongitudinalMM: number // SL, derivada de Δh/L
+  declividadeLongitudinalMM: number // SL, derivada de Δh/braço
 }
 
-export function calcularCapacidadeManningGenerica(params: CapacidadeManningGenericaParams): ResultadoCapacidade {
-  const { larguraEspraiamentoM: T, laminaMaxM: y, manningN, declividadeLongitudinalMM: SL } = params
-  const areaMolhadaM2 = T * y
+/**
+ * Método 1 — Manning genérico, "seção retangular equivalente": a ÁREA já é a
+ * real, composta pelos dois triângulos (calha + via, ver
+ * calcularGeometriaCompostaSarjetao) — não mais T·y_max de um plano só. A
+ * simplificação que sobra, e que dá nome ao método, é tratar o perímetro
+ * como 2T (canal largo e raso, T ≫ y_max), em vez do comprimento de arco real
+ * dos dois planos — por isso o Rh (e a capacidade) diverge do Método 2, pra
+ * mais ou pra menos dependendo da geometria.
+ */
+export function calcularCapacidadeManningGenerica(params: ParametrosCapacidadeComposta): ResultadoCapacidade {
+  const { yMaxM, larguraSarjetaoEfetivaM, sxSarjetao, sxPista, manningN, declividadeLongitudinalMM: SL } = params
+  const { areaMolhadaM2, larguraEspraiamentoM: T } = calcularGeometriaCompostaSarjetao({
+    yMaxM,
+    larguraSarjetaoEfetivaM,
+    sxSarjetao,
+    sxPista,
+  })
   const perimetroMolhadoM = 2 * T
   const raioHidraulicoM = areaMolhadaM2 / perimetroMolhadoM
   const vazaoCapacidadeM3s = (1 / manningN) * areaMolhadaM2 * Math.pow(raioHidraulicoM, 2 / 3) * Math.sqrt(SL)
@@ -21,27 +34,23 @@ export function calcularCapacidadeManningGenerica(params: CapacidadeManningGener
 }
 
 /**
- * Método 2 — HEC-22/FHWA, seção triangular integrada:
- * Q = (0,375/n)·Sx^(5/3)·SL^(1/2)·T^(8/3).
- *
- * Atenção: o Sx aqui é o da PISTA fora do sarjetão (retroanalisado de
- * y_max/T), não o Sx do próprio sarjetão — são geometrias diferentes (ver
- * types.ts). A fórmula é fechada e não decompõe em área/perímetro/Rh; pra
- * reportar lâmina/velocidade de forma comparável ao Método 1 (e alimentar o
- * mesmo loop de tempo de percurso), usa-se a área triangular equivalente
- * T·y_max/2 só pra essa finalidade — não entra no cálculo de Q em si.
+ * Método 2 — HEC-22/FHWA, "seção triangular integrada": geometria composta
+ * completa — área E perímetro reais (comprimento de arco por segmento),
+ * mesma precisão da Sarjeta Crítica. Substitui a antiga fórmula fechada
+ * Qcap=(0,375/n)·Sx^(5/3)·SL^(1/2)·T^(8/3) (que só é válida pra um único
+ * plano uniforme, derivada analiticamente sob essa hipótese) por Manning
+ * aplicado direto sobre a geometria real de dois planos — necessário porque
+ * a calha do sarjetão tem sua própria declividade, geralmente bem diferente
+ * da via.
  */
-export interface CapacidadeHec22Params {
-  sxPista: number
-  larguraEspraiamentoM: number // T
-  laminaMaxM: number // y_max, só pra estimar a área triangular equivalente
-  manningN: number
-  declividadeLongitudinalMM: number // SL
-}
-
-export function calcularCapacidadeHec22(params: CapacidadeHec22Params): ResultadoCapacidade {
-  const { sxPista, larguraEspraiamentoM: T, laminaMaxM: y, manningN, declividadeLongitudinalMM: SL } = params
-  const vazaoCapacidadeM3s = (0.375 / manningN) * Math.pow(sxPista, 5 / 3) * Math.sqrt(SL) * Math.pow(T, 8 / 3)
-  const areaMolhadaM2 = (T * y) / 2
-  return { areaMolhadaM2, raioHidraulicoM: null, velocidadeMs: vazaoCapacidadeM3s / areaMolhadaM2, vazaoCapacidadeM3s }
+export function calcularCapacidadeHec22(params: ParametrosCapacidadeComposta): ResultadoCapacidade {
+  const { yMaxM, larguraSarjetaoEfetivaM, sxSarjetao, sxPista, manningN, declividadeLongitudinalMM: SL } = params
+  const { areaMolhadaM2, raioHidraulicoM } = calcularGeometriaCompostaSarjetao({
+    yMaxM,
+    larguraSarjetaoEfetivaM,
+    sxSarjetao,
+    sxPista,
+  })
+  const vazaoCapacidadeM3s = (1 / manningN) * areaMolhadaM2 * Math.pow(raioHidraulicoM, 2 / 3) * Math.sqrt(SL)
+  return { areaMolhadaM2, raioHidraulicoM, velocidadeMs: vazaoCapacidadeM3s / areaMolhadaM2, vazaoCapacidadeM3s }
 }

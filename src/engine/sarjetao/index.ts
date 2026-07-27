@@ -64,7 +64,7 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
   let comprimentoAnteriorM = NaN
   let bisseccao = { valor: NaN, iteracoes: 0, convergiu: false }
   let intensidadeMmH = 0
-  let capacidade: ResultadoCapacidade = { areaMolhadaM2: 0, raioHidraulicoM: null, velocidadeMs: 0, vazaoCapacidadeM3s: 0 }
+  let capacidade: ResultadoCapacidade = { areaMolhadaM2: 0, raioHidraulicoM: 0, velocidadeMs: 0, vazaoCapacidadeM3s: 0 }
   let vazaoM3s = 0
   let iteracoesTc = 0
   let convergiuTc = false
@@ -142,31 +142,31 @@ function resolverMetodo({ parametros, deltaHM, calcularCapacidade }: ResolverMet
   }
 }
 
-/** Resolve os dois métodos com um T (espraiamento) explícito — reaproveitado pro resultado principal e pra faixa mín/máx. */
-function resolverAmbosMetodos(parametros: ParametrosSarjetao, deltaHM: number, larguraEspraiamentoM: number) {
+/**
+ * Resolve os dois métodos com um Sx do sarjetão explícito (o que muda entre o
+ * resultado principal — Sx médio — e a faixa mín/máx — Sx_baixo/Sx_alto). T,
+ * área e perímetro são todos derivados internamente da composição de dois
+ * planos (ver calcularGeometriaCompostaSarjetao) — não recebidos prontos.
+ */
+function resolverAmbosMetodos(parametros: ParametrosSarjetao, deltaHM: number, larguraEfetivaM: number, sxSarjetaoParaGeometria: number) {
+  const baseGeometria = {
+    yMaxM: parametros.yMaxM,
+    larguraSarjetaoEfetivaM: larguraEfetivaM,
+    sxSarjetao: sxSarjetaoParaGeometria,
+    sxPista: parametros.sxPista,
+    manningN: parametros.manningN,
+  }
+
   const metodo1 = resolverMetodo({
     parametros,
     deltaHM,
-    calcularCapacidade: (SL) =>
-      calcularCapacidadeManningGenerica({
-        larguraEspraiamentoM,
-        laminaMaxM: parametros.yMaxM,
-        manningN: parametros.manningN,
-        declividadeLongitudinalMM: SL,
-      }),
+    calcularCapacidade: (SL) => calcularCapacidadeManningGenerica({ ...baseGeometria, declividadeLongitudinalMM: SL }),
   })
 
   const metodo2 = resolverMetodo({
     parametros,
     deltaHM,
-    calcularCapacidade: (SL) =>
-      calcularCapacidadeHec22({
-        sxPista: parametros.sxPista,
-        larguraEspraiamentoM,
-        laminaMaxM: parametros.yMaxM,
-        manningN: parametros.manningN,
-        declividadeLongitudinalMM: SL,
-      }),
+    calcularCapacidade: (SL) => calcularCapacidadeHec22({ ...baseGeometria, declividadeLongitudinalMM: SL }),
   })
 
   return { metodo1, metodo2 }
@@ -185,13 +185,14 @@ function resolverAmbosMetodos(parametros: ParametrosSarjetao, deltaHM: number, l
  * `tipoSecao === 'um_lado'` (uma sarjeta comum, de um lado só — não há face
  * espelhada pra justificar dividir por dois).
  *
- * O resultado principal (metodo1/metodo2) usa `parametros.larguraEspraiamentoM`
- * tal como recebido (T adotado pela UI, tipicamente calculado com a
- * declividade MÉDIA da calha — ver calcularEspraiamentoComposto). Como essa
+ * O resultado principal (metodo1/metodo2) usa a declividade MÉDIA da calha
+ * (entre o ponto alto e o ponto baixo) pra derivar T, área e perímetro —
+ * ver calcularGeometriaCompostaSarjetao, que decompõe a seção em dois
+ * triângulos reais (calha + via), não um único plano médio. Como essa
  * declividade varia de fato ao longo do braço (mais suave na crista, mais
- * íngreme na caixa), `faixaEspraiamento` recalcula T e o comprimento de
- * equilíbrio nos dois extremos (Sx_alto e Sx_baixo) só pra dar uma faixa de
- * avaliação — não substitui nem altera o resultado principal adotado.
+ * íngreme na caixa), `faixaEspraiamento` recalcula tudo nos dois extremos
+ * (Sx_alto e Sx_baixo) só pra dar uma faixa de avaliação — não substitui nem
+ * altera o resultado principal adotado.
  */
 export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): MemorialSarjetaoDenteServa {
   const larguraEfetivaM = parametros.tipoSecao === 'simetrico' ? parametros.larguraSarjetaoM / 2 : parametros.larguraSarjetaoM
@@ -201,14 +202,20 @@ export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): Memo
     throw new Error('A declividade transversal do ponto baixo deve ser maior que a do ponto alto do sarjetão.')
   }
 
-  const { metodo1, metodo2 } = resolverAmbosMetodos(parametros, deltaHM, parametros.larguraEspraiamentoM)
+  const sxSarjetaoMedioMM = (parametros.sxSarjetaoAlto + parametros.sxSarjetaoBaixo) / 2
+  const { metodo1, metodo2 } = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, sxSarjetaoMedioMM)
 
   const maiorL = Math.max(metodo1.comprimentoEquilibrioM, metodo2.comprimentoEquilibrioM)
   const diferencaPercentual = (Math.abs(metodo1.comprimentoEquilibrioM - metodo2.comprimentoEquilibrioM) / maiorL) * 100
   const metodoRecomendado: MetodoCapacidade = metodo1.comprimentoEquilibrioM <= metodo2.comprimentoEquilibrioM ? 'manning_generico' : 'hec22'
   const comprimentoRecomendadoM = Math.min(metodo1.comprimentoEquilibrioM, metodo2.comprimentoEquilibrioM)
 
-  const sxSarjetaoMedioMM = (parametros.sxSarjetaoAlto + parametros.sxSarjetaoBaixo) / 2
+  const larguraEspraiamentoAdotadoM = calcularEspraiamentoComposto({
+    yMaxM: parametros.yMaxM,
+    larguraSarjetaoEfetivaM: larguraEfetivaM,
+    sxSarjetao: sxSarjetaoMedioMM,
+    sxPista: parametros.sxPista,
+  })
   const tMinimo = calcularEspraiamentoComposto({
     yMaxM: parametros.yMaxM,
     larguraSarjetaoEfetivaM: larguraEfetivaM,
@@ -221,12 +228,12 @@ export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): Memo
     sxSarjetao: parametros.sxSarjetaoAlto,
     sxPista: parametros.sxPista,
   })
-  const resolvidoMinimo = resolverAmbosMetodos(parametros, deltaHM, tMinimo)
-  const resolvidoMaximo = resolverAmbosMetodos(parametros, deltaHM, tMaximo)
+  const resolvidoMinimo = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, parametros.sxSarjetaoBaixo)
+  const resolvidoMaximo = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, parametros.sxSarjetaoAlto)
 
   const faixaEspraiamento: FaixaEspraiamentoSarjetao = {
     sxSarjetaoMedioMM,
-    larguraEspraiamentoAdotadoM: parametros.larguraEspraiamentoM,
+    larguraEspraiamentoAdotadoM,
     minimo: {
       sxSarjetaoMM: parametros.sxSarjetaoBaixo,
       metodo1: {
@@ -257,7 +264,7 @@ export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): Memo
 
   return {
     deltaHM,
-    larguraEspraiamentoM: parametros.larguraEspraiamentoM,
+    larguraEspraiamentoM: larguraEspraiamentoAdotadoM,
     metodo1,
     metodo2,
     diferencaPercentual,

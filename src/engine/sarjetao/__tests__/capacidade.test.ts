@@ -1,28 +1,40 @@
 import { describe, expect, it } from 'vitest'
 import { calcularCapacidadeHec22, calcularCapacidadeManningGenerica } from '../capacidade'
+import { calcularGeometriaCompostaSarjetao } from '../espraiamento'
+
+// Caso A (espraiamento avança pra pista): y_max=4,5cm, calha de 0,45m a 2%, pista a 1%.
+const PARAMS = { yMaxM: 0.045, larguraSarjetaoEfetivaM: 0.45, sxSarjetao: 0.02, sxPista: 0.01, manningN: 0.016, declividadeLongitudinalMM: 0.0045 }
 
 describe('calcularCapacidadeManningGenerica (Método 1)', () => {
-  it('A=T·y, P=2T, Rh=A/P, Q=(1/n)·A·Rh^(2/3)·SL^(1/2)', () => {
-    const r = calcularCapacidadeManningGenerica({ larguraEspraiamentoM: 2.5, laminaMaxM: 0.05, manningN: 0.016, declividadeLongitudinalMM: 0.0045 })
-    expect(r.areaMolhadaM2).toBeCloseTo(0.125, 9)
-    expect(r.raioHidraulicoM).toBeCloseTo(0.025, 9)
-    expect(r.vazaoCapacidadeM3s).toBeCloseTo(0.04480807566396856, 9)
-    expect(r.velocidadeMs).toBeCloseTo(0.3584646053117485, 9)
+  it('usa a área REAL composta (calha + via) e P=2T — não T·y_max de um plano só', () => {
+    const geometria = calcularGeometriaCompostaSarjetao(PARAMS)
+    const r = calcularCapacidadeManningGenerica(PARAMS)
+
+    expect(r.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2, 12)
+    expect(r.raioHidraulicoM).toBeCloseTo(geometria.areaMolhadaM2 / (2 * geometria.larguraEspraiamentoM), 12)
+
+    const vazaoEsperada = (1 / PARAMS.manningN) * r.areaMolhadaM2 * Math.pow(r.raioHidraulicoM, 2 / 3) * Math.sqrt(PARAMS.declividadeLongitudinalMM)
+    expect(r.vazaoCapacidadeM3s).toBeCloseTo(vazaoEsperada, 12)
+    expect(r.velocidadeMs).toBeCloseTo(r.vazaoCapacidadeM3s / r.areaMolhadaM2, 12)
   })
 })
 
 describe('calcularCapacidadeHec22 (Método 2)', () => {
-  it('Q=(0,375/n)·Sx^(5/3)·SL^(1/2)·T^(8/3), usa Sx da pista (não do sarjetão)', () => {
-    const r = calcularCapacidadeHec22({
-      sxPista: 0.02,
-      larguraEspraiamentoM: 2.5,
-      laminaMaxM: 0.05,
-      manningN: 0.016,
-      declividadeLongitudinalMM: 0.0045,
-    })
-    expect(r.vazaoCapacidadeM3s).toBeCloseTo(0.026673144917120375, 9)
-    expect(r.raioHidraulicoM).toBeNull()
-    expect(r.areaMolhadaM2).toBeCloseTo(0.0625, 9)
-    expect(r.velocidadeMs).toBeCloseTo(0.426770318673926, 9)
+  it('usa área E perímetro reais (comprimento de arco) da geometria composta — Manning direto, sem fórmula fechada', () => {
+    const geometria = calcularGeometriaCompostaSarjetao(PARAMS)
+    const r = calcularCapacidadeHec22(PARAMS)
+
+    expect(r.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2, 12)
+    expect(r.raioHidraulicoM).toBeCloseTo(geometria.raioHidraulicoM, 12)
+
+    const vazaoEsperada = (1 / PARAMS.manningN) * r.areaMolhadaM2 * Math.pow(r.raioHidraulicoM, 2 / 3) * Math.sqrt(PARAMS.declividadeLongitudinalMM)
+    expect(r.vazaoCapacidadeM3s).toBeCloseTo(vazaoEsperada, 12)
+  })
+
+  it('difere do Método 1 só pelo perímetro (2T aproximado vs. arco real) — mesma área nos dois', () => {
+    const m1 = calcularCapacidadeManningGenerica(PARAMS)
+    const m2 = calcularCapacidadeHec22(PARAMS)
+    expect(m1.areaMolhadaM2).toBeCloseTo(m2.areaMolhadaM2, 12)
+    expect(m1.raioHidraulicoM).not.toBeCloseTo(m2.raioHidraulicoM, 6)
   })
 })

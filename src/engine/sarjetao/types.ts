@@ -69,8 +69,8 @@ export interface IteracaoTc {
 
 /** Resultado hidráulico de capacidade — comum aos dois métodos, pra alimentar o loop de Tc de forma uniforme. */
 export interface ResultadoCapacidade {
-  areaMolhadaM2: number // Método 1: retangular T×y_max. Método 2: triangular equivalente T×y_max/2, só pra estimar velocidade — não faz parte da fórmula integrada
-  raioHidraulicoM: number | null // só existe no Método 1 (Rh=A/P); no Método 2 a fórmula é integrada, não decompõe em Rh
+  areaMolhadaM2: number // área real composta (triângulo/trapézio da calha do sarjetão + triângulo da via) — igual nos dois métodos
+  raioHidraulicoM: number // Rh=A/P — Método 1 usa P≈2T (canal largo e raso); Método 2 usa o perímetro real (comprimento de arco dos dois planos)
   velocidadeMs: number
   vazaoCapacidadeM3s: number
 }
@@ -94,8 +94,8 @@ export interface ResultadoMetodoSarjetao {
   iteracoesTc: number
   convergiuTc: boolean
   laminaCriticaM: number // = yMaxM, verificação: é a lâmina de projeto atingida no ponto crítico
-  areaMolhadaM2: number // no braço de equilíbrio — Método 1: T×y_max; Método 2: T×y_max/2 (triangular equivalente, só pra reportar)
-  raioHidraulicoM: number | null // só existe no Método 1 (Rh=A/P); Método 2 usa fórmula integrada, não decompõe em Rh
+  areaMolhadaM2: number // no braço de equilíbrio — área real composta (calha + via), igual nos dois métodos
+  raioHidraulicoM: number // no braço de equilíbrio — Rh=A/P; Método 1 usa P≈2T, Método 2 usa o perímetro real
   velocidadeMs: number // no braço (L/2)
   vazaoM3s: number // vazão afluente no braço (L/2) de equilíbrio
   vazaoCapacidadeM3s: number // vazão de capacidade no braço (L/2) de equilíbrio (≈ vazaoM3s, por definição de equilíbrio)
