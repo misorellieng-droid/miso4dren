@@ -29,33 +29,17 @@ export interface ResultadoSarjetaoRecord {
 
   delta_h_m: number
 
-  m1_comprimento_m: number
-  m1_iteracoes: number
-  m1_convergiu: boolean
-  m1_iteracoes_tc: number
-  m1_convergiu_tc: boolean
-  m1_lamina_critica_m: number
-  m1_velocidade_ms: number
-  m1_vazao_m3s: number
-  m1_declividade_longitudinal_m_m: number
-  m1_tc_convergido_min: number
-  m1_intensidade_mm_h: number
-
-  m2_comprimento_m: number
-  m2_iteracoes: number
-  m2_convergiu: boolean
-  m2_iteracoes_tc: number
-  m2_convergiu_tc: boolean
-  m2_lamina_critica_m: number
-  m2_velocidade_ms: number
-  m2_vazao_m3s: number
-  m2_declividade_longitudinal_m_m: number
-  m2_tc_convergido_min: number
-  m2_intensidade_mm_h: number
-
-  diferenca_percentual: number
-  comprimento_recomendado_m: number
-  metodo_recomendado: string
+  comprimento_m: number
+  iteracoes: number
+  convergiu: boolean
+  iteracoes_tc: number
+  convergiu_tc: boolean
+  lamina_critica_m: number
+  velocidade_ms: number
+  vazao_m3s: number
+  declividade_longitudinal_m_m: number
+  tc_convergido_min: number
+  intensidade_mm_h: number
 
   created_at: string
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { calcularGeometriaCompostaSarjetao } from '../espraiamento'
 import { calcularSarjetaoDenteServa } from '../index'
 
-describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
+describe('calcularSarjetaoDenteServa (pipeline completo, único método — HEC-22/FHWA)', () => {
   // Sarjetão de 0,90m (2%→10%), via de 20m contribuinte, y_max=0,05m,
   // Sx da pista=2%, n=0,016, C=0,9, IDF k=800 a=0,15 b=10 c=0,75, TR=10 anos.
   // larguraEspraiamentoM aqui é só um valor legado de entrada — o motor
@@ -25,46 +25,35 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
     tcInicialMin: 10,
   }
 
-  it('resolve Δh pela geometria e converge os dois métodos, cada um com seu próprio Tc/L', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+  it('resolve Δh pela geometria e converge o método', () => {
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
 
-    expect(resultado.deltaHM).toBeCloseTo(0.036, 9)
+    expect(memorial.deltaHM).toBeCloseTo(0.036, 9)
 
-    expect(resultado.metodo1.convergiu).toBe(true)
-    expect(resultado.metodo1.convergiuTc).toBe(true)
-    expect(resultado.metodo1.comprimentoEquilibrioM).toBeGreaterThan(0)
-    expect(resultado.metodo1.laminaCriticaM).toBe(0.05)
-
-    expect(resultado.metodo2.convergiu).toBe(true)
-    expect(resultado.metodo2.convergiuTc).toBe(true)
-    expect(resultado.metodo2.comprimentoEquilibrioM).toBeGreaterThan(0)
-
-    expect(resultado.comprimentoRecomendadoM).toBeCloseTo(Math.min(resultado.metodo1.comprimentoEquilibrioM, resultado.metodo2.comprimentoEquilibrioM), 9)
-    expect(resultado.metodoRecomendado).toBe(resultado.metodo1.comprimentoEquilibrioM <= resultado.metodo2.comprimentoEquilibrioM ? 'manning_generico' : 'hec22')
+    expect(memorial.resultado.convergiu).toBe(true)
+    expect(memorial.resultado.convergiuTc).toBe(true)
+    expect(memorial.resultado.comprimentoEquilibrioM).toBeGreaterThan(0)
+    expect(memorial.resultado.laminaCriticaM).toBe(0.05)
   })
 
   it('a distância entre caixas é o dobro do braço: SL usado na capacidade é Δh/(L/2), não Δh/L', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
-    const bracoM1 = resultado.metodo1.comprimentoEquilibrioM / 2
-    expect(resultado.metodo1.declividadeLongitudinalMM).toBeCloseTo(resultado.deltaHM / bracoM1, 9)
-    const bracoM2 = resultado.metodo2.comprimentoEquilibrioM / 2
-    expect(resultado.metodo2.declividadeLongitudinalMM).toBeCloseTo(resultado.deltaHM / bracoM2, 9)
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    const bracoM = memorial.resultado.comprimentoEquilibrioM / 2
+    expect(memorial.resultado.declividadeLongitudinalMM).toBeCloseTo(memorial.deltaHM / bracoM, 9)
   })
 
-  it('em cada método, a vazão afluente no L de equilíbrio bate com a vazão de capacidade (definição de equilíbrio)', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
-    for (const metodo of [resultado.metodo1, resultado.metodo2]) {
-      const diffRelativa = Math.abs(metodo.vazaoM3s - metodo.vazaoCapacidadeM3s) / metodo.vazaoCapacidadeM3s
-      expect(diffRelativa).toBeLessThan(0.005)
-    }
+  it('a vazão afluente no L de equilíbrio bate com a vazão de capacidade (definição de equilíbrio)', () => {
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    const diffRelativa = Math.abs(memorial.resultado.vazaoM3s - memorial.resultado.vazaoCapacidadeM3s) / memorial.resultado.vazaoCapacidadeM3s
+    expect(diffRelativa).toBeLessThan(0.005)
   })
 
   it('lança erro se a declividade do ponto baixo não for maior que a do ponto alto', () => {
     expect(() => calcularSarjetaoDenteServa({ ...parametrosBase, sxSarjetaoBaixo: 0.02 })).toThrow(/ponto baixo/)
   })
 
-  it('geometria dos dois métodos vem da composição real (calha + via) com Sx médio — não de um T de plano único', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
+  it('geometria vem da composição real (calha + via) com Sx médio — não de um T de plano único; área e perímetro somam as duas faces (simétrico)', () => {
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
     const larguraEfetivaM = parametrosBase.larguraSarjetaoM / 2
     const sxMedio = (parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2
     const geometria = calcularGeometriaCompostaSarjetao({
@@ -74,29 +63,21 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
       sxPista: parametrosBase.sxPista,
     })
 
-    // Método 1 e Método 2 usam a MESMA área real composta — só o perímetro difere (2T vs. arco real).
-    // tipoSecao='simetrico' tem DUAS faces espelhadas somadas — a área total é o dobro de uma face só
-    // (ver bug reportado: a área não podia ficar restrita a uma face, o V completo escoa o dobro).
-    expect(resultado.metodo1.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2 * 2, 9)
-    expect(resultado.metodo2.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2 * 2, 9)
-    expect(resultado.metodo2.raioHidraulicoM).toBeCloseTo(geometria.raioHidraulicoM, 9) // Rh não muda ao dobrar A e P juntos
-    expect(resultado.metodo1.raioHidraulicoM).not.toBeCloseTo(resultado.metodo2.raioHidraulicoM, 6)
+    expect(memorial.resultado.areaMolhadaM2).toBeCloseTo(geometria.areaMolhadaM2 * 2, 9)
+    expect(memorial.resultado.raioHidraulicoM).toBeCloseTo(geometria.raioHidraulicoM, 9) // Rh não muda ao dobrar A e P juntos (perímetro real)
 
     // T adotado no resultado principal também vem do Sx médio, não é mais o valor bruto de entrada
-    expect(resultado.larguraEspraiamentoM).toBeCloseTo(geometria.larguraEspraiamentoM, 9)
-    expect(resultado.larguraEspraiamentoM).not.toBeCloseTo(parametrosBase.larguraEspraiamentoM, 3)
+    expect(memorial.larguraEspraiamentoM).toBeCloseTo(geometria.larguraEspraiamentoM, 9)
+    expect(memorial.larguraEspraiamentoM).not.toBeCloseTo(parametrosBase.larguraEspraiamentoM, 3)
 
-    for (const metodo of [resultado.metodo1, resultado.metodo2]) {
-      expect(metodo.historicoIteracoesTc).toHaveLength(metodo.iteracoesTc)
-      expect(metodo.historicoIteracoesTc.map((h) => h.numero)).toEqual(
-        Array.from({ length: metodo.iteracoesTc }, (_, i) => i + 1)
-      )
-      const ultima = metodo.historicoIteracoesTc[metodo.historicoIteracoesTc.length - 1]
-      expect(ultima.comprimentoM).toBeCloseTo(metodo.comprimentoEquilibrioM, 9)
-      expect(ultima.intensidadeMmH).toBeCloseTo(metodo.intensidadeConvergidaMmH, 9)
-      expect(ultima.vazaoM3s).toBeCloseTo(metodo.vazaoM3s, 9)
-      expect(metodo.historicoIteracoesTc[0].tcMin).toBe(parametrosBase.tcInicialMin)
-    }
+    const metodo = memorial.resultado
+    expect(metodo.historicoIteracoesTc).toHaveLength(metodo.iteracoesTc)
+    expect(metodo.historicoIteracoesTc.map((h) => h.numero)).toEqual(Array.from({ length: metodo.iteracoesTc }, (_, i) => i + 1))
+    const ultima = metodo.historicoIteracoesTc[metodo.historicoIteracoesTc.length - 1]
+    expect(ultima.comprimentoM).toBeCloseTo(metodo.comprimentoEquilibrioM, 9)
+    expect(ultima.intensidadeMmH).toBeCloseTo(metodo.intensidadeConvergidaMmH, 9)
+    expect(ultima.vazaoM3s).toBeCloseTo(metodo.vazaoM3s, 9)
+    expect(metodo.historicoIteracoesTc[0].tcMin).toBe(parametrosBase.tcInicialMin)
   })
 
   it('um_lado com largura W tem o mesmo Δh que simetrico com largura 2W, mas simetrico escoa o DOBRO (duas faces, não uma)', () => {
@@ -107,31 +88,29 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
     expect(umLado.deltaHM).toBeCloseTo(simetrico.deltaHM, 12)
 
     // simétrico soma as duas faces espelhadas -> área total é o dobro da de um_lado (uma face só)
-    expect(simetrico.metodo1.areaMolhadaM2).toBeCloseTo(umLado.metodo1.areaMolhadaM2 * 2, 9)
-    expect(simetrico.metodo2.areaMolhadaM2).toBeCloseTo(umLado.metodo2.areaMolhadaM2 * 2, 9)
+    expect(simetrico.resultado.areaMolhadaM2).toBeCloseTo(umLado.resultado.areaMolhadaM2 * 2, 9)
 
     // mais capacidade -> precisa de um comprimento maior pra acumular vazão suficiente pra atingi-la
-    expect(simetrico.metodo1.comprimentoEquilibrioM).toBeGreaterThan(umLado.metodo1.comprimentoEquilibrioM)
-    expect(simetrico.metodo2.comprimentoEquilibrioM).toBeGreaterThan(umLado.metodo2.comprimentoEquilibrioM)
+    expect(simetrico.resultado.comprimentoEquilibrioM).toBeGreaterThan(umLado.resultado.comprimentoEquilibrioM)
   })
 
   it('um_lado usa a largura inteira em Δh (não divide por 2 como o simétrico)', () => {
-    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'um_lado', larguraSarjetaoM: 0.9 })
+    const memorial = calcularSarjetaoDenteServa({ ...parametrosBase, tipoSecao: 'um_lado', larguraSarjetaoM: 0.9 })
     const deltaHEsperado = 0.9 * (parametrosBase.sxSarjetaoBaixo - parametrosBase.sxSarjetaoAlto)
-    expect(resultado.deltaHM).toBeCloseTo(deltaHEsperado, 12)
+    expect(memorial.deltaHM).toBeCloseTo(deltaHEsperado, 12)
   })
 
   it('faixaEspraiamento: T mínimo (Sx_baixo, mais íngreme) é sempre menor que T máximo (Sx_alto, mais suave)', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
-    expect(resultado.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM).toBeLessThan(resultado.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM)
-    expect(resultado.faixaEspraiamento.medio.sxSarjetaoMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
-    expect(resultado.faixaEspraiamento.minimo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoBaixo)
-    expect(resultado.faixaEspraiamento.maximo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoAlto)
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    expect(memorial.faixaEspraiamento.minimo.resultado.larguraEspraiamentoM).toBeLessThan(memorial.faixaEspraiamento.maximo.resultado.larguraEspraiamentoM)
+    expect(memorial.faixaEspraiamento.medio.sxSarjetaoMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
+    expect(memorial.faixaEspraiamento.minimo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoBaixo)
+    expect(memorial.faixaEspraiamento.maximo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoAlto)
   })
 
-  it('faixaEspraiamento não altera o resultado principal (metodo1/metodo2 continuam usando o T adotado)', () => {
-    const resultado = calcularSarjetaoDenteServa(parametrosBase)
-    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.medio.metodo1.larguraEspraiamentoM, 9)
+  it('faixaEspraiamento não altera o resultado principal (continua usando o T adotado)', () => {
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    expect(memorial.larguraEspraiamentoM).toBeCloseTo(memorial.faixaEspraiamento.medio.resultado.larguraEspraiamentoM, 9)
   })
 
   it('cenarioAdotado default é "medio" — usa a declividade média do sarjetão', () => {
@@ -139,30 +118,54 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
     const comMedio = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'medio' })
     expect(semCenario.cenarioAdotado).toBe('medio')
     expect(semCenario.sxSarjetaoAdotadoMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
-    expect(semCenario.metodo1.comprimentoEquilibrioM).toBeCloseTo(comMedio.metodo1.comprimentoEquilibrioM, 9)
+    expect(semCenario.resultado.comprimentoEquilibrioM).toBeCloseTo(comMedio.resultado.comprimentoEquilibrioM, 9)
   })
 
   it('cenarioAdotado "minimo" faz o resultado principal bater exatamente com faixaEspraiamento.minimo', () => {
-    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'minimo' })
-    expect(resultado.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoBaixo)
-    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM, 9)
-    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo1.comprimentoEquilibrioM, 9)
-    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo2.comprimentoEquilibrioM, 9)
+    const memorial = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'minimo' })
+    expect(memorial.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoBaixo)
+    expect(memorial.larguraEspraiamentoM).toBeCloseTo(memorial.faixaEspraiamento.minimo.resultado.larguraEspraiamentoM, 9)
+    expect(memorial.resultado.comprimentoEquilibrioM).toBeCloseTo(memorial.faixaEspraiamento.minimo.resultado.comprimentoEquilibrioM, 9)
   })
 
   it('cenarioAdotado "maximo" faz o resultado principal bater exatamente com faixaEspraiamento.maximo', () => {
-    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'maximo' })
-    expect(resultado.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoAlto)
-    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM, 9)
-    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo1.comprimentoEquilibrioM, 9)
-    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo2.comprimentoEquilibrioM, 9)
+    const memorial = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'maximo' })
+    expect(memorial.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoAlto)
+    expect(memorial.larguraEspraiamentoM).toBeCloseTo(memorial.faixaEspraiamento.maximo.resultado.larguraEspraiamentoM, 9)
+    expect(memorial.resultado.comprimentoEquilibrioM).toBeCloseTo(memorial.faixaEspraiamento.maximo.resultado.comprimentoEquilibrioM, 9)
   })
 
   it('os três cenários dão comprimentos de equilíbrio diferentes (a escolha realmente importa)', () => {
     const minimo = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'minimo' })
     const medio = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'medio' })
     const maximo = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'maximo' })
-    expect(minimo.metodo1.comprimentoEquilibrioM).toBeLessThan(medio.metodo1.comprimentoEquilibrioM)
-    expect(medio.metodo1.comprimentoEquilibrioM).toBeLessThan(maximo.metodo1.comprimentoEquilibrioM)
+    expect(minimo.resultado.comprimentoEquilibrioM).toBeLessThan(medio.resultado.comprimentoEquilibrioM)
+    expect(medio.resultado.comprimentoEquilibrioM).toBeLessThan(maximo.resultado.comprimentoEquilibrioM)
+  })
+
+  it('VERIFICAÇÃO DE TOPOLOGIA: L é a distância CHEIA entre duas caixas consecutivas, com a crista exatamente no meio — não a distância crista-a-crista', () => {
+    // Prova direta pela própria equação resolvida pela bisseção: f(L) = Q(braço=L/2) - Qcap(SL=Δh/braço).
+    // Reconstituindo manualmente com o L convergido, braço = L/2 tem que fechar exatamente a equação de equilíbrio.
+    const memorial = calcularSarjetaoDenteServa(parametrosBase)
+    const { resultado } = memorial
+    const L = resultado.comprimentoEquilibrioM
+    const bracoM = L / 2
+
+    // 1) SL reportada é Δh dividido pelo BRAÇO (L/2), não por L inteiro
+    const slEsperada = memorial.deltaHM / bracoM
+    expect(resultado.declividadeLongitudinalMM).toBeCloseTo(slEsperada, 9)
+
+    // 2) a vazão afluente reportada é a que se acumula ao longo do BRAÇO (L/2), não de L inteiro —
+    //    reconstituída aqui via método racional com comprimentoM = bracoM, batendo com o valor salvo
+    const K = 2.78e-7 // mesma constante do método racional (ver src/engine/constants.ts)
+    const vazaoEsperada = K * resultado.intensidadeConvergidaMmH * (parametrosBase.coefC * parametrosBase.larguraViaM) * bracoM
+    expect(resultado.vazaoM3s).toBeCloseTo(vazaoEsperada, 6)
+
+    // 3) portanto: se a crista estivesse no meio de "crista a crista" em vez de "caixa a caixa", L
+    //    reportado seria a mesma grandeza matemática de qualquer forma (o dente de serra é periódico:
+    //    caixa-crista-caixa-crista-caixa, então caixa-a-caixa == crista-a-crista == 2×braço por simetria) —
+    //    o que importa de fato é que o BRAÇO usado na física (SL e vazão acumulada) é sempre L/2, e é
+    //    exatamente o que os dois cálculos acima confirmam.
+    expect(bracoM).toBeCloseTo(L / 2, 12)
   })
 })

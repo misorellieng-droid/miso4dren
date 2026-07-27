@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { calcularEspraiamentoComposto, pontosPerfilCompostoSarjetao } from '../engine/sarjetao'
-import type { CenarioEspraiamento, MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
+import { pontosPerfilCompostoSarjetao } from '../engine/sarjetao'
+import type { CenarioEspraiamento, MemorialSarjetaoDenteServa, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
 
 /** Espelha os campos numéricos do formulário no momento do cálculo — usado tanto no memorial em tela quanto no PDF. */
 export interface ParametrosExibicao {
@@ -40,10 +40,7 @@ const MARGIN_BOTTOM = 55
 const fmt = (n: number, digits = 2) => (Number.isFinite(n) ? n.toFixed(digits) : '—')
 const pct = (n: number, digits = 3) => `${(n * 100).toFixed(digits)}%`
 
-const METODO_LABELS: Record<MetodoCapacidade, string> = {
-  manning_generico: 'Método 1 — Manning genérico (seção retangular equivalente)',
-  hec22: 'Método 2 — HEC-22/FHWA (seção triangular integrada)',
-}
+const METODO_LABEL = 'HEC-22/FHWA (seção triangular integrada)'
 
 const CENARIO_LABELS: Record<CenarioEspraiamento, string> = {
   minimo: 'Mínimo (ponto baixo, mais íngreme)',
@@ -138,9 +135,8 @@ function desenharPoligono(doc: jsPDF, pontos: Array<[number, number]>, estilo: s
 
 /**
  * Perfil REAL de dois planos (calha do sarjetão + via, "quebra" em x=±W)
- * sombreado, com o retângulo equivalente do Método 1 sobreposto — mirrado
- * nos dois lados se simétrico, só de um lado (com marca de meio-fio) se
- * um_lado.
+ * sombreado — mirrado nos dois lados se simétrico, só de um lado (com marca
+ * de meio-fio) se um_lado.
  */
 function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: ParametrosExibicao, memorial: MemorialSarjetaoDenteServa) {
   const simetrico = p.tipoSecao === 'simetrico'
@@ -169,11 +165,6 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
   })
   const temKink = pontosReais.length === 3
   const pontoKink = pontosReais[1]
-
-  // retângulo equivalente do Método 1
-  doc.setDrawColor(140, 140, 140)
-  doc.setLineWidth(0.75)
-  doc.rect(px(xMin), py(p.yMaxM), px(xMax) - px(xMin), py(0) - py(p.yMaxM), 'S')
 
   // perfil real (dois planos)
   doc.setFillColor(...AREA_MOLHADA_RGB)
@@ -236,15 +227,20 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
   cursor.y = origemY + alturaDisp + 36
 }
 
-/** Perfil crista→caixa→crista com braço, distância e lâmina rotulados — mesma forma do desenho em tela. */
-function desenharPerfilLongitudinalSarjetao(doc: jsPDF, cursor: Cursor, titulo: string, comprimentoM: number, yMaxM: number) {
+/**
+ * Perfil longitudinal caixa→crista→caixa, com braço, distância e lâmina
+ * rotulados — mesma forma do desenho em tela. Topologia: as duas
+ * extremidades são caixas (pontos baixos); o ponto alto (crista, divisor de
+ * águas) fica exatamente no meio de L.
+ */
+function desenharPerfilLongitudinalSarjetao(doc: jsPDF, cursor: Cursor, comprimentoM: number, yMaxM: number) {
   garantirEspaco(doc, cursor, 110)
 
-  subtitulo(doc, cursor, titulo)
+  subtitulo(doc, cursor, `Perfil longitudinal — ${METODO_LABEL}`)
 
   const origemX = MARGIN_X + 10
-  const topoY = cursor.y + 6
-  const baseY = topoY + 60
+  const baseY = cursor.y + 6 // caixas (ponto baixo) — desenhadas mais abaixo
+  const topoY = baseY - 60 // crista (ponto alto) — desenhada mais acima
   const larguraDisp = 495
   const meioX = origemX + larguraDisp / 2
 
@@ -252,29 +248,29 @@ function desenharPerfilLongitudinalSarjetao(doc: jsPDF, cursor: Cursor, titulo: 
   desenharPoligono(
     doc,
     [
-      [origemX, topoY],
-      [meioX, baseY],
-      [origemX + larguraDisp, topoY],
+      [origemX, baseY],
+      [meioX, topoY],
+      [origemX + larguraDisp, baseY],
     ],
     'F'
   )
   doc.setDrawColor(...BRAND_RGB)
   doc.setLineWidth(1.25)
-  doc.line(origemX, topoY, meioX, baseY)
-  doc.line(meioX, baseY, origemX + larguraDisp, topoY)
+  doc.line(origemX, baseY, meioX, topoY)
+  doc.line(meioX, topoY, origemX + larguraDisp, baseY)
 
   doc.setFillColor(200, 60, 40)
-  doc.circle(origemX, topoY, 2.2, 'F')
-  doc.circle(meioX, baseY, 2.2, 'F')
-  doc.circle(origemX + larguraDisp, topoY, 2.2, 'F')
+  doc.circle(origemX, baseY, 2.2, 'F')
+  doc.circle(meioX, topoY, 2.2, 'F')
+  doc.circle(origemX + larguraDisp, baseY, 2.2, 'F')
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(90, 90, 90)
-  doc.text('ponto alto', origemX, topoY - 6)
-  doc.text('caixa (ponto baixo)', meioX, baseY + 12, { align: 'center' })
-  doc.text('próximo ponto alto', origemX + larguraDisp, topoY - 6, { align: 'right' })
-  doc.text(`lâmina = y_max = ${fmt(yMaxM, 3)} m`, meioX, baseY + 24, { align: 'center' })
+  doc.text('caixa', origemX, baseY + 12)
+  doc.text('ponto alto (divisor de águas)', meioX, topoY - 6, { align: 'center' })
+  doc.text('próxima caixa', origemX + larguraDisp, baseY + 12, { align: 'right' })
+  doc.text(`lâmina = y_max = ${fmt(yMaxM, 3)} m`, meioX, topoY - 18, { align: 'center' })
   doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (origemX + meioX) / 2, (topoY + baseY) / 2, { align: 'center' })
   doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (meioX + origemX + larguraDisp) / 2, (topoY + baseY) / 2, { align: 'center' })
   doc.setTextColor(20, 20, 20)
@@ -309,61 +305,31 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMet
     MARGIN_X + 10,
     cursor.y + 44
   )
-  doc.text(
-    `Bisseção: ${resultado.iteracoes} iteração(ões), ${resultado.convergiu ? 'convergiu' : 'NÃO convergiu'}`,
-    MARGIN_X + 10,
-    cursor.y + 57
-  )
+  doc.text(`Bisseção: ${resultado.iteracoes} iteração(ões), ${resultado.convergiu ? 'convergiu' : 'NÃO convergiu'}`, MARGIN_X + 10, cursor.y + 57)
   cursor.y += alturaBox + 18
 }
 
-function secaoMetodo(
-  doc: jsPDF,
-  cursor: Cursor,
-  metodo: MetodoCapacidade,
-  resultado: ResultadoMetodoSarjetao,
-  p: ParametrosExibicao,
-  deltaHM: number,
-  sxSarjetaoAdotadoMM: number
-) {
-  tituloSecao(doc, cursor, METODO_LABELS[metodo])
+function secaoMetodo(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetodoSarjetao, p: ParametrosExibicao, deltaHM: number, sxSarjetaoAdotadoMM: number) {
+  tituloSecao(doc, cursor, `4. ${METODO_LABEL}`)
 
-  const larguraEfetivaM = p.tipoSecao === 'simetrico' ? p.larguraSarjetaoM / 2 : p.larguraSarjetaoM
-  const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxSarjetaoAdotadoMM, sxPista: p.sxPista })
   const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
+  const T = p.larguraEspraiamentoM
 
-  const notaFacesM1 =
-    p.tipoSecao === 'simetrico'
-      ? 'A soma as DUAS faces espelhadas do V (o dobro de uma face so), mas P continua 2T -- T e medido a partir do eixo, entao 2T ja e a largura total do retangulo equivalente (nao e uma superficie real, e so a aproximacao generica de largura do metodo).'
-      : 'Sarjeta de um lado so -- A e P abaixo sao de uma face unica.'
-  const notaFacesM2 =
+  const notaFaces =
     p.tipoSecao === 'simetrico'
       ? 'A e P abaixo ja somam as DUAS faces espelhadas do V -- sao superficies reais, e o canal completo escoa o dobro de uma face so.'
       : 'Sarjeta de um lado so -- A e P abaixo sao de uma face unica.'
 
-  if (metodo === 'manning_generico') {
-    subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro aproximado 2T')
-    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
-    paragrafo(doc, cursor, notaFacesM1)
-    linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = 2 x T = ${fmt(perimetroMolhadoM, 4)} m`)
-    linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
-    cursor.y += 4
+  subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
+  linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+  paragrafo(doc, cursor, notaFaces)
+  linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
+  linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
+  cursor.y += 4
 
-    subtitulo(doc, cursor, 'Capacidade hidráulica (no braço, L/2)')
-    linhaFormula(doc, cursor, 'Qcap = (1/n) x A x Rh^(2/3) x SL^(1/2)')
-    linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
-  } else {
-    subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
-    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
-    paragrafo(doc, cursor, notaFacesM2)
-    linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
-    linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
-    cursor.y += 4
-
-    subtitulo(doc, cursor, 'Capacidade hidráulica (no braço, L/2)')
-    linhaFormula(doc, cursor, 'Qcap = (1/n) x A x Rh^(2/3) x SL^(1/2)')
-    linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
-  }
+  subtitulo(doc, cursor, 'Capacidade hidráulica (no braço, L/2)')
+  linhaFormula(doc, cursor, 'Qcap = (1/n) x A x Rh^(2/3) x SL^(1/2)')
+  linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
 
   subtitulo(doc, cursor, 'Desnível e declividade longitudinal do braço')
   if (p.tipoSecao === 'simetrico') {
@@ -407,7 +373,7 @@ function secaoMetodo(
   blocoResultadoFinal(doc, cursor, resultado)
 }
 
-/** Memória de cálculo completa, ponto a ponto, dos dois métodos — layout formatado pra impressão/anexo de projeto. */
+/** Memória de cálculo completa, ponto a ponto — layout formatado pra impressão/anexo de projeto. */
 export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' })
   const cursor: Cursor = { y: 55 }
@@ -491,11 +457,11 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   autoTable(doc, {
     startY: cursor.y,
     margin: { left: MARGIN_X, right: MARGIN_X },
-    head: [['Cenário', 'Sx do sarjetão', 'T', 'L Método 1', 'L Método 2']],
+    head: [['Cenário', 'Sx do sarjetão', 'T', 'L']],
     body: (['minimo', 'medio', 'maximo'] as const).map((cenario) => {
       const d = memorial.faixaEspraiamento[cenario]
       const rotulo = CENARIO_LABELS[cenario] + (cenario === memorial.cenarioAdotado ? ' — ADOTADO' : '')
-      return [rotulo, pct(d.sxSarjetaoMM, 2), `${fmt(d.metodo1.larguraEspraiamentoM, 2)} m`, `${fmt(d.metodo1.comprimentoEquilibrioM, 2)} m`, `${fmt(d.metodo2.comprimentoEquilibrioM, 2)} m`]
+      return [rotulo, pct(d.sxSarjetaoMM, 2), `${fmt(d.resultado.larguraEspraiamentoM, 2)} m`, `${fmt(d.resultado.comprimentoEquilibrioM, 2)} m`]
     }),
     styles: { fontSize: 8.5, cellPadding: 4 },
     headStyles: { fillColor: BRAND_RGB },
@@ -503,52 +469,12 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cursor.y = (doc as any).lastAutoTable.finalY + 20
 
-  secaoMetodo(doc, cursor, 'manning_generico', memorial.metodo1, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
-  secaoMetodo(doc, cursor, 'hec22', memorial.metodo2, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
+  secaoMetodo(doc, cursor, memorial.resultado, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
 
-  tituloSecao(doc, cursor, '6. Comparação e recomendação')
-  garantirEspaco(doc, cursor, 40)
-  autoTable(doc, {
-    startY: cursor.y,
-    margin: { left: MARGIN_X, right: MARGIN_X },
-    head: [['Método', 'L — distância entre caixas (m)', 'Braço (m)', 'SL no braço (%)', 'Velocidade (m/s)']],
-    body: [
-      [
-        METODO_LABELS.manning_generico,
-        fmt(memorial.metodo1.comprimentoEquilibrioM, 2),
-        fmt(memorial.metodo1.comprimentoEquilibrioM / 2, 2),
-        fmt(memorial.metodo1.declividadeLongitudinalMM * 100, 4),
-        fmt(memorial.metodo1.velocidadeMs, 3),
-      ],
-      [
-        METODO_LABELS.hec22,
-        fmt(memorial.metodo2.comprimentoEquilibrioM, 2),
-        fmt(memorial.metodo2.comprimentoEquilibrioM / 2, 2),
-        fmt(memorial.metodo2.declividadeLongitudinalMM * 100, 4),
-        fmt(memorial.metodo2.velocidadeMs, 3),
-      ],
-    ],
-    styles: { fontSize: 8.5, cellPadding: 4 },
-    headStyles: { fillColor: BRAND_RGB },
-  })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cursor.y = (doc as any).lastAutoTable.finalY + 16
-
-  paragrafo(
-    doc,
-    cursor,
-    `Diferença entre os métodos: ${fmt(memorial.diferencaPercentual, 1)}%. Recomenda-se adotar o menor comprimento entre os dois -- ${fmt(memorial.comprimentoRecomendadoM, 2)} m (${METODO_LABELS[memorial.metodoRecomendado]}) -- pelo lado da segurança. A diferença decorre de premissas geométricas distintas (retângulo equivalente vs. integração triangular calibrada); nenhum dos dois métodos deve ser descartado como incorreto -- a escolha final depende de qual geometria descreve melhor o trecho real.`
-  )
-
-  tituloSecao(doc, cursor, '7. Seção transversal e perfil longitudinal')
-  paragrafo(
-    doc,
-    cursor,
-    'Região sombreada = área alagada aproximada na condição crítica. Esquemático -- não substitui o detalhamento executivo.'
-  )
+  tituloSecao(doc, cursor, '5. Seção transversal e perfil longitudinal')
+  paragrafo(doc, cursor, 'Região sombreada = área alagada real. Esquemático -- não substitui o detalhamento executivo.')
   desenharSecaoTransversalSarjetao(doc, cursor, p, memorial)
-  desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.manning_generico}`, memorial.metodo1.comprimentoEquilibrioM, p.yMaxM)
-  desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.hec22}`, memorial.metodo2.comprimentoEquilibrioM, p.yMaxM)
+  desenharPerfilLongitudinalSarjetao(doc, cursor, memorial.resultado.comprimentoEquilibrioM, p.yMaxM)
 
   const totalPaginas = doc.getNumberOfPages()
   for (let i = 1; i <= totalPaginas; i++) {

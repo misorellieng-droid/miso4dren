@@ -21,17 +21,17 @@ import type { EquacaoIdf } from '../types'
  *   do comprimento. Como não há face espelhada, `larguraSarjetaoM` entra
  *   INTEIRA na fórmula de Δh (é a única face que existe).
  *
- * As duas fórmulas de capacidade (Método 1 e Método 2) e o método racional
- * não mudam entre os dois tipos — são genéricas em relação à seção,
- * dirigidas só por T/y_max/Sx da pista. A única diferença física é o fator
+ * A fórmula de capacidade (HEC-22, ver capacidade.ts) e o método racional
+ * não mudam entre os dois tipos — são genéricos em relação à seção,
+ * dirigidos só por T/y_max/Sx da pista. A única diferença física é o fator
  * de largura na fórmula de Δh.
  */
 export type TipoSecaoSarjetao = 'simetrico' | 'um_lado'
 
 /**
- * Qual declividade do sarjetão vira o Sx "adotado" pro resultado principal
- * (metodo1/metodo2) — já que essa declividade varia de fato ao longo do
- * braço (mais suave na crista, mais íngreme na caixa):
+ * Qual declividade do sarjetão vira o Sx "adotado" pro resultado principal —
+ * já que essa declividade varia de fato ao longo do braço (mais suave na
+ * crista, mais íngreme na caixa):
  * - 'minimo': usa Sx_baixo (mais íngreme, junto à caixa) — mais conservador, T menor
  * - 'medio': usa a média entre Sx_alto e Sx_baixo (default)
  * - 'maximo': usa Sx_alto (mais suave, no divisor de águas) — T maior
@@ -55,8 +55,8 @@ export interface ParametrosSarjetao {
   sxSarjetaoAlto: number // declividade transversal do sarjetão no ponto alto (m/m)
   sxSarjetaoBaixo: number // declividade transversal do sarjetão no ponto baixo, junto à caixa (m/m)
 
-  yMaxM: number // lâmina d'água admissível (y_max), condição de projeto em ambos os métodos
-  sxPista: number // declividade transversal da via FORA do sarjetão (m/m) — usada só no Método 2 (HEC-22) e no T automático; nunca confundir com sxSarjetaoAlto/Baixo
+  yMaxM: number // lâmina d'água admissível (y_max), condição de projeto
+  sxPista: number // declividade transversal da via FORA do sarjetão (m/m) — usada na fórmula HEC-22 e no T automático; nunca confundir com sxSarjetaoAlto/Baixo
   larguraEspraiamentoM: number // T — espraiamento correspondente a y_max
   manningN: number
 
@@ -67,8 +67,6 @@ export interface ParametrosSarjetao {
   maxIteracoesTc?: number // default 10
   toleranciaRelativaL?: number // default 0.01 (1%)
 }
-
-export type MetodoCapacidade = 'manning_generico' | 'hec22'
 
 /** Um passo do loop de convergência de Tc — pra reconstituir a memória de cálculo ponto a ponto. */
 export interface IteracaoTc {
@@ -81,16 +79,16 @@ export interface IteracaoTc {
   vazaoCapacidadeM3s: number // vazão de capacidade no braço, para essa SL
 }
 
-/** Resultado hidráulico de capacidade — comum aos dois métodos, pra alimentar o loop de Tc de forma uniforme. */
+/** Resultado hidráulico de capacidade (HEC-22, geometria composta calha+via). */
 export interface ResultadoCapacidade {
-  areaMolhadaM2: number // área real composta (triângulo/trapézio da calha do sarjetão + triângulo da via) — igual nos dois métodos
-  raioHidraulicoM: number // Rh=A/P — Método 1 usa P≈2T (canal largo e raso); Método 2 usa o perímetro real (comprimento de arco dos dois planos)
+  areaMolhadaM2: number // área real composta (triângulo/trapézio da calha do sarjetão + triângulo da via)
+  raioHidraulicoM: number // Rh=A/P, perímetro real (comprimento de arco dos dois planos)
   velocidadeMs: number
   vazaoCapacidadeM3s: number
 }
 
 /**
- * Saída de um dos dois métodos, já convergida em L e Tc.
+ * Saída do método (HEC-22), já convergida em L e Tc.
  *
  * `comprimentoEquilibrioM` (L) é a distância CHEIA entre duas caixas
  * consecutivas. O ponto alto (divisor de águas) fica no meio desse
@@ -108,8 +106,8 @@ export interface ResultadoMetodoSarjetao {
   iteracoesTc: number
   convergiuTc: boolean
   laminaCriticaM: number // = yMaxM, verificação: é a lâmina de projeto atingida no ponto crítico
-  areaMolhadaM2: number // no braço de equilíbrio — área real composta (calha + via), igual nos dois métodos
-  raioHidraulicoM: number // no braço de equilíbrio — Rh=A/P; Método 1 usa P≈2T, Método 2 usa o perímetro real
+  areaMolhadaM2: number // no braço de equilíbrio — área real composta (calha + via)
+  raioHidraulicoM: number // no braço de equilíbrio — Rh=A/P, perímetro real
   velocidadeMs: number // no braço (L/2)
   vazaoM3s: number // vazão afluente no braço (L/2) de equilíbrio
   vazaoCapacidadeM3s: number // vazão de capacidade no braço (L/2) de equilíbrio (≈ vazaoM3s, por definição de equilíbrio)
@@ -119,7 +117,7 @@ export interface ResultadoMetodoSarjetao {
   historicoIteracoesTc: IteracaoTc[] // uma entrada por passada do loop de Tc, na ordem em que ocorreram — a memória de cálculo ponto a ponto
 }
 
-/** Resultado resumido de um método, recalculado com um T alternativo — só pra faixa de avaliação, não é o resultado adotado. */
+/** Resultado resumido do método, recalculado com um T alternativo — só pra faixa de avaliação, não é o resultado adotado. */
 export interface ResultadoFaixaEspraiamento {
   larguraEspraiamentoM: number
   comprimentoEquilibrioM: number
@@ -129,8 +127,7 @@ export interface ResultadoFaixaEspraiamento {
 /** Um dos três cenários de declividade — mesma forma pra mínimo/médio/máximo, indexável por CenarioEspraiamento. */
 export interface DetalheCenarioEspraiamento {
   sxSarjetaoMM: number
-  metodo1: ResultadoFaixaEspraiamento
-  metodo2: ResultadoFaixaEspraiamento
+  resultado: ResultadoFaixaEspraiamento
 }
 
 /**
@@ -138,8 +135,8 @@ export interface DetalheCenarioEspraiamento {
  * de fato ao longo do braço (mais suave na crista, mais íngreme na caixa),
  * T/área/perímetro também variam. Expõe os três cenários possíveis —
  * `parametros.cenarioAdotado` escolhe qual deles vira o resultado principal
- * (metodo1/metodo2 em MemorialSarjetaoDenteServa) —, pra o engenheiro
- * comparar e decidir qual usar.
+ * (em MemorialSarjetaoDenteServa) —, pra o engenheiro comparar e decidir
+ * qual usar.
  */
 export interface FaixaEspraiamentoSarjetao {
   minimo: DetalheCenarioEspraiamento // Sx_baixo — mais íngreme, contém mais a lâmina, dá o menor T
@@ -147,17 +144,13 @@ export interface FaixaEspraiamentoSarjetao {
   maximo: DetalheCenarioEspraiamento // Sx_alto — mais suave, espraia mais pra pista, dá o maior T
 }
 
-/** Comparação lado a lado dos dois métodos — nenhum é descartado. */
+/** Resultado do módulo — HEC-22/FHWA, único método mantido (Manning genérico foi removido). */
 export interface MemorialSarjetaoDenteServa {
   deltaHM: number
   larguraEspraiamentoM: number
   cenarioAdotado: CenarioEspraiamento
   sxSarjetaoAdotadoMM: number // Sx que gerou o resultado principal (baixo/médio/alto, conforme cenarioAdotado)
   larguraSarjetaoEfetivaM: number // W — a mesma largura usada no Δh e na composição de T (metade se simétrico, inteira se um_lado)
-  metodo1: ResultadoMetodoSarjetao // Manning genérico, seção retangular equivalente
-  metodo2: ResultadoMetodoSarjetao // HEC-22/FHWA, seção triangular integrada
-  diferencaPercentual: number
-  comprimentoRecomendadoM: number // o menor dos dois, lado da segurança
-  metodoRecomendado: MetodoCapacidade
+  resultado: ResultadoMetodoSarjetao
   faixaEspraiamento: FaixaEspraiamentoSarjetao
 }
