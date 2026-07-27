@@ -55,7 +55,7 @@ const DEFAULT_FORM = {
   larguraSarjetaoM: '0.9',
   sxSarjetaoAltoPct: '2',
   sxSarjetaoBaixoPct: '10',
-  yMaxM: '0.05',
+  yMaxCm: '5',
   sxPistaPct: '2',
   espraiamentoM: '2.5',
   manningN: '0.016',
@@ -109,7 +109,7 @@ export function SarjetaoDenteServaPage() {
     const larguraEfetiva = tipoSecao === 'simetrico' ? larguraSarjetao / 2 : larguraSarjetao
 
     if (campoControlador === 'yMax') {
-      const yMax = Number(form.yMaxM)
+      const yMax = Number(form.yMaxCm) / 100
       if (Number.isFinite(yMax) && yMax > 0) {
         const T = calcularEspraiamentoComposto({ yMaxM: yMax, larguraSarjetaoEfetivaM: larguraEfetiva, sxSarjetao: sxAdotado, sxPista })
         setForm((f) => ({ ...f, espraiamentoM: T.toFixed(4) }))
@@ -118,12 +118,12 @@ export function SarjetaoDenteServaPage() {
       const T = Number(form.espraiamentoM)
       if (Number.isFinite(T) && T > 0) {
         const yMax = calcularLaminaParaEspraiamentoComposto({ larguraEspraiamentoM: T, larguraSarjetaoEfetivaM: larguraEfetiva, sxSarjetao: sxAdotado, sxPista })
-        setForm((f) => ({ ...f, yMaxM: yMax.toFixed(4) }))
+        setForm((f) => ({ ...f, yMaxCm: (yMax * 100).toFixed(3) }))
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    form.yMaxM,
+    form.yMaxCm,
     form.espraiamentoM,
     form.sxPistaPct,
     form.sxSarjetaoAltoPct,
@@ -149,7 +149,7 @@ export function SarjetaoDenteServaPage() {
       'larguraSarjetaoM',
       'sxSarjetaoAltoPct',
       'sxSarjetaoBaixoPct',
-      'yMaxM',
+      'yMaxCm',
       'sxPistaPct',
       'espraiamentoM',
       'manningN',
@@ -179,7 +179,7 @@ export function SarjetaoDenteServaPage() {
         larguraSarjetaoM: valores.larguraSarjetaoM,
         sxSarjetaoAlto: valores.sxSarjetaoAltoPct / 100,
         sxSarjetaoBaixo: valores.sxSarjetaoBaixoPct / 100,
-        yMaxM: valores.yMaxM,
+        yMaxM: valores.yMaxCm / 100,
         sxPista: valores.sxPistaPct / 100,
         larguraEspraiamentoM: valores.espraiamentoM,
         manningN: valores.manningN,
@@ -215,7 +215,7 @@ export function SarjetaoDenteServaPage() {
         largura_sarjetao_m: Number(form.larguraSarjetaoM),
         sx_sarjetao_alto_m_m: Number(form.sxSarjetaoAltoPct) / 100,
         sx_sarjetao_baixo_m_m: Number(form.sxSarjetaoBaixoPct) / 100,
-        lamina_max_m: Number(form.yMaxM),
+        lamina_max_m: Number(form.yMaxCm) / 100,
         sx_pista_m_m: Number(form.sxPistaPct) / 100,
         espraiamento_m: Number(form.espraiamentoM),
         espraiamento_editado: campoControlador === 'espraiamento',
@@ -271,7 +271,7 @@ export function SarjetaoDenteServaPage() {
     larguraSarjetaoM: Number(form.larguraSarjetaoM),
     sxSarjetaoAlto: Number(form.sxSarjetaoAltoPct) / 100,
     sxSarjetaoBaixo: Number(form.sxSarjetaoBaixoPct) / 100,
-    yMaxM: Number(form.yMaxM),
+    yMaxM: Number(form.yMaxCm) / 100,
     sxPista: Number(form.sxPistaPct) / 100,
     larguraEspraiamentoM: Number(form.espraiamentoM),
     manningN: Number(form.manningN),
@@ -413,7 +413,7 @@ export function SarjetaoDenteServaPage() {
         <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-text-secondary">Hidráulica de projeto</div>
         <div className="mt-2 grid grid-cols-2 gap-4">
           <Field
-            label="Lâmina d'água admissível — y_max (m)"
+            label="Lâmina d'água admissível — y_max (cm)"
             required
             hint={campoControlador === 'espraiamento' ? 'Calculado automaticamente a partir de T (composição calha + pista)' : undefined}
           >
@@ -421,10 +421,10 @@ export function SarjetaoDenteServaPage() {
               type="number"
               step="any"
               className={fieldInputClass}
-              value={form.yMaxM}
+              value={form.yMaxCm}
               onChange={(e) => {
                 setCampoControlador('yMax')
-                setCampo('yMaxM', e.target.value)
+                setCampo('yMaxCm', e.target.value)
               }}
             />
           </Field>
@@ -798,7 +798,7 @@ function PerfilSarjetao({ comprimentoM, deltaHM, yMaxM }: { comprimentoM: number
         <text x={meio} y={topo - 6} fontSize={9} textAnchor="middle" className="fill-text-secondary">ponto alto (divisor de águas)</text>
         <text x={largura} y={baseFundo + 14} fontSize={9} textAnchor="end" className="fill-text-secondary">próxima caixa</text>
         <text x={meio} y={topo - 18} fontSize={9} textAnchor="middle" className="fill-text-secondary">
-          lâmina = y_max = {yMaxM.toFixed(3)}m
+          lâmina = y_max = {(yMaxM * 100).toFixed(2)}cm
         </text>
         <text x={meio / 2} y={(topo + baseFundo) / 2 + 4} fontSize={9} textAnchor="middle" className="fill-text-secondary">
           braço={bracoM.toFixed(2)}m
@@ -893,7 +893,7 @@ function SecaoTransversalSarjetao({
         )}
 
         <text x={simetrico ? origemX : sxCoord(0)} y={sy(yMaxM) - 6} fontSize={9} textAnchor={simetrico ? 'middle' : 'start'} className="fill-text-secondary">
-          y_max={yMaxM.toFixed(3)}m
+          y_max={(yMaxM * 100).toFixed(2)}cm
         </text>
         {simetrico ? (
           <>

@@ -211,13 +211,13 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
   doc.setFontSize(8)
   doc.setTextColor(90, 90, 90)
   if (simetrico) {
-    doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, origemX, py(p.yMaxM) - 6, { align: 'center' })
+    doc.text(`y_max = ${fmt(p.yMaxM * 100, 2)} cm`, origemX, py(p.yMaxM) - 6, { align: 'center' })
     doc.text(`T = ${fmt(T, 2)} m`, px(-T / 2), py(0) + 12, { align: 'center' })
     doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
     if (temKink) doc.text(`calha | via (W = ${fmt(W, 2)} m)`, centroX, origemY + alturaDisp + 12, { align: 'center' })
     doc.text(`eixo do sarjetão (Sx da pista = ${pct(p.sxPista, 2)})`, centroX, origemY + alturaDisp + 24, { align: 'center' })
   } else {
-    doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, px(0), py(p.yMaxM) - 6, { align: 'left' })
+    doc.text(`y_max = ${fmt(p.yMaxM * 100, 2)} cm`, px(0), py(p.yMaxM) - 6, { align: 'left' })
     doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
     if (temKink) doc.text(`calha | via (W = ${fmt(W, 2)} m)`, origemX, origemY + alturaDisp + 12, { align: 'left' })
     doc.text(`meio-fio (Sx da pista = ${pct(p.sxPista, 2)})`, origemX, origemY + alturaDisp + 24, { align: 'left' })
@@ -270,7 +270,7 @@ function desenharPerfilLongitudinalSarjetao(doc: jsPDF, cursor: Cursor, comprime
   doc.text('caixa', origemX, baseY + 12)
   doc.text('ponto alto (divisor de águas)', meioX, topoY - 6, { align: 'center' })
   doc.text('próxima caixa', origemX + larguraDisp, baseY + 12, { align: 'right' })
-  doc.text(`lâmina = y_max = ${fmt(yMaxM, 3)} m`, meioX, topoY - 18, { align: 'center' })
+  doc.text(`lâmina = y_max = ${fmt(yMaxM * 100, 2)} cm`, meioX, topoY - 18, { align: 'center' })
   doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (origemX + meioX) / 2, (topoY + baseY) / 2, { align: 'center' })
   doc.text(`braço = ${fmt(comprimentoM / 2, 2)} m`, (meioX + origemX + larguraDisp) / 2, (topoY + baseY) / 2, { align: 'center' })
   doc.setTextColor(20, 20, 20)
@@ -449,7 +449,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
       ['Largura do sarjetão', `${fmt(p.larguraSarjetaoM, 2)} m`],
       ['Sx do sarjetão — ponto alto', pct(p.sxSarjetaoAlto, 2)],
       ['Sx do sarjetão — ponto baixo', pct(p.sxSarjetaoBaixo, 2)],
-      ['Lâmina d’água admissível (y_max)', `${fmt(p.yMaxM, 4)} m`],
+      ['Lâmina d’água admissível (y_max)', `${fmt(p.yMaxM * 100, 3)} cm`],
       ['Sx da pista fora do sarjetão', pct(p.sxPista, 2)],
       ['Espraiamento T', `${fmt(p.larguraEspraiamentoM, 4)} m`],
       ['Manning n', fmt(p.manningN, 4)],
