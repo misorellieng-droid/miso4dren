@@ -4,6 +4,8 @@ import { calcularCapacidadeHec22, calcularCapacidadeManningGenerica } from './ca
 import { calcularEspraiamentoComposto } from './espraiamento'
 import { calcularVazaoAfluente } from './racional'
 import type {
+  CenarioEspraiamento,
+  DetalheCenarioEspraiamento,
   FaixaEspraiamentoSarjetao,
   IteracaoTc,
   MemorialSarjetaoDenteServa,
@@ -16,7 +18,13 @@ import type {
 export * from './types'
 export { resolverPorBisseccao } from './bisseccao'
 export { calcularCapacidadeManningGenerica, calcularCapacidadeHec22 } from './capacidade'
-export { calcularEspraiamentoComposto, calcularLaminaParaEspraiamentoComposto } from './espraiamento'
+export {
+  calcularEspraiamentoComposto,
+  calcularGeometriaCompostaSarjetao,
+  calcularLaminaParaEspraiamentoComposto,
+  pontosPerfilCompostoSarjetao,
+  type PontoPerfil,
+} from './espraiamento'
 export { calcularVazaoAfluente } from './racional'
 
 const MAX_ITERACOES_TC_PADRAO = 10
@@ -185,14 +193,13 @@ function resolverAmbosMetodos(parametros: ParametrosSarjetao, deltaHM: number, l
  * `tipoSecao === 'um_lado'` (uma sarjeta comum, de um lado só — não há face
  * espelhada pra justificar dividir por dois).
  *
- * O resultado principal (metodo1/metodo2) usa a declividade MÉDIA da calha
- * (entre o ponto alto e o ponto baixo) pra derivar T, área e perímetro —
- * ver calcularGeometriaCompostaSarjetao, que decompõe a seção em dois
- * triângulos reais (calha + via), não um único plano médio. Como essa
- * declividade varia de fato ao longo do braço (mais suave na crista, mais
- * íngreme na caixa), `faixaEspraiamento` recalcula tudo nos dois extremos
- * (Sx_alto e Sx_baixo) só pra dar uma faixa de avaliação — não substitui nem
- * altera o resultado principal adotado.
+ * Sempre são calculados os TRÊS cenários de Sx do sarjetão — mínimo
+ * (Sx_baixo), médio (default) e máximo (Sx_alto) —, já que essa declividade
+ * varia de fato ao longo do braço (mais suave na crista, mais íngreme na
+ * caixa). `parametros.cenarioAdotado` (default 'medio') escolhe qual deles
+ * vira o resultado principal (metodo1/metodo2, o que é salvo/exportado como
+ * oficial); os três ficam expostos em `faixaEspraiamento` pra comparação,
+ * independente de qual foi escolhido.
  */
 export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): MemorialSarjetaoDenteServa {
   const larguraEfetivaM = parametros.tipoSecao === 'simetrico' ? parametros.larguraSarjetaoM / 2 : parametros.larguraSarjetaoM
@@ -203,68 +210,49 @@ export function calcularSarjetaoDenteServa(parametros: ParametrosSarjetao): Memo
   }
 
   const sxSarjetaoMedioMM = (parametros.sxSarjetaoAlto + parametros.sxSarjetaoBaixo) / 2
-  const { metodo1, metodo2 } = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, sxSarjetaoMedioMM)
+  const cenarioAdotado: CenarioEspraiamento = parametros.cenarioAdotado ?? 'medio'
+  const sxPorCenario: Record<CenarioEspraiamento, number> = {
+    minimo: parametros.sxSarjetaoBaixo,
+    medio: sxSarjetaoMedioMM,
+    maximo: parametros.sxSarjetaoAlto,
+  }
+
+  const detalhesPorCenario = {} as Record<CenarioEspraiamento, DetalheCenarioEspraiamento>
+  const resolvidosPorCenario = {} as Record<CenarioEspraiamento, { metodo1: ResultadoMetodoSarjetao; metodo2: ResultadoMetodoSarjetao }>
+  for (const cenario of ['minimo', 'medio', 'maximo'] as const) {
+    const sxSarjetao = sxPorCenario[cenario]
+    const resolvido = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, sxSarjetao)
+    const T = calcularEspraiamentoComposto({ yMaxM: parametros.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao, sxPista: parametros.sxPista })
+    resolvidosPorCenario[cenario] = resolvido
+    detalhesPorCenario[cenario] = {
+      sxSarjetaoMM: sxSarjetao,
+      metodo1: { larguraEspraiamentoM: T, comprimentoEquilibrioM: resolvido.metodo1.comprimentoEquilibrioM, vazaoCapacidadeM3s: resolvido.metodo1.vazaoCapacidadeM3s },
+      metodo2: { larguraEspraiamentoM: T, comprimentoEquilibrioM: resolvido.metodo2.comprimentoEquilibrioM, vazaoCapacidadeM3s: resolvido.metodo2.vazaoCapacidadeM3s },
+    }
+  }
+
+  const { metodo1, metodo2 } = resolvidosPorCenario[cenarioAdotado]
 
   const maiorL = Math.max(metodo1.comprimentoEquilibrioM, metodo2.comprimentoEquilibrioM)
   const diferencaPercentual = (Math.abs(metodo1.comprimentoEquilibrioM - metodo2.comprimentoEquilibrioM) / maiorL) * 100
   const metodoRecomendado: MetodoCapacidade = metodo1.comprimentoEquilibrioM <= metodo2.comprimentoEquilibrioM ? 'manning_generico' : 'hec22'
   const comprimentoRecomendadoM = Math.min(metodo1.comprimentoEquilibrioM, metodo2.comprimentoEquilibrioM)
 
-  const larguraEspraiamentoAdotadoM = calcularEspraiamentoComposto({
-    yMaxM: parametros.yMaxM,
-    larguraSarjetaoEfetivaM: larguraEfetivaM,
-    sxSarjetao: sxSarjetaoMedioMM,
-    sxPista: parametros.sxPista,
-  })
-  const tMinimo = calcularEspraiamentoComposto({
-    yMaxM: parametros.yMaxM,
-    larguraSarjetaoEfetivaM: larguraEfetivaM,
-    sxSarjetao: parametros.sxSarjetaoBaixo,
-    sxPista: parametros.sxPista,
-  })
-  const tMaximo = calcularEspraiamentoComposto({
-    yMaxM: parametros.yMaxM,
-    larguraSarjetaoEfetivaM: larguraEfetivaM,
-    sxSarjetao: parametros.sxSarjetaoAlto,
-    sxPista: parametros.sxPista,
-  })
-  const resolvidoMinimo = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, parametros.sxSarjetaoBaixo)
-  const resolvidoMaximo = resolverAmbosMetodos(parametros, deltaHM, larguraEfetivaM, parametros.sxSarjetaoAlto)
+  const sxSarjetaoAdotadoMM = sxPorCenario[cenarioAdotado]
+  const larguraEspraiamentoAdotadoM = detalhesPorCenario[cenarioAdotado].metodo1.larguraEspraiamentoM
 
   const faixaEspraiamento: FaixaEspraiamentoSarjetao = {
-    sxSarjetaoMedioMM,
-    larguraEspraiamentoAdotadoM,
-    minimo: {
-      sxSarjetaoMM: parametros.sxSarjetaoBaixo,
-      metodo1: {
-        larguraEspraiamentoM: tMinimo,
-        comprimentoEquilibrioM: resolvidoMinimo.metodo1.comprimentoEquilibrioM,
-        vazaoCapacidadeM3s: resolvidoMinimo.metodo1.vazaoCapacidadeM3s,
-      },
-      metodo2: {
-        larguraEspraiamentoM: tMinimo,
-        comprimentoEquilibrioM: resolvidoMinimo.metodo2.comprimentoEquilibrioM,
-        vazaoCapacidadeM3s: resolvidoMinimo.metodo2.vazaoCapacidadeM3s,
-      },
-    },
-    maximo: {
-      sxSarjetaoMM: parametros.sxSarjetaoAlto,
-      metodo1: {
-        larguraEspraiamentoM: tMaximo,
-        comprimentoEquilibrioM: resolvidoMaximo.metodo1.comprimentoEquilibrioM,
-        vazaoCapacidadeM3s: resolvidoMaximo.metodo1.vazaoCapacidadeM3s,
-      },
-      metodo2: {
-        larguraEspraiamentoM: tMaximo,
-        comprimentoEquilibrioM: resolvidoMaximo.metodo2.comprimentoEquilibrioM,
-        vazaoCapacidadeM3s: resolvidoMaximo.metodo2.vazaoCapacidadeM3s,
-      },
-    },
+    minimo: detalhesPorCenario.minimo,
+    medio: detalhesPorCenario.medio,
+    maximo: detalhesPorCenario.maximo,
   }
 
   return {
     deltaHM,
     larguraEspraiamentoM: larguraEspraiamentoAdotadoM,
+    cenarioAdotado,
+    sxSarjetaoAdotadoMM,
+    larguraSarjetaoEfetivaM: larguraEfetivaM,
     metodo1,
     metodo2,
     diferencaPercentual,

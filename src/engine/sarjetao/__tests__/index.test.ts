@@ -115,13 +115,45 @@ describe('calcularSarjetaoDenteServa (pipeline completo)', () => {
   it('faixaEspraiamento: T mínimo (Sx_baixo, mais íngreme) é sempre menor que T máximo (Sx_alto, mais suave)', () => {
     const resultado = calcularSarjetaoDenteServa(parametrosBase)
     expect(resultado.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM).toBeLessThan(resultado.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM)
-    expect(resultado.faixaEspraiamento.sxSarjetaoMedioMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
+    expect(resultado.faixaEspraiamento.medio.sxSarjetaoMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
     expect(resultado.faixaEspraiamento.minimo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoBaixo)
     expect(resultado.faixaEspraiamento.maximo.sxSarjetaoMM).toBe(parametrosBase.sxSarjetaoAlto)
   })
 
   it('faixaEspraiamento não altera o resultado principal (metodo1/metodo2 continuam usando o T adotado)', () => {
     const resultado = calcularSarjetaoDenteServa(parametrosBase)
-    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.larguraEspraiamentoAdotadoM, 9)
+    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.medio.metodo1.larguraEspraiamentoM, 9)
+  })
+
+  it('cenarioAdotado default é "medio" — usa a declividade média do sarjetão', () => {
+    const semCenario = calcularSarjetaoDenteServa(parametrosBase)
+    const comMedio = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'medio' })
+    expect(semCenario.cenarioAdotado).toBe('medio')
+    expect(semCenario.sxSarjetaoAdotadoMM).toBeCloseTo((parametrosBase.sxSarjetaoAlto + parametrosBase.sxSarjetaoBaixo) / 2, 12)
+    expect(semCenario.metodo1.comprimentoEquilibrioM).toBeCloseTo(comMedio.metodo1.comprimentoEquilibrioM, 9)
+  })
+
+  it('cenarioAdotado "minimo" faz o resultado principal bater exatamente com faixaEspraiamento.minimo', () => {
+    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'minimo' })
+    expect(resultado.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoBaixo)
+    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM, 9)
+    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo1.comprimentoEquilibrioM, 9)
+    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.minimo.metodo2.comprimentoEquilibrioM, 9)
+  })
+
+  it('cenarioAdotado "maximo" faz o resultado principal bater exatamente com faixaEspraiamento.maximo', () => {
+    const resultado = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'maximo' })
+    expect(resultado.sxSarjetaoAdotadoMM).toBe(parametrosBase.sxSarjetaoAlto)
+    expect(resultado.larguraEspraiamentoM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM, 9)
+    expect(resultado.metodo1.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo1.comprimentoEquilibrioM, 9)
+    expect(resultado.metodo2.comprimentoEquilibrioM).toBeCloseTo(resultado.faixaEspraiamento.maximo.metodo2.comprimentoEquilibrioM, 9)
+  })
+
+  it('os três cenários dão comprimentos de equilíbrio diferentes (a escolha realmente importa)', () => {
+    const minimo = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'minimo' })
+    const medio = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'medio' })
+    const maximo = calcularSarjetaoDenteServa({ ...parametrosBase, cenarioAdotado: 'maximo' })
+    expect(minimo.metodo1.comprimentoEquilibrioM).toBeLessThan(medio.metodo1.comprimentoEquilibrioM)
+    expect(medio.metodo1.comprimentoEquilibrioM).toBeLessThan(maximo.metodo1.comprimentoEquilibrioM)
   })
 })

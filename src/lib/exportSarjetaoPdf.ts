@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { calcularEspraiamentoComposto } from '../engine/sarjetao'
-import type { MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
+import { calcularEspraiamentoComposto, pontosPerfilCompostoSarjetao } from '../engine/sarjetao'
+import type { CenarioEspraiamento, MemorialSarjetaoDenteServa, MetodoCapacidade, ResultadoMetodoSarjetao, TipoSecaoSarjetao } from '../engine/sarjetao'
 
 /** Espelha os campos numéricos do formulário no momento do cálculo — usado tanto no memorial em tela quanto no PDF. */
 export interface ParametrosExibicao {
@@ -43,6 +43,12 @@ const pct = (n: number, digits = 3) => `${(n * 100).toFixed(digits)}%`
 const METODO_LABELS: Record<MetodoCapacidade, string> = {
   manning_generico: 'Método 1 — Manning genérico (seção retangular equivalente)',
   hec22: 'Método 2 — HEC-22/FHWA (seção triangular integrada)',
+}
+
+const CENARIO_LABELS: Record<CenarioEspraiamento, string> = {
+  minimo: 'Mínimo (ponto baixo, mais íngreme)',
+  medio: 'Médio (média entre os dois pontos)',
+  maximo: 'Máximo (ponto alto, mais suave)',
 }
 
 interface Cursor {
@@ -130,13 +136,19 @@ function desenharPoligono(doc: jsPDF, pontos: Array<[number, number]>, estilo: s
   doc.lines(deltas, pontos[0][0], pontos[0][1], [1, 1], estilo, true)
 }
 
-/** Espraiamento triangular real (Método 2) sombreado, com o retângulo equivalente do Método 1 sobreposto — mirrado nos dois lados se simétrico, só de um lado (com marca de meio-fio) se um_lado. */
-function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: ParametrosExibicao) {
+/**
+ * Perfil REAL de dois planos (calha do sarjetão + via, "quebra" em x=±W)
+ * sombreado, com o retângulo equivalente do Método 1 sobreposto — mirrado
+ * nos dois lados se simétrico, só de um lado (com marca de meio-fio) se
+ * um_lado.
+ */
+function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: ParametrosExibicao, memorial: MemorialSarjetaoDenteServa) {
   const simetrico = p.tipoSecao === 'simetrico'
   const alturaDisp = 95
   garantirEspaco(doc, cursor, alturaDisp + 44)
 
   const T = p.larguraEspraiamentoM
+  const W = memorial.larguraSarjetaoEfetivaM
   const origemY = cursor.y + 14
   const centroX = MARGIN_X + 257
   const larguraDisp = 480
@@ -149,40 +161,50 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
   const px = (x: number) => origemX + x * escalaX
   const py = (profundidade: number) => origemY + profundidade * escalaY
 
+  const pontosReais = pontosPerfilCompostoSarjetao({
+    yMaxM: p.yMaxM,
+    larguraSarjetaoEfetivaM: W,
+    sxSarjetao: memorial.sxSarjetaoAdotadoMM,
+    sxPista: p.sxPista,
+  })
+  const temKink = pontosReais.length === 3
+  const pontoKink = pontosReais[1]
+
   // retângulo equivalente do Método 1
   doc.setDrawColor(140, 140, 140)
   doc.setLineWidth(0.75)
   doc.rect(px(xMin), py(p.yMaxM), px(xMax) - px(xMin), py(0) - py(p.yMaxM), 'S')
 
-  // triângulo real (Método 2)
+  // perfil real (dois planos)
   doc.setFillColor(...AREA_MOLHADA_RGB)
-  desenharPoligono(
-    doc,
-    simetrico
-      ? [
-          [px(-T), py(0)],
-          [px(0), py(p.yMaxM)],
-          [px(T), py(0)],
-        ]
-      : [
-          [px(0), py(p.yMaxM)],
-          [px(T), py(0)],
-          [px(0), py(0)],
-        ],
-    'F'
-  )
+  const perfilDireito: Array<[number, number]> = pontosReais.map((pt) => [px(pt.x), py(pt.y)])
+  const perfilEsquerdo: Array<[number, number]> = pontosReais.map((pt) => [px(-pt.x), py(pt.y)])
+  desenharPoligono(doc, [...perfilDireito, [px(T), py(0)], [px(0), py(0)]], 'F')
+  if (simetrico) {
+    desenharPoligono(doc, [...perfilEsquerdo, [px(-T), py(0)], [px(0), py(0)]], 'F')
+  }
   doc.setDrawColor(...BRAND_RGB)
   doc.setLineWidth(1)
+  for (let i = 1; i < perfilDireito.length; i++) {
+    doc.line(perfilDireito[i - 1][0], perfilDireito[i - 1][1], perfilDireito[i][0], perfilDireito[i][1])
+  }
   if (simetrico) {
-    doc.line(px(-T), py(0), px(0), py(p.yMaxM))
-    doc.line(px(0), py(p.yMaxM), px(T), py(0))
-  } else {
-    doc.line(px(0), py(p.yMaxM), px(T), py(0))
+    for (let i = 1; i < perfilEsquerdo.length; i++) {
+      doc.line(perfilEsquerdo[i - 1][0], perfilEsquerdo[i - 1][1], perfilEsquerdo[i][0], perfilEsquerdo[i][1])
+    }
   }
 
   doc.setDrawColor(140, 140, 140)
   doc.setLineWidth(0.5)
   doc.line(px(xMin), py(0), px(xMax), py(0))
+
+  // marca da borda da calha (kink), só existe se o espraiamento avança pra pista
+  if (temKink) {
+    doc.setLineDashPattern([2, 2], 0)
+    doc.line(px(W), py(0), px(W), py(pontoKink.y))
+    if (simetrico) doc.line(px(-W), py(0), px(-W), py(pontoKink.y))
+    doc.setLineDashPattern([], 0)
+  }
 
   // marca do eixo do sarjetão (simétrico) ou do meio-fio (um_lado)
   if (simetrico) {
@@ -201,10 +223,12 @@ function desenharSecaoTransversalSarjetao(doc: jsPDF, cursor: Cursor, p: Paramet
     doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, origemX, py(p.yMaxM) - 6, { align: 'center' })
     doc.text(`T = ${fmt(T, 2)} m`, px(-T / 2), py(0) + 12, { align: 'center' })
     doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
+    if (temKink) doc.text(`calha | via (W = ${fmt(W, 2)} m)`, centroX, origemY + alturaDisp + 12, { align: 'center' })
     doc.text(`eixo do sarjetão (Sx da pista = ${pct(p.sxPista, 2)})`, centroX, origemY + alturaDisp + 24, { align: 'center' })
   } else {
     doc.text(`y_max = ${fmt(p.yMaxM, 3)} m`, px(0), py(p.yMaxM) - 6, { align: 'left' })
     doc.text(`T = ${fmt(T, 2)} m`, px(T / 2), py(0) + 12, { align: 'center' })
+    if (temKink) doc.text(`calha | via (W = ${fmt(W, 2)} m)`, origemX, origemY + alturaDisp + 12, { align: 'left' })
     doc.text(`meio-fio (Sx da pista = ${pct(p.sxPista, 2)})`, origemX, origemY + alturaDisp + 24, { align: 'left' })
   }
   doc.setTextColor(20, 20, 20)
@@ -293,17 +317,24 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMet
   cursor.y += alturaBox + 18
 }
 
-function secaoMetodo(doc: jsPDF, cursor: Cursor, metodo: MetodoCapacidade, resultado: ResultadoMetodoSarjetao, p: ParametrosExibicao, deltaHM: number) {
+function secaoMetodo(
+  doc: jsPDF,
+  cursor: Cursor,
+  metodo: MetodoCapacidade,
+  resultado: ResultadoMetodoSarjetao,
+  p: ParametrosExibicao,
+  deltaHM: number,
+  sxSarjetaoAdotadoMM: number
+) {
   tituloSecao(doc, cursor, METODO_LABELS[metodo])
 
-  const sxMedio = (p.sxSarjetaoAlto + p.sxSarjetaoBaixo) / 2
   const larguraEfetivaM = p.tipoSecao === 'simetrico' ? p.larguraSarjetaoM / 2 : p.larguraSarjetaoM
-  const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxMedio, sxPista: p.sxPista })
+  const T = calcularEspraiamentoComposto({ yMaxM: p.yMaxM, larguraSarjetaoEfetivaM: larguraEfetivaM, sxSarjetao: sxSarjetaoAdotadoMM, sxPista: p.sxPista })
   const perimetroMolhadoM = resultado.areaMolhadaM2 / resultado.raioHidraulicoM
 
   if (metodo === 'manning_generico') {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro aproximado 2T')
-    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx medio ${fmt(sxMedio * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = 2 x T = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
@@ -313,7 +344,7 @@ function secaoMetodo(doc: jsPDF, cursor: Cursor, metodo: MetodoCapacidade, resul
     linhaFormula(doc, cursor, `Qcap = (1/${fmt(p.manningN, 4)}) x ${fmt(resultado.areaMolhadaM2, 5)} x ${fmt(resultado.raioHidraulicoM, 5)}^(2/3) x SL^(1/2)`)
   } else {
     subtitulo(doc, cursor, 'Geometria da seção composta (calha do sarjetão + via) -- perimetro real (arco)')
-    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx medio ${fmt(sxMedio * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
+    linhaFormula(doc, cursor, `T = ${fmt(T, 4)} m (calha a Sx adotado ${fmt(sxSarjetaoAdotadoMM * 100, 2)}% + via a Sx_pista ${fmt(p.sxPista * 100, 2)}%)`)
     linhaFormula(doc, cursor, `A = ${fmt(resultado.areaMolhadaM2, 5)} m2   P = ${fmt(perimetroMolhadoM, 4)} m`)
     linhaFormula(doc, cursor, `Rh = A / P = ${fmt(resultado.areaMolhadaM2, 5)} / ${fmt(perimetroMolhadoM, 4)} = ${fmt(resultado.raioHidraulicoM, 5)} m`)
     cursor.y += 4
@@ -396,6 +427,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
     head: [['Parâmetro', 'Valor']],
     body: [
       ['Tipo de seção', p.tipoSecao === 'simetrico' ? 'Sarjetão em V simétrico' : 'Sarjeta de um lado só'],
+      ['Cenário de espraiamento adotado', CENARIO_LABELS[memorial.cenarioAdotado]],
       ['Largura total da via contribuinte', `${fmt(p.larguraViaM, 2)} m`],
       ['Coeficiente de escoamento C (pista)', fmt(p.coefC, 2)],
       ['Contribuição de telhado', p.telhadoAtivo ? 'Ativa' : 'Inativa'],
@@ -443,43 +475,25 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   paragrafo(
     doc,
     cursor,
-    `O T adotado na secao 1 usa a declividade media do sarjetao (${pct(memorial.faixaEspraiamento.sxSarjetaoMedioMM, 2)}) -- mas essa declividade varia de fato ao longo do braco (mais suave na crista, mais ingreme na caixa). A tabela abaixo recalcula T e o comprimento de equilibrio nos dois extremos, so para avaliacao -- nao altera o resultado adotado.`
+    `O cenario adotado na secao 1 (${CENARIO_LABELS[memorial.cenarioAdotado]}) usa a declividade do sarjetao correspondente -- mas essa declividade varia de fato ao longo do braco (mais suave na crista, mais ingreme na caixa). A tabela abaixo mostra os tres cenarios possiveis, para avaliacao.`
   )
   autoTable(doc, {
     startY: cursor.y,
     margin: { left: MARGIN_X, right: MARGIN_X },
     head: [['Cenário', 'Sx do sarjetão', 'T', 'L Método 1', 'L Método 2']],
-    body: [
-      [
-        'Mínimo (ponto baixo, mais íngreme)',
-        pct(memorial.faixaEspraiamento.minimo.sxSarjetaoMM, 2),
-        `${fmt(memorial.faixaEspraiamento.minimo.metodo1.larguraEspraiamentoM, 2)} m`,
-        `${fmt(memorial.faixaEspraiamento.minimo.metodo1.comprimentoEquilibrioM, 2)} m`,
-        `${fmt(memorial.faixaEspraiamento.minimo.metodo2.comprimentoEquilibrioM, 2)} m`,
-      ],
-      [
-        'Adotado (Sx médio)',
-        pct(memorial.faixaEspraiamento.sxSarjetaoMedioMM, 2),
-        `${fmt(memorial.faixaEspraiamento.larguraEspraiamentoAdotadoM, 2)} m`,
-        `${fmt(memorial.metodo1.comprimentoEquilibrioM, 2)} m`,
-        `${fmt(memorial.metodo2.comprimentoEquilibrioM, 2)} m`,
-      ],
-      [
-        'Máximo (ponto alto, mais suave)',
-        pct(memorial.faixaEspraiamento.maximo.sxSarjetaoMM, 2),
-        `${fmt(memorial.faixaEspraiamento.maximo.metodo1.larguraEspraiamentoM, 2)} m`,
-        `${fmt(memorial.faixaEspraiamento.maximo.metodo1.comprimentoEquilibrioM, 2)} m`,
-        `${fmt(memorial.faixaEspraiamento.maximo.metodo2.comprimentoEquilibrioM, 2)} m`,
-      ],
-    ],
+    body: (['minimo', 'medio', 'maximo'] as const).map((cenario) => {
+      const d = memorial.faixaEspraiamento[cenario]
+      const rotulo = CENARIO_LABELS[cenario] + (cenario === memorial.cenarioAdotado ? ' — ADOTADO' : '')
+      return [rotulo, pct(d.sxSarjetaoMM, 2), `${fmt(d.metodo1.larguraEspraiamentoM, 2)} m`, `${fmt(d.metodo1.comprimentoEquilibrioM, 2)} m`, `${fmt(d.metodo2.comprimentoEquilibrioM, 2)} m`]
+    }),
     styles: { fontSize: 8.5, cellPadding: 4 },
     headStyles: { fillColor: BRAND_RGB },
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cursor.y = (doc as any).lastAutoTable.finalY + 20
 
-  secaoMetodo(doc, cursor, 'manning_generico', memorial.metodo1, p, memorial.deltaHM)
-  secaoMetodo(doc, cursor, 'hec22', memorial.metodo2, p, memorial.deltaHM)
+  secaoMetodo(doc, cursor, 'manning_generico', memorial.metodo1, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
+  secaoMetodo(doc, cursor, 'hec22', memorial.metodo2, p, memorial.deltaHM, memorial.sxSarjetaoAdotadoMM)
 
   tituloSecao(doc, cursor, '6. Comparação e recomendação')
   garantirEspaco(doc, cursor, 40)
@@ -521,7 +535,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
     cursor,
     'Região sombreada = área alagada aproximada na condição crítica. Esquemático -- não substitui o detalhamento executivo.'
   )
-  desenharSecaoTransversalSarjetao(doc, cursor, p)
+  desenharSecaoTransversalSarjetao(doc, cursor, p, memorial)
   desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.manning_generico}`, memorial.metodo1.comprimentoEquilibrioM, p.yMaxM)
   desenharPerfilLongitudinalSarjetao(doc, cursor, `Perfil -- ${METODO_LABELS.hec22}`, memorial.metodo2.comprimentoEquilibrioM, p.yMaxM)
 

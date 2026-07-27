@@ -1,4 +1,4 @@
-import type { TipoSecaoSarjetao } from '../engine/sarjetao'
+import type { CenarioEspraiamento, TipoSecaoSarjetao } from '../engine/sarjetao'
 import { supabase } from './supabase'
 
 export interface ResultadoSarjetaoRecord {
@@ -6,6 +6,7 @@ export interface ResultadoSarjetaoRecord {
   revisao_id: string
   nome_trecho: string
   tipo_secao: TipoSecaoSarjetao
+  cenario_espraiamento: CenarioEspraiamento
 
   largura_via_m: number
   coef_c: number

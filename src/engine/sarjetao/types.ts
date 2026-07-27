@@ -28,8 +28,22 @@ import type { EquacaoIdf } from '../types'
  */
 export type TipoSecaoSarjetao = 'simetrico' | 'um_lado'
 
+/**
+ * Qual declividade do sarjetão vira o Sx "adotado" pro resultado principal
+ * (metodo1/metodo2) — já que essa declividade varia de fato ao longo do
+ * braço (mais suave na crista, mais íngreme na caixa):
+ * - 'minimo': usa Sx_baixo (mais íngreme, junto à caixa) — mais conservador, T menor
+ * - 'medio': usa a média entre Sx_alto e Sx_baixo (default)
+ * - 'maximo': usa Sx_alto (mais suave, no divisor de águas) — T maior
+ * Os três cenários são sempre calculados e expostos em `faixaEspraiamento`,
+ * independente de qual for o adotado — só muda qual deles vira o resultado
+ * principal (e o que é salvo/exportado como oficial).
+ */
+export type CenarioEspraiamento = 'minimo' | 'medio' | 'maximo'
+
 export interface ParametrosSarjetao {
   tipoSecao: TipoSecaoSarjetao
+  cenarioAdotado?: CenarioEspraiamento // default 'medio'
   larguraViaM: number // largura de pista contribuinte total (nos dois lados até os divisores de água, se simétrico; só do lado da sarjeta, se um_lado), usada no método racional
   coefC: number
 
@@ -112,34 +126,34 @@ export interface ResultadoFaixaEspraiamento {
   vazaoCapacidadeM3s: number
 }
 
+/** Um dos três cenários de declividade — mesma forma pra mínimo/médio/máximo, indexável por CenarioEspraiamento. */
+export interface DetalheCenarioEspraiamento {
+  sxSarjetaoMM: number
+  metodo1: ResultadoFaixaEspraiamento
+  metodo2: ResultadoFaixaEspraiamento
+}
+
 /**
- * Faixa de avaliação do espraiamento: o T adotado no resultado principal usa
- * a declividade MÉDIA do sarjetão (entre o ponto alto e o ponto baixo) — mas
- * como essa declividade varia ao longo do braço (mais suave na crista, mais
- * íngreme na caixa), T também varia. Este bloco recalcula T e o comprimento
- * de equilíbrio nos dois extremos (Sx_alto e Sx_baixo), pra dar ao
- * engenheiro uma faixa mín/máx pra avaliar, sem que isso altere o resultado
- * principal adotado.
+ * Faixa de avaliação do espraiamento: como a declividade do sarjetão varia
+ * de fato ao longo do braço (mais suave na crista, mais íngreme na caixa),
+ * T/área/perímetro também variam. Expõe os três cenários possíveis —
+ * `parametros.cenarioAdotado` escolhe qual deles vira o resultado principal
+ * (metodo1/metodo2 em MemorialSarjetaoDenteServa) —, pra o engenheiro
+ * comparar e decidir qual usar.
  */
 export interface FaixaEspraiamentoSarjetao {
-  sxSarjetaoMedioMM: number
-  larguraEspraiamentoAdotadoM: number
-  minimo: {
-    sxSarjetaoMM: number // Sx_baixo — mais íngreme, contém mais a lâmina, dá o menor T
-    metodo1: ResultadoFaixaEspraiamento
-    metodo2: ResultadoFaixaEspraiamento
-  }
-  maximo: {
-    sxSarjetaoMM: number // Sx_alto — mais suave, espraia mais pra pista, dá o maior T
-    metodo1: ResultadoFaixaEspraiamento
-    metodo2: ResultadoFaixaEspraiamento
-  }
+  minimo: DetalheCenarioEspraiamento // Sx_baixo — mais íngreme, contém mais a lâmina, dá o menor T
+  medio: DetalheCenarioEspraiamento // média entre Sx_alto e Sx_baixo
+  maximo: DetalheCenarioEspraiamento // Sx_alto — mais suave, espraia mais pra pista, dá o maior T
 }
 
 /** Comparação lado a lado dos dois métodos — nenhum é descartado. */
 export interface MemorialSarjetaoDenteServa {
   deltaHM: number
   larguraEspraiamentoM: number
+  cenarioAdotado: CenarioEspraiamento
+  sxSarjetaoAdotadoMM: number // Sx que gerou o resultado principal (baixo/médio/alto, conforme cenarioAdotado)
+  larguraSarjetaoEfetivaM: number // W — a mesma largura usada no Δh e na composição de T (metade se simétrico, inteira se um_lado)
   metodo1: ResultadoMetodoSarjetao // Manning genérico, seção retangular equivalente
   metodo2: ResultadoMetodoSarjetao // HEC-22/FHWA, seção triangular integrada
   diferencaPercentual: number

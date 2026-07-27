@@ -1,4 +1,6 @@
-import { calcularGeometriaTriangular } from '../sarjeta/geometrias/triangular'
+import { calcularGeometriaTriangular, pontosPerfilTriangular, type PontoPerfil } from '../sarjeta/geometrias/triangular'
+
+export type { PontoPerfil }
 
 /**
  * Geometria composta por dois planos — a própria calha do sarjetão
@@ -80,4 +82,24 @@ export function calcularGeometriaCompostaSarjetao(params: ParametrosEspraiamento
   })
   const larguraEspraiamentoM = calcularEspraiamentoComposto(params)
   return { larguraEspraiamentoM, areaMolhadaM2, perimetroMolhadoM, raioHidraulicoM }
+}
+
+/**
+ * Pontos do perfil REAL da seção composta — dois segmentos com declividades
+ * diferentes (o "kink" na borda da calha, em x=W): 0→W na declividade da
+ * própria calha (mais íngreme), W→T na declividade da pista (mais suave) —
+ * ou só um segmento se o espraiamento nem sai da calha (Caso B, T≤W). Pra
+ * desenhar o croqui real (tela e PDF), em vez de um único triângulo de
+ * declividade média. Mesmo `x=0` no fundo/eixo da calha usado em toda a
+ * composição — ver ParametrosEspraiamentoComposto.
+ */
+export function pontosPerfilCompostoSarjetao(params: ParametrosEspraiamentoComposto): PontoPerfil[] {
+  const { yMaxM, larguraSarjetaoEfetivaM: w, sxSarjetao, sxPista } = params
+  return pontosPerfilTriangular({
+    tipo: 'triangular',
+    y0M: yMaxM,
+    larguraSarjetaM: w,
+    declividadeTransversalSarjetaMM: sxSarjetao,
+    declividadeTransversalViaMM: sxPista,
+  })
 }
