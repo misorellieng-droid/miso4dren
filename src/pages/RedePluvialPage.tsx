@@ -315,7 +315,7 @@ export function RedePluvialPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-[1600px]">
       <Breadcrumb items={['Cálculos', 'Rede Pluvial']} />
 
       <div className="mb-6">
@@ -383,7 +383,7 @@ export function RedePluvialPage() {
             Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
           </div>
           <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-            <table className="w-full text-sm">
+            <table className="w-full whitespace-nowrap text-sm">
               <thead>
                 <tr className="border-b border-border bg-elevated/50 text-left text-xs text-text-secondary">
                   <th className="px-4 py-2 font-medium">Trecho</th>
