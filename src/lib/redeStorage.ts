@@ -79,6 +79,10 @@ export interface TrechoPatch {
   material?: string | null
   manning_n?: number
   manning_n_origem?: string
+  cota_fundo_montante?: number
+  cota_fundo_jusante?: number
+  cota_topo_montante?: number
+  cota_topo_jusante?: number
 }
 
 export async function updateTrecho(id: string, patch: TrechoPatch): Promise<void> {

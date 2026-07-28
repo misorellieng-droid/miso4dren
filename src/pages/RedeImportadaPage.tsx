@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckSquare, Loader2, Square } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Loader2, Square } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
+import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import {
   listCaixas,
   listTrechos,
@@ -36,6 +37,7 @@ export function RedeImportadaPage() {
   const [selecionadosTrechos, setSelecionadosTrechos] = useState<Set<string>>(new Set())
   const [tipoLote, setTipoLote] = useState('pv')
   const [manningLote, setManningLote] = useState('')
+  const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[] } | null>(null)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -144,6 +146,62 @@ export function RedeImportadaPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao editar trecho.')
     }
+  }
+
+  const aplicarPatchesCascata = async (patches: PatchCascata[]) => {
+    setBusy(true)
+    setError(null)
+    try {
+      for (const p of patches) {
+        await updateTrecho(p.id, {
+          diametro_m: p.diametroM,
+          declividade_m_m: p.declividadeMM,
+          cota_fundo_montante: p.cotaFundoMontante,
+          cota_fundo_jusante: p.cotaFundoJusante,
+          cota_topo_montante: p.cotaTopoMontante,
+          cota_topo_jusante: p.cotaTopoJusante,
+        })
+      }
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao recalcular a cascata.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Diâmetro/declividade não é só um campo isolado: mudar um trecho desloca a cota de
+  // fundo de tudo a jusante dele (e pode forçar o diâmetro dos trechos seguintes a subir,
+  // já que diâmetro nunca diminui de montante pra jusante). Quando a mudança afeta mais
+  // do que o próprio trecho, pede confirmação antes de aplicar em cascata.
+  const handleEditTrechoComCascata = (t: TrechoRecord, diametroM: number, declividadeMM: number) => {
+    if (t.cota_fundo_montante == null) {
+      // sem cota de fundo conhecida pra esse trecho — não dá pra recalcular a cascata
+      // com segurança, então só atualiza o próprio trecho (comportamento antigo).
+      handleEditTrecho(t.id, { diametro_m: diametroM, declividade_m_m: declividadeMM })
+      return
+    }
+    const grafo = trechos.map((x) => ({
+      id: x.id,
+      caixaMontanteId: x.caixa_montante_id,
+      caixaJusanteId: x.caixa_jusante_id,
+      comprimentoM: x.comprimento_m,
+      diametroM: x.diametro_m,
+      declividadeMM: x.declividade_m_m,
+      cotaFundoMontante: x.cota_fundo_montante,
+    }))
+    const patches = recalcularCascataJusante(grafo, t.id, diametroM, declividadeMM)
+    if (patches.length <= 1) {
+      aplicarPatchesCascata(patches)
+      return
+    }
+    setCascataPendente({ trechoNome: t.nome, patches })
+  }
+
+  const handleConfirmarCascata = async () => {
+    if (!cascataPendente) return
+    await aplicarPatchesCascata(cascataPendente.patches)
+    setCascataPendente(null)
   }
 
   if (!supabase) {
@@ -305,6 +363,67 @@ export function RedeImportadaPage() {
         </>
       ) : (
         <>
+          {cascataPendente && (
+            <div className="mb-3 rounded-lg border border-accent-amber/40 bg-accent-amber/5 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-text-primary">
+                <AlertTriangle size={16} className="text-accent-amber shrink-0" />
+                Editar {cascataPendente.trechoNome} recalcula {cascataPendente.patches.length - 1} trecho(s) a jusante
+                (cota de fundo deslocada e diâmetro elevado quando necessário).
+              </div>
+              <div className="mb-3 max-h-40 overflow-y-auto rounded-md border border-border/60 bg-surface">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border text-left text-text-secondary">
+                      <th className="px-2 py-1 font-medium">Trecho</th>
+                      <th className="px-2 py-1 font-medium">Montante</th>
+                      <th className="px-2 py-1 font-medium">Jusante</th>
+                      <th className="px-2 py-1 font-medium">Diâm. novo (m)</th>
+                      <th className="px-2 py-1 font-medium">Cota fundo montante</th>
+                      <th className="px-2 py-1 font-medium">Cota fundo jusante</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cascataPendente.patches.map((p) => {
+                      const trecho = trechos.find((t) => t.id === p.id)
+                      const nomeMontante = caixas.find((c) => c.id === trecho?.caixa_montante_id)?.nome ?? '—'
+                      const nomeJusante = caixas.find((c) => c.id === trecho?.caixa_jusante_id)?.nome ?? '—'
+                      return (
+                        <tr key={p.id} className="border-b border-border/40 last:border-0">
+                          <td className="px-2 py-1 text-text-primary">{trecho?.nome ?? p.id}</td>
+                          <td className="px-2 py-1 text-text-secondary">{nomeMontante}</td>
+                          <td className="px-2 py-1 text-text-secondary">{nomeJusante}</td>
+                          <td className="px-2 py-1 text-text-secondary">{p.diametroM.toFixed(3)}</td>
+                          <td className="px-2 py-1 text-text-secondary">{p.cotaFundoMontante.toFixed(3)}</td>
+                          <td className="px-2 py-1 text-text-secondary">{p.cotaFundoJusante.toFixed(3)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* onMouseDown com preventDefault evita que o clique tire o foco do campo
+                    editado antes do onClick rodar — sem isso, o blur do campo dispara de
+                    novo com o valor antigo e sobrescreve a cascata calculada aqui. */}
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleConfirmarCascata}
+                  disabled={busy}
+                  className={SMALL_BTN}
+                >
+                  {busy && <Loader2 size={14} className="animate-spin" />}
+                  Aplicar recálculo em cascata
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setCascataPendente(null)}
+                  className="text-xs text-text-secondary hover:text-text-primary"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
           {selecionadosTrechos.size > 0 && (
             <div className="mb-3 flex items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
               <span className="text-sm text-text-primary">{selecionadosTrechos.size} selecionado(s)</span>
@@ -371,7 +490,7 @@ export function RedeImportadaPage() {
                           defaultValue={t.diametro_m}
                           onBlur={(e) => {
                             const n = Number(e.target.value)
-                            if (Number.isFinite(n) && n > 0) handleEditTrecho(t.id, { diametro_m: n })
+                            if (Number.isFinite(n) && n > 0) handleEditTrechoComCascata(t, n, t.declividade_m_m)
                           }}
                           className={`${fieldInputClass} w-20 py-1`}
                         />
@@ -383,7 +502,7 @@ export function RedeImportadaPage() {
                           defaultValue={t.declividade_m_m}
                           onBlur={(e) => {
                             const n = Number(e.target.value)
-                            if (Number.isFinite(n) && n > 0) handleEditTrecho(t.id, { declividade_m_m: n })
+                            if (Number.isFinite(n) && n > 0) handleEditTrechoComCascata(t, t.diametro_m, n)
                           }}
                           className={`${fieldInputClass} w-24 py-1`}
                         />
