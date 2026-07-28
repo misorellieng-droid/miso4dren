@@ -41,6 +41,7 @@ export interface ResultadoRedeRecord {
   id: string
   trecho_id: string
   q_entrada_m3s: number | null
+  ca_acumulado: number | null
   q_projeto_m3s: number | null
   tc_sistema_min: number | null
   intensidade_mm_h: number | null

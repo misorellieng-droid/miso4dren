@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acumularVazao, calcularQEntradaBacia, calcularTcSistema, ordenarTopologicamente } from '../rede'
+import { acumularVazao, calcularQEntradaBacia, calcularQProjeto, calcularTcSistema, ordenarTopologicamente } from '../rede'
 
 describe('ordenarTopologicamente', () => {
   it('ordena das cabeceiras até a saída', () => {
@@ -26,6 +26,12 @@ describe('ordenarTopologicamente', () => {
 describe('calcularQEntradaBacia', () => {
   it('aplica o método racional Q = 2.78e-7 × C × i × área', () => {
     expect(calcularQEntradaBacia(0.9, 80, 1000)).toBeCloseTo(2.78e-7 * 0.9 * 80 * 1000, 12)
+  })
+})
+
+describe('calcularQProjeto', () => {
+  it('aplica Q = 2.78e-7 × ΣCA × intensidade do Tc do sistema', () => {
+    expect(calcularQProjeto(900, 80)).toBeCloseTo(2.78e-7 * 900 * 80, 12)
   })
 })
 

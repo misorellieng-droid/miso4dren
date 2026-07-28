@@ -3,9 +3,10 @@ import { CheckCircle2, Droplets, Loader2, Network, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
+import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { acumularVazao, calcularQEntradaBacia, calcularTcSistema, ordenarTopologicamente } from '../engine/rede'
+import { acumularVazao, calcularQProjeto, calcularTcSistema, ordenarTopologicamente } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
@@ -17,6 +18,7 @@ import {
   saveResultadoRede,
   type ResultadoRedeRecord,
 } from '../lib/resultadosStorage'
+import type { RevisaoComProjeto } from '../lib/revisoesStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -34,6 +36,140 @@ interface LinhaResultado extends ResultadoRedeRecord {
   trecho_nome: string
 }
 
+interface DadosCalculo {
+  revisaoAtiva: RevisaoComProjeto
+  equacao: EquacaoIdfRecord
+  caixas: CaixaRecord[]
+  trechos: TrechoRecord[]
+  bacias: BaciaRecord[]
+  captacoes: CaptacaoRecord[]
+  limites: typeof DEFAULT_LIMITES
+}
+
+/**
+ * Roda o dimensionamento hidráulico da rede e persiste os resultados.
+ * Método: ΣC×A acumulado pela rede (não depende de Q/Tc) × intensidade no
+ * Tc do sistema (caminho crítico) em cada trecho — método padrão de
+ * dimensionamento de rede pluvial, em vez de somar vazões de pico já
+ * prontas de cada bacia com Tc's diferentes entre si.
+ *
+ * Como o Tc do sistema depende da velocidade (que depende do Q, que depende
+ * do Tc...), roda em duas passadas: a 1ª estima o Tc assumindo 1 m/s em
+ * todo mundo, a 2ª usa esse Tc pra calcular o Q real e resolve a hidráulica
+ * final — evita a dependência circular sem precisar de um solver iterativo.
+ * Função pura (sem depender de estado do React) pra poder ser chamada tanto
+ * pelo botão "Rodar cálculo" quanto depois de uma edição no modal de
+ * memória de cálculo, sempre com dado fresco vindo do banco.
+ */
+async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: string[] }> {
+  const { revisaoAtiva, equacao, caixas, trechos, bacias, captacoes, limites } = dados
+  const tempoRetorno = revisaoAtiva.tempo_retorno_anos ?? 10
+
+  const caixaIds = caixas.map((c) => c.id)
+  const trechosGrafo = trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id }))
+  const trechosComComprimento = trechos.map((t) => ({
+    id: t.id,
+    montanteId: t.caixa_montante_id,
+    jusanteId: t.caixa_jusante_id,
+    comprimentoM: t.comprimento_m,
+  }))
+
+  const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
+  const baciasCaptadas = bacias.filter((b) => baciaIdsCaptadas.has(b.id))
+
+  const avisos: string[] = []
+  const baciasSemTc = baciasCaptadas.filter((b) => b.tc_min == null)
+  if (baciasSemTc.length > 0) {
+    avisos.push(`${baciasSemTc.length} bacia(s) sem Tc próprio — usando 10 min como padrão.`)
+  }
+
+  // ΣC×A acumulado por trecho — geometria pura, não depende de Q nem de Tc.
+  const caPorBaciaId = new Map(baciasCaptadas.map((b) => [b.id, b.coef_c * b.area_m2]))
+  const caEntradaPorCaixa = new Map<string, number>()
+  for (const cap of captacoes) {
+    const ca = caPorBaciaId.get(cap.bacia_id)
+    if (ca == null) continue
+    const parcela = ca * (cap.percentual / 100)
+    caEntradaPorCaixa.set(cap.dispositivo_id, (caEntradaPorCaixa.get(cap.dispositivo_id) ?? 0) + parcela)
+  }
+  const caAcumuladoPorTrecho = acumularVazao(caixaIds, trechosGrafo, caEntradaPorCaixa)
+
+  const tcInicialPorCaixa = new Map<string, number>()
+  for (const cap of captacoes) {
+    const bacia = bacias.find((b) => b.id === cap.bacia_id)
+    if (!bacia) continue
+    const atual = tcInicialPorCaixa.get(cap.dispositivo_id) ?? 0
+    tcInicialPorCaixa.set(cap.dispositivo_id, Math.max(atual, bacia.tc_min ?? 10))
+  }
+
+  let velocidadePorTrecho = new Map<string, number>(trechos.map((t) => [t.id, 1]))
+  let linhas: Omit<ResultadoRedeRecord, 'id'>[] = []
+
+  const NUM_PASSADAS = 2
+  for (let passada = 0; passada < NUM_PASSADAS; passada++) {
+    const ultimaPassada = passada === NUM_PASSADAS - 1
+    const tcPorCaixa = calcularTcSistema(caixaIds, trechosComComprimento, velocidadePorTrecho, tcInicialPorCaixa)
+    const novaVelocidadePorTrecho = new Map<string, number>()
+    linhas = []
+
+    for (const t of trechos) {
+      const ca = caAcumuladoPorTrecho.get(t.id) ?? 0
+      const tcSistema = tcPorCaixa.get(t.caixa_jusante_id) ?? tempoRetorno
+      const intensidade = calcularIntensidadeIdf(equacao, tempoRetorno, tcSistema)
+      const qProjeto = calcularQProjeto(ca, intensidade)
+
+      if (t.manning_n == null) {
+        if (ultimaPassada) avisos.push(`Trecho ${t.nome}: sem manning_n definido — não calculado. Revise em Cadastros → Bacias.`)
+        continue
+      }
+
+      const solver = resolverLamina({
+        qProjetoM3s: qProjeto,
+        diametroM: t.diametro_m,
+        declividadeMM: t.declividade_m_m,
+        manningN: t.manning_n,
+      })
+      novaVelocidadePorTrecho.set(t.id, solver.velocidade)
+
+      if (!ultimaPassada) continue
+
+      const yD = solver.lamina / t.diametro_m
+      const motivos: string[] = []
+      if (!solver.convergiu) motivos.push('vazão de projeto excede a capacidade do tubo até 0,93×D')
+      if (yD > limites.limiteYD) motivos.push(`y/D (${(yD * 100).toFixed(0)}%) acima do limite (${(limites.limiteYD * 100).toFixed(0)}%)`)
+      if (solver.velocidade < limites.velMinMs) motivos.push(`velocidade (${solver.velocidade.toFixed(2)} m/s) abaixo da mínima de autolimpeza`)
+      if (solver.velocidade > limites.velMaxMs) motivos.push(`velocidade (${solver.velocidade.toFixed(2)} m/s) acima da máxima`)
+      if (t.declividade_m_m < limites.declMinMM) motivos.push('declividade abaixo da faixa mínima')
+      if (t.declividade_m_m > limites.declMaxMM) motivos.push('declividade acima da faixa máxima')
+
+      linhas.push({
+        trecho_id: t.id,
+        q_entrada_m3s: null,
+        ca_acumulado: ca,
+        q_projeto_m3s: qProjeto,
+        tc_sistema_min: tcSistema,
+        intensidade_mm_h: intensidade,
+        lamina_m: solver.lamina,
+        y_sobre_d_pct: yD * 100,
+        raio_hidraulico_m: solver.raioHidraulico,
+        velocidade_ms: solver.velocidade,
+        vazao_calculada_m3s: solver.vazaoCalculada,
+        conforme: motivos.length === 0,
+        motivo_nao_conformidade: motivos.length > 0 ? motivos.join('; ') : null,
+      })
+    }
+
+    velocidadePorTrecho = novaVelocidadePorTrecho
+  }
+
+  await deleteResultadosRedeByTrechoIds(trechos.map((t) => t.id))
+  for (const linha of linhas) {
+    await saveResultadoRede(linha)
+  }
+
+  return { avisos }
+}
+
 export function RedePluvialPage() {
   const { revisaoAtiva } = useRevisaoContext()
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
@@ -47,6 +183,7 @@ export function RedePluvialPage() {
   const [error, setError] = useState<string | null>(null)
   const [avisos, setAvisos] = useState<string[]>([])
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
+  const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -80,124 +217,42 @@ export function RedePluvialPage() {
     if (!revisaoAtiva) return
     setError(null)
     setAvisos([])
-
     if (!equacao) {
       setError('A revisão não tem equação IDF vinculada — configure em Cadastros → Projetos.')
       return
     }
-    const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
-    const baciasCaptadas = bacias.filter((b) => baciaIdsCaptadas.has(b.id))
-    const baciasSemTc = baciasCaptadas.filter((b) => b.tc_min == null)
-    if (baciasSemTc.length > 0) {
-      setAvisos((prev) => [...prev, `${baciasSemTc.length} bacia(s) sem Tc próprio — usando 10 min como padrão.`])
-    }
-
     setRunning(true)
     try {
-      const caixaIds = caixas.map((c) => c.id)
-      const trechosGrafo = trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id }))
-
-      // Passo 1a — Q total de cada bacia (método racional)
-      const qTotalPorBaciaId = new Map<string, number>()
-      for (const b of baciasCaptadas) {
-        const tcMin = b.tc_min ?? 10
-        const intensidade = calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcMin)
-        qTotalPorBaciaId.set(b.id, calcularQEntradaBacia(b.coef_c, intensidade, b.area_m2))
-      }
-
-      // Passo 1b — rateia por captação: Q_dispositivo = Σ (Q_total_bacia × percentual/100),
-      // depois soma o acumulado de montante no grafo
-      const qEntradaPorCaixa = new Map<string, number>()
-      for (const cap of captacoes) {
-        const qTotal = qTotalPorBaciaId.get(cap.bacia_id)
-        if (qTotal == null) continue
-        const qParcela = qTotal * (cap.percentual / 100)
-        qEntradaPorCaixa.set(cap.dispositivo_id, (qEntradaPorCaixa.get(cap.dispositivo_id) ?? 0) + qParcela)
-      }
-
-      const qProjetoPorTrecho = acumularVazao(caixaIds, trechosGrafo, qEntradaPorCaixa)
-
-      // Passo 3 — resolve a lâmina de cada trecho com manning_n conhecido
-      const velocidadePorTrecho = new Map<string, number>()
-      const novosAvisos: string[] = []
-      const linhas: Omit<ResultadoRedeRecord, 'id'>[] = []
-
-      for (const t of trechos) {
-        const qProjeto = qProjetoPorTrecho.get(t.id) ?? 0
-
-        if (t.manning_n == null) {
-          novosAvisos.push(`Trecho ${t.nome}: sem manning_n definido — não calculado. Revise em Cadastros → Bacias.`)
-          continue
-        }
-
-        const solver = resolverLamina({
-          qProjetoM3s: qProjeto,
-          diametroM: t.diametro_m,
-          declividadeMM: t.declividade_m_m,
-          manningN: t.manning_n,
-        })
-        velocidadePorTrecho.set(t.id, solver.velocidade)
-
-        const yD = solver.lamina / t.diametro_m
-        const motivos: string[] = []
-        if (!solver.convergiu) motivos.push('vazão de projeto excede a capacidade do tubo até 0,93×D')
-        if (yD > limites.limiteYD) motivos.push(`y/D (${(yD * 100).toFixed(0)}%) acima do limite (${(limites.limiteYD * 100).toFixed(0)}%)`)
-        if (solver.velocidade < limites.velMinMs) motivos.push(`velocidade (${solver.velocidade.toFixed(2)} m/s) abaixo da mínima de autolimpeza`)
-        if (solver.velocidade > limites.velMaxMs) motivos.push(`velocidade (${solver.velocidade.toFixed(2)} m/s) acima da máxima`)
-        if (t.declividade_m_m < limites.declMinMM) motivos.push('declividade abaixo da faixa mínima')
-        if (t.declividade_m_m > limites.declMaxMM) motivos.push('declividade acima da faixa máxima')
-
-        linhas.push({
-          trecho_id: t.id,
-          q_entrada_m3s: null,
-          q_projeto_m3s: qProjeto,
-          tc_sistema_min: null,
-          intensidade_mm_h: null,
-          lamina_m: solver.lamina,
-          y_sobre_d_pct: yD * 100,
-          raio_hidraulico_m: solver.raioHidraulico,
-          velocidade_ms: solver.velocidade,
-          vazao_calculada_m3s: solver.vazaoCalculada,
-          conforme: motivos.length === 0,
-          motivo_nao_conformidade: motivos.length > 0 ? motivos.join('; ') : null,
-        })
-      }
-
-      // Passo 2 — Tc do sistema (usa as velocidades resolvidas acima)
-      const trechosComComprimento = trechos.map((t) => ({
-        id: t.id,
-        montanteId: t.caixa_montante_id,
-        jusanteId: t.caixa_jusante_id,
-        comprimentoM: t.comprimento_m,
-      }))
-      const tcInicialPorCaixa = new Map<string, number>()
-      for (const cap of captacoes) {
-        const bacia = bacias.find((b) => b.id === cap.bacia_id)
-        if (!bacia) continue
-        const atual = tcInicialPorCaixa.get(cap.dispositivo_id) ?? 0
-        tcInicialPorCaixa.set(cap.dispositivo_id, Math.max(atual, bacia.tc_min ?? 10))
-      }
-      const tcPorCaixa = calcularTcSistema(caixaIds, trechosComComprimento, velocidadePorTrecho, tcInicialPorCaixa)
-
-      for (const linha of linhas) {
-        const trecho = trechos.find((t) => t.id === linha.trecho_id)!
-        const tcSistema = tcPorCaixa.get(trecho.caixa_jusante_id) ?? null
-        linha.tc_sistema_min = tcSistema
-        linha.intensidade_mm_h = tcSistema != null ? calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcSistema) : null
-      }
-
-      await deleteResultadosRedeByTrechoIds(trechos.map((t) => t.id))
-      for (const linha of linhas) {
-        await saveResultadoRede(linha)
-      }
-
-      setAvisos((prev) => [...prev, ...novosAvisos])
+      const { avisos: novosAvisos } = await executarCalculoRede({ revisaoAtiva, equacao, caixas, trechos, bacias, captacoes, limites })
+      setAvisos(novosAvisos)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao calcular a rede.')
     } finally {
       setRunning(false)
     }
+  }
+
+  // Chamado pelo modal de memória de cálculo depois de editar diâmetro/declividade
+  // (já persistido, com cascata aplicada) — busca dado fresco do banco (não confia
+  // no estado do componente, que ainda não foi re-renderizado) e roda o cálculo de novo.
+  const handleRecalcularAposEdicao = async () => {
+    if (!revisaoAtiva || !equacao) return
+    const [caixasFrescas, trechosFrescos] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id)])
+    setCaixas(caixasFrescas)
+    setTrechos(trechosFrescos)
+    const { avisos: novosAvisos } = await executarCalculoRede({
+      revisaoAtiva,
+      equacao,
+      caixas: caixasFrescas,
+      trechos: trechosFrescos,
+      bacias,
+      captacoes,
+      limites,
+    })
+    setAvisos(novosAvisos)
+    const existentes = await listResultadosRedeByRevisao(revisaoAtiva.id)
+    setResultados(existentes)
   }
 
   // Ordem topológica das caixas (cabeceiras -> saída) — usada pra listar a tabela de
@@ -225,6 +280,9 @@ export function RedePluvialPage() {
   }, [resultados, trechos, ordemTopologica])
 
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
+
+  const resultadoModal = trechoModalId ? (resultados.find((r) => r.trecho_id === trechoModalId) ?? null) : null
+  const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
 
   if (!supabase || !revisaoAtiva) {
     return (
@@ -315,7 +373,12 @@ export function RedePluvialPage() {
             </thead>
             <tbody>
               {resultadosOrdenados.map((r) => (
-                <tr key={r.id} className="border-b border-border/60 last:border-0">
+                <tr
+                  key={r.id}
+                  onClick={() => setTrechoModalId(r.trecho_id)}
+                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
+                  title="Ver memória de cálculo"
+                >
                   <td className="px-4 py-2 text-text-primary">{r.trecho_nome}</td>
                   <td className="px-4 py-2 text-text-secondary">{r.q_projeto_m3s?.toFixed(4)}</td>
                   <td className="px-4 py-2 text-text-secondary">{r.lamina_m?.toFixed(3)}</td>
@@ -336,6 +399,17 @@ export function RedePluvialPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {resultadoModal && trechoModal && (
+        <MemoriaCalculoModal
+          resultado={resultadoModal}
+          trecho={trechoModal}
+          trechos={trechos}
+          caixas={caixas}
+          onClose={() => setTrechoModalId(null)}
+          onRecalcular={handleRecalcularAposEdicao}
+        />
       )}
     </div>
   )

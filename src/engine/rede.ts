@@ -47,15 +47,27 @@ export function calcularQEntradaBacia(coefC: number, intensidadeMmH: number, are
   return RATIONAL_METHOD_K * coefC * intensidadeMmH * areaM2
 }
 
+/**
+ * Vazão de projeto de um trecho a partir do ΣC×A acumulado até ele e da
+ * intensidade no Tc do sistema (caminho crítico) naquele ponto — método
+ * padrão de dimensionamento de rede pluvial: uma única duração de chuva
+ * (o Tc até ali) aplicada sobre toda a área acumulada, em vez de somar
+ * vazões de pico já prontas de cada bacia com Tc's diferentes entre si.
+ */
+export function calcularQProjeto(caAcumulado: number, intensidadeMmH: number): number {
+  return RATIONAL_METHOD_K * caAcumulado * intensidadeMmH
+}
+
 export interface TrechoGrafo extends ArestaGrafo {
   // alias semântico: montanteId = caixaMontanteId, jusanteId = caixaJusanteId
 }
 
 /**
- * Passo 1 — acumula a vazão de projeto ao longo do grafo, dos nós de
- * cabeceira até a saída. Para cada nó: Q(nó) = soma de Q_projeto de todos os
- * trechos de entrada + Q_entrada de bacias que desaguam diretamente nele.
- * Cada trecho de saída de um nó recebe o Q total acumulado nesse nó.
+ * Acumula uma grandeza aditiva ao longo do grafo, dos nós de cabeceira até
+ * a saída — genérico o bastante pra somar tanto vazão pronta quanto C×A.
+ * Para cada nó: total(nó) = soma dos totais de todos os trechos de entrada +
+ * a entrada direta desse nó. Cada trecho de saída de um nó recebe o total
+ * acumulado nesse nó.
  */
 export function acumularVazao(
   caixaIds: string[],
