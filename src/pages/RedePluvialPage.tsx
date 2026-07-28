@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Droplets, Loader2, Network, XCircle } from 'lucide-react'
+import { CheckCircle2, Droplets, Eye, Loader2, Network, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
@@ -358,47 +358,57 @@ export function RedePluvialPage() {
       )}
 
       {resultados.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-elevated/50 text-left text-xs text-text-secondary">
-                <th className="px-4 py-2 font-medium">Trecho</th>
-                <th className="px-4 py-2 font-medium">Q projeto (m³/s)</th>
-                <th className="px-4 py-2 font-medium">Lâmina (m)</th>
-                <th className="px-4 py-2 font-medium">y/D</th>
-                <th className="px-4 py-2 font-medium">Velocidade (m/s)</th>
-                <th className="px-4 py-2 font-medium">Tc sistema (min)</th>
-                <th className="px-4 py-2 font-medium">Conformidade</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resultadosOrdenados.map((r) => (
-                <tr
-                  key={r.id}
-                  onClick={() => setTrechoModalId(r.trecho_id)}
-                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
-                  title="Ver memória de cálculo"
-                >
-                  <td className="px-4 py-2 text-text-primary">{r.trecho_nome}</td>
-                  <td className="px-4 py-2 text-text-secondary">{r.q_projeto_m3s?.toFixed(4)}</td>
-                  <td className="px-4 py-2 text-text-secondary">{r.lamina_m?.toFixed(3)}</td>
-                  <td className="px-4 py-2 text-text-secondary">{r.y_sobre_d_pct?.toFixed(0)}%</td>
-                  <td className="px-4 py-2 text-text-secondary">{r.velocidade_ms?.toFixed(2)}</td>
-                  <td className="px-4 py-2 text-text-secondary">{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
-                  <td className="px-4 py-2">
-                    {r.conforme ? (
-                      <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-accent-red" title={r.motivo_nao_conformidade ?? undefined}>
-                        <XCircle size={14} /> Não conforme
-                      </span>
-                    )}
-                  </td>
+        <>
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-text-secondary">
+            <Eye size={13} />
+            Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-elevated/50 text-left text-xs text-text-secondary">
+                  <th className="px-4 py-2 font-medium">Trecho</th>
+                  <th className="px-4 py-2 font-medium">Q projeto (m³/s)</th>
+                  <th className="px-4 py-2 font-medium">Lâmina (m)</th>
+                  <th className="px-4 py-2 font-medium">y/D</th>
+                  <th className="px-4 py-2 font-medium">Velocidade (m/s)</th>
+                  <th className="px-4 py-2 font-medium">Tc sistema (min)</th>
+                  <th className="px-4 py-2 font-medium">Conformidade</th>
+                  <th className="w-8 px-2 py-2"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {resultadosOrdenados.map((r) => (
+                  <tr
+                    key={r.id}
+                    onClick={() => setTrechoModalId(r.trecho_id)}
+                    className="group cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
+                    title="Ver memória de cálculo"
+                  >
+                    <td className="px-4 py-2 text-text-primary">{r.trecho_nome}</td>
+                    <td className="px-4 py-2 text-text-secondary">{r.q_projeto_m3s?.toFixed(4)}</td>
+                    <td className="px-4 py-2 text-text-secondary">{r.lamina_m?.toFixed(3)}</td>
+                    <td className="px-4 py-2 text-text-secondary">{r.y_sobre_d_pct?.toFixed(0)}%</td>
+                    <td className="px-4 py-2 text-text-secondary">{r.velocidade_ms?.toFixed(2)}</td>
+                    <td className="px-4 py-2 text-text-secondary">{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
+                    <td className="px-4 py-2">
+                      {r.conforme ? (
+                        <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-accent-red" title={r.motivo_nao_conformidade ?? undefined}>
+                          <XCircle size={14} /> Não conforme
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-text-secondary/40 group-hover:text-brand">
+                      <Eye size={15} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {resultadoModal && trechoModal && (
