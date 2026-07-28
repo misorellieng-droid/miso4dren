@@ -12,6 +12,7 @@ export interface CaixaRecord {
   cota_fundo: number | null
   origem: string
   rede_nome: string | null
+  recebe_vazao: boolean
 }
 
 export interface TrechoRecord {
@@ -62,6 +63,7 @@ export interface CaixaPatch {
   tipo?: string
   cota_terreno?: number | null
   cota_fundo?: number | null
+  recebe_vazao?: boolean
 }
 
 export async function updateCaixa(id: string, patch: CaixaPatch): Promise<void> {
@@ -72,6 +74,12 @@ export async function updateCaixa(id: string, patch: CaixaPatch): Promise<void> 
 export async function updateCaixasTipoEmLote(ids: string[], tipo: string): Promise<void> {
   if (ids.length === 0) return
   const { error } = await requireSupabase().from('caixas').update({ tipo }).in('id', ids)
+  if (error) throw error
+}
+
+export async function updateCaixasRecebeVazaoEmLote(ids: string[], recebeVazao: boolean): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await requireSupabase().from('caixas').update({ recebe_vazao: recebeVazao }).in('id', ids)
   if (error) throw error
 }
 
@@ -127,6 +135,7 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
           cota_fundo: c.cotaFundo ?? null,
           origem: 'landxml',
           rede_nome: c.redeNome ?? null,
+          recebe_vazao: c.recebeVazao,
         }))
       )
       .select()

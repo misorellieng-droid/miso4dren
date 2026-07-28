@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckSquare, Loader2, Square } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Droplets, Loader2, Square } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
@@ -8,6 +8,7 @@ import {
   listCaixas,
   listTrechos,
   updateCaixa,
+  updateCaixasRecebeVazaoEmLote,
   updateCaixasTipoEmLote,
   updateTrecho,
   updateTrechosManningEmLote,
@@ -36,6 +37,7 @@ export function RedeImportadaPage() {
   const [selecionadosCaixas, setSelecionadosCaixas] = useState<Set<string>>(new Set())
   const [selecionadosTrechos, setSelecionadosTrechos] = useState<Set<string>>(new Set())
   const [tipoLote, setTipoLote] = useState('pv')
+  const [recebeVazaoLote, setRecebeVazaoLote] = useState('true')
   const [manningLote, setManningLote] = useState('')
   const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[] } | null>(null)
   const [redeSelecionada, setRedeSelecionada] = useState<string>('todas')
@@ -135,6 +137,20 @@ export function RedeImportadaPage() {
     }
   }
 
+  const handleAplicarRecebeVazaoLote = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await updateCaixasRecebeVazaoEmLote([...selecionadosCaixas], recebeVazaoLote === 'true')
+      setSelecionadosCaixas(new Set())
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao aplicar recebe vazão em lote.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleAplicarManningLote = async () => {
     const n = Number(manningLote)
     if (!Number.isFinite(n) || n <= 0) return
@@ -155,6 +171,15 @@ export function RedeImportadaPage() {
   const handleEditCaixaTipo = async (id: string, tipo: string) => {
     try {
       await updateCaixa(id, { tipo })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao editar caixa.')
+    }
+  }
+
+  const handleEditCaixaRecebeVazao = async (id: string, recebeVazao: boolean) => {
+    try {
+      await updateCaixa(id, { recebe_vazao: recebeVazao })
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao editar caixa.')
@@ -336,6 +361,15 @@ export function RedeImportadaPage() {
                 {busy && <Loader2 size={14} className="animate-spin" />}
                 Aplicar tipo aos selecionados
               </button>
+              <span className="h-4 w-px bg-border" />
+              <select value={recebeVazaoLote} onChange={(e) => setRecebeVazaoLote(e.target.value)} className={`${fieldInputClass} w-40 py-1.5`}>
+                <option value="true">Recebe vazão: sim</option>
+                <option value="false">Recebe vazão: não</option>
+              </select>
+              <button onClick={handleAplicarRecebeVazaoLote} disabled={busy} className={SMALL_BTN}>
+                {busy && <Loader2 size={14} className="animate-spin" />}
+                Aplicar aos selecionados
+              </button>
               <button onClick={() => setSelecionadosCaixas(new Set())} className="text-xs text-text-secondary hover:text-text-primary">
                 Limpar seleção
               </button>
@@ -357,6 +391,9 @@ export function RedeImportadaPage() {
                   <th className="px-3 py-2 font-medium">Nome</th>
                   {redesDisponiveis.length > 1 && <th className="px-3 py-2 font-medium">Rede</th>}
                   <th className="px-3 py-2 font-medium">Tipo</th>
+                  <th className="px-3 py-2 font-medium" title="Se essa caixa pode receber vazão de bacia diretamente (aparece como opção de captação em Cadastros → Bacias)">
+                    Recebe vazão
+                  </th>
                   <th className="px-3 py-2 font-medium">Cota terreno</th>
                   <th className="px-3 py-2 font-medium">Cota fundo</th>
                   <th className="px-3 py-2 font-medium">Origem</th>
@@ -386,6 +423,18 @@ export function RedeImportadaPage() {
                       </select>
                     </td>
                     <td className="px-3 py-1.5">
+                      <button
+                        onClick={() => handleEditCaixaRecebeVazao(c.id, !c.recebe_vazao)}
+                        className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition ${
+                          c.recebe_vazao ? 'bg-accent-blue/10 text-accent-blue' : 'bg-elevated text-text-secondary hover:text-text-primary'
+                        }`}
+                        title="Clique pra alternar"
+                      >
+                        <Droplets size={12} />
+                        {c.recebe_vazao ? 'Sim' : 'Não'}
+                      </button>
+                    </td>
+                    <td className="px-3 py-1.5">
                       <input
                         type="number"
                         step="any"
@@ -408,7 +457,7 @@ export function RedeImportadaPage() {
                 ))}
                 {caixasFiltradas.length === 0 && (
                   <tr>
-                    <td colSpan={redesDisponiveis.length > 1 ? 7 : 6} className="px-3 py-6 text-center text-text-secondary">
+                    <td colSpan={redesDisponiveis.length > 1 ? 8 : 7} className="px-3 py-6 text-center text-text-secondary">
                       Nenhuma estrutura encontrada.
                     </td>
                   </tr>

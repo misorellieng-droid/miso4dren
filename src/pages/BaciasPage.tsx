@@ -417,7 +417,9 @@ function CaptacaoPorBacia({
   const [restante, setRestante] = useState(bacia.destino_restante_nao_captado ?? '')
 
   const soma = captacoes.reduce((acc, c) => acc + c.percentual, 0)
-  const disponiveis = caixas.filter((c) => !captacoes.some((cap) => cap.dispositivo_id === c.id))
+  // só caixas marcadas como "recebe vazão" aparecem aqui — evita vincular uma bacia
+  // por engano numa PV que só conduz tubo. Editável em Cadastros → Rede Importada.
+  const disponiveis = caixas.filter((c) => c.recebe_vazao && !captacoes.some((cap) => cap.dispositivo_id === c.id))
   const percentualNum = Number(novoPercentual)
   const excederia = Number.isFinite(percentualNum) && soma + percentualNum > 100
 
@@ -518,6 +520,11 @@ function CaptacaoPorBacia({
         </button>
         {excederia && <span className="text-xs text-accent-red">soma passaria de 100%</span>}
       </div>
+      {disponiveis.length === 0 && caixas.length > 0 && (
+        <div className="text-xs text-text-secondary">
+          Nenhuma caixa habilitada a receber vazão. Marque em Cadastros → Rede Importada (coluna "Recebe vazão").
+        </div>
+      )}
 
       <div className="text-xs">
         Soma atual:{' '}

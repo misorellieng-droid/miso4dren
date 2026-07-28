@@ -22,6 +22,9 @@ export interface CaixaImportada {
   cotaTerreno?: number
   cotaFundo?: number
   redeNome?: string
+  /** Se a caixa pode receber vazão de bacia diretamente — chute inicial pelo
+   * tipo inferido (boca de lobo = sim); editável depois em Rede Importada. */
+  recebeVazao: boolean
 }
 
 export interface TrechoImportado {
@@ -147,14 +150,16 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
       const cotaTerreno = numAttr(s, 'elevRim') ?? numAttr(rim, 'elevation')
       const cotaFundo = numAttr(s, 'elevSump') ?? numAttr(sump, 'elevation')
 
+      const tipo = inferirTipoCaixa(s.getAttribute('type'), s.getAttribute('desc'))
       caixas.push({
         nome,
-        tipo: inferirTipoCaixa(s.getAttribute('type'), s.getAttribute('desc')),
+        tipo,
         x: pos?.x,
         y: pos?.y,
         cotaTerreno,
         cotaFundo,
         redeNome,
+        recebeVazao: tipo === 'boca_de_lobo',
       })
 
       const inverts: InvertInfo[] = []

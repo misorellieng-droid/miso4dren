@@ -61,6 +61,12 @@ describe('parseLandXml', () => {
     expect(bl01?.tipo).toBe('boca_de_lobo')
   })
 
+  it('marca boca de lobo como recebendo vazão por padrão, e PV como não recebendo', () => {
+    const { caixas } = parseLandXml(FIXTURE_XML, materiaisManning)
+    expect(caixas.find((c) => c.nome === 'BL-01')?.recebeVazao).toBe(true)
+    expect(caixas.find((c) => c.nome === 'PV-01')?.recebeVazao).toBe(false)
+  })
+
   it('extrai os trechos com comprimento, diâmetro (convertido de mm) e declividade explícitos', () => {
     const { trechos } = parseLandXml(FIXTURE_XML, materiaisManning)
     const t1 = trechos.find((t) => t.nome === 'TRECHO-1')!
