@@ -26,7 +26,15 @@ export interface ResultadoSarjetaRecord {
   velocidade_ms: number | null
   vazao_m3s: number | null
   comprimento_critico_m: number | null
+  tc_min: number | null
+  arquivado: boolean
   created_at: string
+}
+
+/** Registro arquivado com o nome do projeto/revisão já resolvidos — pra listagem global fora do contexto de uma revisão. */
+export interface ResultadoSarjetaArquivadoRecord extends ResultadoSarjetaRecord {
+  revisao_nome: string
+  projeto_nome: string | null
 }
 
 export interface ResultadoRedeRecord {
@@ -61,9 +69,31 @@ export async function listResultadosSarjeta(revisaoId: string): Promise<Resultad
     .from('resultados_sarjeta')
     .select('*')
     .eq('revisao_id', revisaoId)
+    .eq('arquivado', false)
     .order('created_at', { ascending: false })
   if (error) throw error
   return data as ResultadoSarjetaRecord[]
+}
+
+export async function arquivarResultadoSarjeta(id: string, arquivado: boolean): Promise<void> {
+  const { error } = await requireSupabase().from('resultados_sarjeta').update({ arquivado }).eq('id', id)
+  if (error) throw error
+}
+
+/** Todos os registros arquivados de todos os projetos/revisões — pra página global "Arquivo". */
+export async function listResultadosSarjetaArquivados(): Promise<ResultadoSarjetaArquivadoRecord[]> {
+  const { data, error } = await requireSupabase()
+    .from('resultados_sarjeta')
+    .select('*, revisoes(nome, projetos(nome))')
+    .eq('arquivado', true)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data as any[]).map((r) => ({
+    ...r,
+    revisao_nome: r.revisoes?.nome ?? '—',
+    projeto_nome: r.revisoes?.projetos?.nome ?? null,
+  }))
 }
 
 export async function saveResultadoRede(input: Omit<ResultadoRedeRecord, 'id'>): Promise<ResultadoRedeRecord> {

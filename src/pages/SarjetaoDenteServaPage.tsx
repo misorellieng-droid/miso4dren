@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, FileDown, Loader2, Mountain, Save } from 'lucide-react'
+import { AlertTriangle, Archive, ChevronDown, ChevronUp, FileDown, Loader2, Mountain, Pencil, Printer, Save } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
@@ -15,9 +15,57 @@ import {
   type TipoSecaoSarjetao,
 } from '../engine/sarjetao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
-import { listResultadosSarjetao, saveResultadoSarjetao, type ResultadoSarjetaoRecord } from '../lib/resultadosSarjetaoStorage'
+import {
+  arquivarResultadoSarjetao,
+  listResultadosSarjetao,
+  saveResultadoSarjetao,
+  type ResultadoSarjetaoRecord,
+} from '../lib/resultadosSarjetaoStorage'
 import { exportSarjetaoPdf, type ParametrosExibicao } from '../lib/exportSarjetaoPdf'
 import { supabase } from '../lib/supabase'
+
+/** Parâmetros de exibição reconstruídos a partir de um registro salvo — usado por "Imprimir" e "Editar". */
+export function parametrosExibicaoDoRegistroSarjetao(h: ResultadoSarjetaoRecord): ParametrosExibicao {
+  return {
+    tipoSecao: h.tipo_secao,
+    larguraViaM: h.largura_via_m,
+    coefC: h.coef_c,
+    telhadoAtivo: h.telhado_ativo,
+    larguraTelhadoM: h.telhado_ativo ? h.largura_telhado_m ?? undefined : undefined,
+    coefCTelhado: h.telhado_ativo ? h.coef_c_telhado ?? undefined : undefined,
+    larguraSarjetaoM: h.largura_sarjetao_m,
+    sxSarjetaoAlto: h.sx_sarjetao_alto_m_m,
+    sxSarjetaoBaixo: h.sx_sarjetao_baixo_m_m,
+    yMaxM: h.lamina_max_m,
+    sxPista: h.sx_pista_m_m,
+    larguraEspraiamentoM: h.espraiamento_m,
+    manningN: h.manning_n,
+    tcInicialMin: h.tc_inicial_min,
+  }
+}
+
+/** Recalcula o memorial completo de um registro salvo — precisa da equação IDF vinculada à revisão dele (não persistida no registro). */
+export function recalcularSarjetaoDoRegistro(h: ResultadoSarjetaoRecord, equacaoIdf: EquacaoIdfRecord): MemorialSarjetaoDenteServa {
+  return calcularSarjetaoDenteServa({
+    tipoSecao: h.tipo_secao,
+    cenarioAdotado: h.cenario_espraiamento,
+    larguraViaM: h.largura_via_m,
+    coefC: h.coef_c,
+    telhadoAtivo: h.telhado_ativo,
+    larguraTelhadoM: h.telhado_ativo ? h.largura_telhado_m ?? undefined : undefined,
+    coefCTelhado: h.telhado_ativo ? h.coef_c_telhado ?? undefined : undefined,
+    larguraSarjetaoM: h.largura_sarjetao_m,
+    sxSarjetaoAlto: h.sx_sarjetao_alto_m_m,
+    sxSarjetaoBaixo: h.sx_sarjetao_baixo_m_m,
+    yMaxM: h.lamina_max_m,
+    sxPista: h.sx_pista_m_m,
+    larguraEspraiamentoM: h.espraiamento_m,
+    manningN: h.manning_n,
+    equacaoIdf,
+    tempoRetornoAnos: h.tempo_retorno_anos,
+    tcInicialMin: h.tc_inicial_min,
+  })
+}
 
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
@@ -234,6 +282,7 @@ export function SarjetaoDenteServaPage() {
         declividade_longitudinal_m_m: resultado.resultado.declividadeLongitudinalMM,
         tc_convergido_min: resultado.resultado.tcConvergidoMin,
         intensidade_mm_h: resultado.resultado.intensidadeConvergidaMmH,
+        arquivado: false,
       })
       setHistorico(await listResultadosSarjetao(revisaoAtiva.id))
     } catch (err) {
@@ -257,6 +306,63 @@ export function SarjetaoDenteServaPage() {
       parametros: parametrosExibicao,
       memorial: resultado,
     })
+  }
+
+  const handleImprimirRegistro = (h: ResultadoSarjetaoRecord) => {
+    if (!revisaoAtiva) return
+    if (!equacao) {
+      setError('A revisão ativa não tem uma equação IDF vinculada — configure em Cadastros → Projetos.')
+      return
+    }
+    try {
+      const memorial = recalcularSarjetaoDoRegistro(h, equacao)
+      exportSarjetaoPdf({
+        nomeTrecho: h.nome_trecho,
+        projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+        revisaoNome: revisaoAtiva.nome,
+        equacaoNome: equacao.nome,
+        tempoRetornoAnos: h.tempo_retorno_anos,
+        parametros: parametrosExibicaoDoRegistroSarjetao(h),
+        memorial,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao regenerar o PDF do registro.')
+    }
+  }
+
+  const handleEditarRegistro = (h: ResultadoSarjetaoRecord) => {
+    setTipoSecao(h.tipo_secao)
+    setCenarioAdotado(h.cenario_espraiamento)
+    setTelhadoAtivo(h.telhado_ativo)
+    setCampoControlador(h.espraiamento_editado ? 'espraiamento' : 'yMax')
+    setForm({
+      nomeTrecho: h.nome_trecho,
+      larguraViaM: String(h.largura_via_m),
+      coefC: String(h.coef_c),
+      larguraTelhadoM: String(h.largura_telhado_m ?? DEFAULT_FORM.larguraTelhadoM),
+      coefCTelhado: String(h.coef_c_telhado ?? DEFAULT_FORM.coefCTelhado),
+      larguraSarjetaoM: String(h.largura_sarjetao_m),
+      sxSarjetaoAltoPct: String(h.sx_sarjetao_alto_m_m * 100),
+      sxSarjetaoBaixoPct: String(h.sx_sarjetao_baixo_m_m * 100),
+      yMaxCm: String(h.lamina_max_m * 100),
+      sxPistaPct: String(h.sx_pista_m_m * 100),
+      espraiamentoM: String(h.espraiamento_m),
+      manningN: String(h.manning_n),
+      tcInicialMin: String(h.tc_inicial_min),
+    })
+    setResultado(null)
+    setError(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleArquivarRegistro = async (h: ResultadoSarjetaoRecord, arquivado: boolean) => {
+    if (!revisaoAtiva) return
+    try {
+      await arquivarResultadoSarjetao(h.id, arquivado)
+      setHistorico(await listResultadosSarjetao(revisaoAtiva.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao arquivar resultado.')
+    }
   }
 
   // espelha os campos numéricos do form no momento do último cálculo — usado pra reconstituir
@@ -558,6 +664,7 @@ export function SarjetaoDenteServaPage() {
                 <th className="px-4 py-2 font-medium">Δh (cm)</th>
                 <th className="px-4 py-2 font-medium">L — distância entre caixas (m)</th>
                 <th className="px-4 py-2 font-medium">Convergiu</th>
+                <th className="px-4 py-2 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -567,6 +674,19 @@ export function SarjetaoDenteServaPage() {
                   <td className="px-4 py-2 text-text-secondary">{(h.delta_h_m * 100).toFixed(2)}</td>
                   <td className="px-4 py-2 font-medium text-brand">{h.comprimento_m.toFixed(2)} m</td>
                   <td className="px-4 py-2 text-text-secondary">{h.convergiu && h.convergiu_tc ? 'Sim' : 'Não'}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <button title="Imprimir (gerar PDF)" onClick={() => handleImprimirRegistro(h)} className="text-text-secondary hover:text-brand">
+                        <Printer size={15} />
+                      </button>
+                      <button title="Editar e recalcular" onClick={() => handleEditarRegistro(h)} className="text-text-secondary hover:text-brand">
+                        <Pencil size={15} />
+                      </button>
+                      <button title="Arquivar" onClick={() => handleArquivarRegistro(h, true)} className="text-text-secondary hover:text-accent-red">
+                        <Archive size={15} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

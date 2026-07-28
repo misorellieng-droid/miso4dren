@@ -1,14 +1,52 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronUp, FileDown, Loader2, Save, Waves } from 'lucide-react'
+import { Archive, ChevronDown, ChevronUp, FileDown, Loader2, Pencil, Printer, Save, Waves } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { calcularSarjeta, pontosPerfilTriangular, type MemorialCalculoSarjeta, type ModoDeclividade, type PontoPerfil } from '../engine/sarjeta'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
-import { listResultadosSarjeta, saveResultadoSarjeta, type ResultadoSarjetaRecord } from '../lib/resultadosStorage'
+import {
+  arquivarResultadoSarjeta,
+  listResultadosSarjeta,
+  saveResultadoSarjeta,
+  type ResultadoSarjetaRecord,
+} from '../lib/resultadosStorage'
 import { exportSarjetaCriticaPdf, type ParametrosExibicaoCritica } from '../lib/exportSarjetaCriticaPdf'
 import { supabase } from '../lib/supabase'
+
+/** Reconstrói o memorial e os parâmetros de exibição a partir de um registro salvo — usado por "Imprimir" e "Editar". */
+export function construirMemorialSarjetaCritica(h: ResultadoSarjetaRecord): { memorial: MemorialCalculoSarjeta; parametros: ParametrosExibicaoCritica } {
+  const modoDeclividade: ModoDeclividade = h.modo_declividade === 'velocidade_minima' ? 'velocidade_minima' : 'informada'
+  const geometria: Parameters<typeof calcularSarjeta>[0]['geometria'] = {
+    tipo: 'triangular',
+    y0M: h.y0_m,
+    larguraSarjetaM: h.largura_sarjeta_m ?? 0,
+    declividadeTransversalViaMM: h.declividade_transversal_via_m_m ?? 0,
+    declividadeTransversalSarjetaMM: h.declividade_transversal_sarjeta_m_m ?? 0,
+  }
+  const memorial = calcularSarjeta({
+    geometria,
+    manningN: h.manning_n,
+    coefC: h.coef_c,
+    intensidadeMmH: h.intensidade_mm_h,
+    larguraImpluvioM: h.largura_impluvio_m,
+    declividadeLongitudinalMM: h.declividade_longitudinal,
+  } as Parameters<typeof calcularSarjeta>[0])
+  const parametros: ParametrosExibicaoCritica = {
+    y0M: h.y0_m,
+    larguraSarjetaM: h.largura_sarjeta_m ?? 0,
+    declividadeTransversalVia: h.declividade_transversal_via_m_m ?? 0,
+    declividadeTransversalSarjeta: h.declividade_transversal_sarjeta_m_m ?? 0,
+    larguraImpluvioM: h.largura_impluvio_m,
+    manningN: h.manning_n,
+    coefC: h.coef_c,
+    tcMin: h.tc_min ?? 0,
+    modoDeclividade,
+    velocidadeMinimaMs: h.velocidade_minima_ms ?? undefined,
+  }
+  return { memorial, parametros }
+}
 
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
@@ -156,6 +194,8 @@ export function SarjetaCriticaPage() {
         velocidade_ms: memorial.velocidadeMs,
         vazao_m3s: memorial.vazaoM3s,
         comprimento_critico_m: memorial.comprimentoCriticoM,
+        tc_min: Number(form.tcMin),
+        arquivado: false,
       })
       setHistorico(await listResultadosSarjeta(revisaoAtiva.id))
     } catch (err) {
@@ -193,6 +233,53 @@ export function SarjetaCriticaPage() {
       parametros: parametrosExibicao,
       memorial,
     })
+  }
+
+  const handleImprimirRegistro = (h: ResultadoSarjetaRecord) => {
+    if (!revisaoAtiva) return
+    const { memorial: m, parametros } = construirMemorialSarjetaCritica(h)
+    exportSarjetaCriticaPdf({
+      nomeVia: h.nome_via,
+      projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+      revisaoNome: revisaoAtiva.nome,
+      equacaoNome: equacao?.nome ?? null,
+      tempoRetornoAnos: revisaoAtiva.tempo_retorno_anos ?? 10,
+      intensidadeMmH: h.intensidade_mm_h,
+      parametros,
+      memorial: m,
+    })
+  }
+
+  const handleEditarRegistro = (h: ResultadoSarjetaRecord) => {
+    const modo: ModoDeclividade = h.modo_declividade === 'velocidade_minima' ? 'velocidade_minima' : 'informada'
+    setModoDeclividade(modo)
+    setForm({
+      nomeVia: h.nome_via,
+      y0M: String(h.y0_m),
+      larguraSarjetaM: String(h.largura_sarjeta_m ?? ''),
+      declividadeTransversalViaPct: String((h.declividade_transversal_via_m_m ?? 0) * 100),
+      declividadeTransversalSarjetaPct: String((h.declividade_transversal_sarjeta_m_m ?? 0) * 100),
+      larguraImpluvioM: String(h.largura_impluvio_m),
+      declividadeLongitudinalPct: String(h.declividade_longitudinal * 100),
+      velocidadeMinimaMs: String(h.velocidade_minima_ms ?? DEFAULT_FORM.velocidadeMinimaMs),
+      manningN: String(h.manning_n),
+      coefC: String(h.coef_c),
+      tcMin: String(h.tc_min ?? DEFAULT_FORM.tcMin),
+    })
+    setMemorial(null)
+    setIntensidade(null)
+    setError(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleArquivarRegistro = async (h: ResultadoSarjetaRecord, arquivado: boolean) => {
+    if (!revisaoAtiva) return
+    try {
+      await arquivarResultadoSarjeta(h.id, arquivado)
+      setHistorico(await listResultadosSarjeta(revisaoAtiva.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao arquivar resultado.')
+    }
   }
 
   if (!supabase || !revisaoAtiva) {
@@ -383,6 +470,7 @@ export function SarjetaCriticaPage() {
                 <th className="px-4 py-2 font-medium">Velocidade (m/s)</th>
                 <th className="px-4 py-2 font-medium">Vazão (m³/s)</th>
                 <th className="px-4 py-2 font-medium">Comprimento crítico (m)</th>
+                <th className="px-4 py-2 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -394,6 +482,19 @@ export function SarjetaCriticaPage() {
                   <td className="px-4 py-2 text-text-secondary">{h.velocidade_ms?.toFixed(3) ?? '—'}</td>
                   <td className="px-4 py-2 text-text-secondary">{h.vazao_m3s?.toFixed(5) ?? '—'}</td>
                   <td className="px-4 py-2 font-medium text-brand">{h.comprimento_critico_m?.toFixed(2)}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <button title="Imprimir (gerar PDF)" onClick={() => handleImprimirRegistro(h)} className="text-text-secondary hover:text-brand">
+                        <Printer size={15} />
+                      </button>
+                      <button title="Editar e recalcular" onClick={() => handleEditarRegistro(h)} className="text-text-secondary hover:text-brand">
+                        <Pencil size={15} />
+                      </button>
+                      <button title="Arquivar" onClick={() => handleArquivarRegistro(h, true)} className="text-text-secondary hover:text-accent-red">
+                        <Archive size={15} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

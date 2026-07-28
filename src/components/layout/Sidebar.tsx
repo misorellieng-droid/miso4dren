@@ -1,4 +1,5 @@
 import {
+  Archive,
   BarChart2,
   Beaker,
   BookOpen,
@@ -55,6 +56,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/conformidade', label: 'Conformidade', icon: ClipboardCheck },
       { to: '/relatorios', label: 'Relatórios', icon: FileBarChart },
+      { to: '/arquivo', label: 'Arquivo', icon: Archive },
     ],
   },
   {
