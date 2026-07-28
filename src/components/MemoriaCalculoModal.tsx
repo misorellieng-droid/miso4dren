@@ -63,6 +63,32 @@ export function MemoriaCalculoModal({ resultado, trecho, trechos, caixas, onClos
     }
   }
 
+  const handleEditarManning = async (manningN: number) => {
+    setBusy(true)
+    setErro(null)
+    try {
+      await updateTrecho(trecho.id, { manning_n: manningN, manning_n_origem: 'manual' })
+      await onRecalcular()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao recalcular.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleEditarMaterial = async (material: string) => {
+    setBusy(true)
+    setErro(null)
+    try {
+      await updateTrecho(trecho.id, { material: material.trim() || null })
+      await onRecalcular()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao recalcular.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleEditar = (diametroM: number, declividadeMM: number) => {
     if (trecho.cota_fundo_montante == null) {
       aplicarPatches([
@@ -159,9 +185,36 @@ export function MemoriaCalculoModal({ resultado, trecho, trechos, caixas, onClos
               className={`${fieldInputClass} mt-1 py-1`}
             />
           </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-text-secondary">Manning n</div>
+            <input
+              type="number"
+              step="0.001"
+              defaultValue={trecho.manning_n ?? ''}
+              placeholder="informar"
+              disabled={busy}
+              onBlur={(e) => {
+                const n = Number(e.target.value)
+                if (Number.isFinite(n) && n > 0 && n !== trecho.manning_n) handleEditarManning(n)
+              }}
+              className={`${fieldInputClass} mt-1 py-1 ${trecho.manning_n == null ? 'border-accent-red/60' : ''}`}
+            />
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-text-secondary">Material</div>
+            <input
+              type="text"
+              defaultValue={trecho.material ?? ''}
+              disabled={busy}
+              onBlur={(e) => {
+                if (e.target.value.trim() !== (trecho.material ?? '')) handleEditarMaterial(e.target.value)
+              }}
+              className={`${fieldInputClass} mt-1 py-1`}
+            />
+          </div>
           <div className="col-span-2 text-[10px] text-text-secondary">
-            Editar aqui desloca a cota de fundo dos trechos a jusante (mantendo a declividade de cada um) e roda o
-            cálculo da rede de novo automaticamente.
+            Diâmetro/declividade: desloca a cota de fundo dos trechos a jusante (mantendo a declividade de cada um).
+            Qualquer edição aqui roda o cálculo da rede de novo automaticamente.
           </div>
         </div>
 
@@ -202,7 +255,10 @@ export function MemoriaCalculoModal({ resultado, trecho, trechos, caixas, onClos
           <Linha label="Caixa montante" valor={nomeMontante} />
           <Linha label="Caixa jusante" valor={nomeJusante} />
           <Linha label="Comprimento (m)" valor={trecho.comprimento_m.toFixed(2)} />
-          <Linha label="Manning n" valor={trecho.manning_n?.toFixed(4) ?? 'não definido'} />
+          <Linha
+            label="Origem do manning n"
+            valor={trecho.manning_n_origem === 'manual' ? 'manual' : trecho.manning_n_origem === 'tabela_interna' ? 'tabela interna' : 'landxml'}
+          />
           <Linha label="ΣC×A acumulado (m²)" valor={resultado.ca_acumulado?.toFixed(2) ?? '—'} />
           <Linha label="Tc do sistema (min)" valor={resultado.tc_sistema_min?.toFixed(2) ?? '—'} />
           <Linha label="Intensidade (mm/h)" valor={resultado.intensidade_mm_h?.toFixed(2) ?? '—'} />
