@@ -101,4 +101,36 @@ describe('parseLandXml', () => {
     const distanciaEsperada = Math.hypot(150 - 100, 210 - 200)
     expect(t1.comprimentoM).toBeCloseTo(distanciaEsperada, 6)
   })
+
+  it('marca caixas e trechos com o nome do <PipeNetwork> a que pertencem', () => {
+    const { caixas, trechos } = parseLandXml(FIXTURE_XML, materiaisManning)
+    expect(caixas.every((c) => c.redeNome === 'Rede-1')).toBe(true)
+    expect(trechos.every((t) => t.redeNome === 'Rede-1')).toBe(true)
+  })
+
+  it('mantém o trecho separado por rede quando o LandXML tem mais de um <PipeNetwork>', () => {
+    const comSegundaRede = FIXTURE_XML.replace(
+      '</PipeNetworks>',
+      `<PipeNetwork name="Rede-2">
+        <Structs>
+          <Struct name="PV-03" desc="PV TIPO B" elevRim="845.000" elevSump="843.700">
+            <Center>200.0 220.0</Center>
+            <CircStruct diameter="1500." material="CONCRETO"></CircStruct>
+            <Invert elev="843.700" flowDir="in" refPipe="TRECHO-3"></Invert>
+          </Struct>
+        </Structs>
+        <Pipes>
+          <Pipe name="TRECHO-3" refStart="PV-02" refEnd="PV-03" desc="BSTC DN 0,50 m" length="30.0" slope="0.0100">
+            <CircPipe diameter="500." material="CONCRETO"></CircPipe>
+          </Pipe>
+        </Pipes>
+      </PipeNetwork></PipeNetworks>`,
+    )
+    const { caixas, trechos } = parseLandXml(comSegundaRede, materiaisManning)
+    expect(caixas.find((c) => c.nome === 'PV-03')?.redeNome).toBe('Rede-2')
+    // TRECHO-3 conecta PV-02 (Rede-1) a PV-03 (Rede-2), mas pertence à Rede-2
+    // no XML (é onde o <Pipe> foi declarado) — é o "trecho de conexão" entre redes.
+    expect(trechos.find((t) => t.nome === 'TRECHO-3')?.redeNome).toBe('Rede-2')
+    expect(trechos.filter((t) => t.redeNome === 'Rede-1')).toHaveLength(2)
+  })
 })

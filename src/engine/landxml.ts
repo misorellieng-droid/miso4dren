@@ -21,6 +21,7 @@ export interface CaixaImportada {
   y?: number
   cotaTerreno?: number
   cotaFundo?: number
+  redeNome?: string
 }
 
 export interface TrechoImportado {
@@ -37,6 +38,7 @@ export interface TrechoImportado {
   cotaFundoMontante?: number
   cotaTopoJusante?: number
   cotaFundoJusante?: number
+  redeNome?: string
 }
 
 export interface ResultadoImportLandXml {
@@ -123,40 +125,52 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
   const posPorNome = new Map<string, { x: number; y: number }>()
   const invertsPorEstrutura = new Map<string, InvertInfo[]>()
 
-  const structEls = [...Array.from(doc.getElementsByTagName('Struct')), ...Array.from(doc.getElementsByTagName('Structure'))]
-  for (const s of structEls) {
-    const nome = s.getAttribute('name') ?? s.getAttribute('desc') ?? ''
-    if (!nome) continue
+  // Um LandXML pode trazer mais de um <PipeNetwork> (redes que se conectam entre si —
+  // um trecho de uma rede descarrega numa caixa de outra). Cada Struct/Pipe é tageado
+  // com o nome da rede (<PipeNetwork name="...">) a que pertence. Se não houver esse
+  // agrupamento no arquivo, trata o documento inteiro como uma rede sem nome.
+  const networkEls = Array.from(doc.getElementsByTagName('PipeNetwork'))
+  const escopos: Array<{ el: Element | XMLDocument; redeNome: string | undefined }> =
+    networkEls.length > 0 ? networkEls.map((el) => ({ el, redeNome: el.getAttribute('name') ?? undefined })) : [{ el: doc, redeNome: undefined }]
 
-    const pos = centerPos(s.getElementsByTagName('Center')[0])
-    if (pos) posPorNome.set(nome, pos)
+  for (const { el: escopo, redeNome } of escopos) {
+    const structEls = [...Array.from(escopo.getElementsByTagName('Struct')), ...Array.from(escopo.getElementsByTagName('Structure'))]
+    for (const s of structEls) {
+      const nome = s.getAttribute('name') ?? s.getAttribute('desc') ?? ''
+      if (!nome) continue
 
-    const rim = s.getElementsByTagName('Rim')[0]
-    const sump = s.getElementsByTagName('Sump')[0]
-    const cotaTerreno = numAttr(s, 'elevRim') ?? numAttr(rim, 'elevation')
-    const cotaFundo = numAttr(s, 'elevSump') ?? numAttr(sump, 'elevation')
+      const pos = centerPos(s.getElementsByTagName('Center')[0])
+      if (pos) posPorNome.set(nome, pos)
 
-    caixas.push({
-      nome,
-      tipo: inferirTipoCaixa(s.getAttribute('type'), s.getAttribute('desc')),
-      x: pos?.x,
-      y: pos?.y,
-      cotaTerreno,
-      cotaFundo,
-    })
+      const rim = s.getElementsByTagName('Rim')[0]
+      const sump = s.getElementsByTagName('Sump')[0]
+      const cotaTerreno = numAttr(s, 'elevRim') ?? numAttr(rim, 'elevation')
+      const cotaFundo = numAttr(s, 'elevSump') ?? numAttr(sump, 'elevation')
 
-    const inverts: InvertInfo[] = []
-    for (const inv of Array.from(s.getElementsByTagName('Invert'))) {
-      const elev = numAttr(inv, 'elev')
-      const flowDir = inv.getAttribute('flowDir') ?? ''
-      const refPipe = inv.getAttribute('refPipe') ?? ''
-      if (elev !== undefined && refPipe) inverts.push({ elev, flowDir, refPipe })
+      caixas.push({
+        nome,
+        tipo: inferirTipoCaixa(s.getAttribute('type'), s.getAttribute('desc')),
+        x: pos?.x,
+        y: pos?.y,
+        cotaTerreno,
+        cotaFundo,
+        redeNome,
+      })
+
+      const inverts: InvertInfo[] = []
+      for (const inv of Array.from(s.getElementsByTagName('Invert'))) {
+        const elev = numAttr(inv, 'elev')
+        const flowDir = inv.getAttribute('flowDir') ?? ''
+        const refPipe = inv.getAttribute('refPipe') ?? ''
+        if (elev !== undefined && refPipe) inverts.push({ elev, flowDir, refPipe })
+      }
+      if (inverts.length > 0) invertsPorEstrutura.set(nome, inverts)
     }
-    if (inverts.length > 0) invertsPorEstrutura.set(nome, inverts)
   }
 
-  const pipeEls = Array.from(doc.getElementsByTagName('Pipe'))
-  for (const p of pipeEls) {
+  for (const { el: escopo, redeNome } of escopos) {
+    const pipeEls = Array.from(escopo.getElementsByTagName('Pipe'))
+    for (const p of pipeEls) {
     const nome = p.getAttribute('name') ?? p.getAttribute('desc') ?? ''
     const caixaMontanteNome = p.getAttribute('refStart') ?? ''
     const caixaJusanteNome = p.getAttribute('refEnd') ?? ''
@@ -223,21 +237,23 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
       }
     }
 
-    trechos.push({
-      nome,
-      caixaMontanteNome,
-      caixaJusanteNome,
-      comprimentoM,
-      diametroM,
-      declividadeMM,
-      material,
-      manningN,
-      manningNOrigem,
-      cotaTopoMontante,
-      cotaFundoMontante,
-      cotaTopoJusante,
-      cotaFundoJusante,
-    })
+      trechos.push({
+        nome,
+        caixaMontanteNome,
+        caixaJusanteNome,
+        comprimentoM,
+        diametroM,
+        declividadeMM,
+        material,
+        manningN,
+        manningNOrigem,
+        cotaTopoMontante,
+        cotaFundoMontante,
+        cotaTopoJusante,
+        cotaFundoJusante,
+        redeNome,
+      })
+    }
   }
 
   return { caixas, trechos }

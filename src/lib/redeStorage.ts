@@ -11,6 +11,7 @@ export interface CaixaRecord {
   cota_terreno: number | null
   cota_fundo: number | null
   origem: string
+  rede_nome: string | null
 }
 
 export interface TrechoRecord {
@@ -29,6 +30,7 @@ export interface TrechoRecord {
   cota_fundo_montante: number | null
   cota_topo_jusante: number | null
   cota_fundo_jusante: number | null
+  rede_nome: string | null
 }
 
 function requireSupabase() {
@@ -124,6 +126,7 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
           cota_terreno: c.cotaTerreno ?? null,
           cota_fundo: c.cotaFundo ?? null,
           origem: 'landxml',
+          rede_nome: c.redeNome ?? null,
         }))
       )
       .select()
@@ -148,6 +151,7 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
       cota_fundo_montante: t.cotaFundoMontante ?? null,
       cota_topo_jusante: t.cotaTopoJusante ?? null,
       cota_fundo_jusante: t.cotaFundoJusante ?? null,
+      rede_nome: t.redeNome ?? null,
     }))
 
   if (trechosParaInserir.length > 0) {

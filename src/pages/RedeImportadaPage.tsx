@@ -38,6 +38,7 @@ export function RedeImportadaPage() {
   const [tipoLote, setTipoLote] = useState('pv')
   const [manningLote, setManningLote] = useState('')
   const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[] } | null>(null)
+  const [redeSelecionada, setRedeSelecionada] = useState<string>('todas')
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -53,13 +54,45 @@ export function RedeImportadaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revisaoAtiva])
 
+  const redesDisponiveis = useMemo(() => {
+    const nomes = new Set<string>()
+    for (const c of caixas) if (c.rede_nome) nomes.add(c.rede_nome)
+    for (const t of trechos) if (t.rede_nome) nomes.add(t.rede_nome)
+    return [...nomes].sort()
+  }, [caixas, trechos])
+
+  // Trecho de conexão entre redes: a caixa de montante dele não recebe nenhum
+  // outro trecho DENTRO DA MESMA REDE (ou seja, é cabeceira local daquela rede)
+  // e a caixa de jusante pertence a uma rede diferente — é onde uma rede
+  // desemboca na outra.
+  const idsConexaoEntreRedes = useMemo(() => {
+    const ids = new Set<string>()
+    const caixaPorId = new Map(caixas.map((c) => [c.id, c]))
+    for (const t of trechos) {
+      if (!t.rede_nome) continue
+      const temEntradaNaMesmaRede = trechos.some(
+        (outro) => outro.id !== t.id && outro.caixa_jusante_id === t.caixa_montante_id && outro.rede_nome === t.rede_nome,
+      )
+      if (temEntradaNaMesmaRede) continue
+      const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
+      if (caixaJusante?.rede_nome && caixaJusante.rede_nome !== t.rede_nome) ids.add(t.id)
+    }
+    return ids
+  }, [caixas, trechos])
+
   const caixasFiltradas = useMemo(
-    () => caixas.filter((c) => c.nome.toLowerCase().includes(filtro.toLowerCase())),
-    [caixas, filtro],
+    () =>
+      caixas.filter(
+        (c) => c.nome.toLowerCase().includes(filtro.toLowerCase()) && (redeSelecionada === 'todas' || c.rede_nome === redeSelecionada),
+      ),
+    [caixas, filtro, redeSelecionada],
   )
   const trechosFiltrados = useMemo(
-    () => trechos.filter((t) => t.nome.toLowerCase().includes(filtro.toLowerCase())),
-    [trechos, filtro],
+    () =>
+      trechos.filter(
+        (t) => t.nome.toLowerCase().includes(filtro.toLowerCase()) && (redeSelecionada === 'todas' || t.rede_nome === redeSelecionada),
+      ),
+    [trechos, filtro, redeSelecionada],
   )
 
   const toggleSelecaoCaixa = (id: string) =>
@@ -258,13 +291,34 @@ export function RedeImportadaPage() {
         >
           Tubos ({trechos.length})
         </button>
+        {redesDisponiveis.length > 1 && (
+          <select
+            value={redeSelecionada}
+            onChange={(e) => setRedeSelecionada(e.target.value)}
+            className={`${fieldInputClass} ml-auto w-44 py-1.5`}
+          >
+            <option value="todas">Todas as redes</option>
+            {redesDisponiveis.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           placeholder="Filtrar por nome..."
           value={filtro}
           onChange={(e) => setFiltro(e.target.value)}
-          className={`${fieldInputClass} ml-auto w-56 py-1.5`}
+          className={`${fieldInputClass} ${redesDisponiveis.length > 1 ? '' : 'ml-auto'} w-56 py-1.5`}
         />
       </div>
+
+      {redesDisponiveis.length > 1 && idsConexaoEntreRedes.size > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-accent-blue/40 bg-accent-blue/5 p-3 text-sm text-text-primary">
+          <AlertTriangle size={16} className="text-accent-blue shrink-0" />
+          {idsConexaoEntreRedes.size} trecho(s) de conexão entre redes identificado(s) automaticamente — marcado(s) na aba Tubos.
+        </div>
+      )}
 
       {aba === 'estruturas' ? (
         <>
@@ -301,6 +355,7 @@ export function RedeImportadaPage() {
                     </button>
                   </th>
                   <th className="px-3 py-2 font-medium">Nome</th>
+                  {redesDisponiveis.length > 1 && <th className="px-3 py-2 font-medium">Rede</th>}
                   <th className="px-3 py-2 font-medium">Tipo</th>
                   <th className="px-3 py-2 font-medium">Cota terreno</th>
                   <th className="px-3 py-2 font-medium">Cota fundo</th>
@@ -316,6 +371,7 @@ export function RedeImportadaPage() {
                       </button>
                     </td>
                     <td className="px-3 py-1.5 text-text-primary">{c.nome}</td>
+                    {redesDisponiveis.length > 1 && <td className="px-3 py-1.5 text-text-secondary">{c.rede_nome ?? '—'}</td>}
                     <td className="px-3 py-1.5">
                       <select
                         value={c.tipo}
@@ -352,7 +408,7 @@ export function RedeImportadaPage() {
                 ))}
                 {caixasFiltradas.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-text-secondary">
+                    <td colSpan={redesDisponiveis.length > 1 ? 7 : 6} className="px-3 py-6 text-center text-text-secondary">
                       Nenhuma estrutura encontrada.
                     </td>
                   </tr>
@@ -458,6 +514,7 @@ export function RedeImportadaPage() {
                     </button>
                   </th>
                   <th className="px-3 py-2 font-medium">Trecho</th>
+                  {redesDisponiveis.length > 1 && <th className="px-3 py-2 font-medium">Rede</th>}
                   <th className="px-3 py-2 font-medium">Montante</th>
                   <th className="px-3 py-2 font-medium">Jusante</th>
                   <th className="px-3 py-2 font-medium">Comp. (m)</th>
@@ -472,14 +529,28 @@ export function RedeImportadaPage() {
                 {trechosFiltrados.map((t) => {
                   const nomeMontante = caixas.find((c) => c.id === t.caixa_montante_id)?.nome ?? '—'
                   const nomeJusante = caixas.find((c) => c.id === t.caixa_jusante_id)?.nome ?? '—'
+                  const isConexao = idsConexaoEntreRedes.has(t.id)
                   return (
-                    <tr key={t.id} className="border-b border-border/60 last:border-0">
+                    <tr key={t.id} className={`border-b border-border/60 last:border-0 ${isConexao ? 'bg-accent-blue/5' : ''}`}>
                       <td className="px-3 py-1.5">
                         <button onClick={() => toggleSelecaoTrecho(t.id)} className="flex items-center text-text-secondary hover:text-brand">
                           {selecionadosTrechos.has(t.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                         </button>
                       </td>
-                      <td className="px-3 py-1.5 text-text-primary">{t.nome}</td>
+                      <td className="px-3 py-1.5 text-text-primary">
+                        <span className="flex items-center gap-1.5">
+                          {t.nome}
+                          {isConexao && (
+                            <span
+                              className="rounded-full bg-accent-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-blue"
+                              title="Trecho sem entrada dentro da própria rede, descarregando em outra rede"
+                            >
+                              conexão entre redes
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      {redesDisponiveis.length > 1 && <td className="px-3 py-1.5 text-text-secondary">{t.rede_nome ?? '—'}</td>}
                       <td className="px-3 py-1.5 text-text-secondary">{nomeMontante}</td>
                       <td className="px-3 py-1.5 text-text-secondary">{nomeJusante}</td>
                       <td className="px-3 py-1.5 text-text-secondary">{t.comprimento_m.toFixed(2)}</td>
@@ -534,7 +605,7 @@ export function RedeImportadaPage() {
                 })}
                 {trechosFiltrados.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-text-secondary">
+                    <td colSpan={redesDisponiveis.length > 1 ? 11 : 10} className="px-3 py-6 text-center text-text-secondary">
                       Nenhum tubo encontrado.
                     </td>
                   </tr>
