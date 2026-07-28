@@ -1,16 +1,22 @@
-import { useEffect, useState } from 'react'
-import { CheckCircle2, Droplets, Loader2, XCircle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle2, Droplets, Loader2, Network, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
+import { RedeDiagrama } from '../components/RedeDiagrama'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { acumularVazao, calcularQEntradaBacia, calcularTcSistema } from '../engine/rede'
+import { acumularVazao, calcularQEntradaBacia, calcularTcSistema, ordenarTopologicamente } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, type CaptacaoRecord } from '../lib/captacaoStorage'
-import { listResultadosRedeByRevisao, saveResultadoRede, type ResultadoRedeRecord } from '../lib/resultadosStorage'
+import {
+  deleteResultadosRedeByTrechoIds,
+  listResultadosRedeByRevisao,
+  saveResultadoRede,
+  type ResultadoRedeRecord,
+} from '../lib/resultadosStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -40,6 +46,7 @@ export function RedePluvialPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [avisos, setAvisos] = useState<string[]>([])
+  const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -179,6 +186,7 @@ export function RedePluvialPage() {
         linha.intensidade_mm_h = tcSistema != null ? calcularIntensidadeIdf(equacao, revisaoAtiva.tempo_retorno_anos ?? 10, tcSistema) : null
       }
 
+      await deleteResultadosRedeByTrechoIds(trechos.map((t) => t.id))
       for (const linha of linhas) {
         await saveResultadoRede(linha)
       }
@@ -191,6 +199,32 @@ export function RedePluvialPage() {
       setRunning(false)
     }
   }
+
+  // Ordem topológica das caixas (cabeceiras -> saída) — usada pra listar a tabela de
+  // resultados na ordem real do fluxo, não em ordem alfabética do nome do trecho.
+  const ordemTopologica = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
+    try {
+      const ordem = ordenarTopologicamente(
+        caixas.map((c) => c.id),
+        trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id })),
+      )
+      return new Map(ordem.map((id, i) => [id, i]))
+    } catch {
+      return new Map<string, number>()
+    }
+  }, [caixas, trechos])
+
+  const resultadosOrdenados = useMemo(() => {
+    const posicaoDoTrecho = (r: LinhaResultado) => {
+      const trecho = trechos.find((t) => t.id === r.trecho_id)
+      if (!trecho) return Number.MAX_SAFE_INTEGER
+      return ordemTopologica.get(trecho.caixa_jusante_id) ?? Number.MAX_SAFE_INTEGER
+    }
+    return [...resultados].sort((a, b) => posicaoDoTrecho(a) - posicaoDoTrecho(b))
+  }, [resultados, trechos, ordemTopologica])
+
+  const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
 
   if (!supabase || !revisaoAtiva) {
     return (
@@ -242,11 +276,28 @@ export function RedePluvialPage() {
             <input type="number" step="any" className={`${fieldInputClass} py-1.5`} value={limites.declMaxMM} onChange={(e) => setLimites({ ...limites, declMaxMM: Number(e.target.value) })} />
           </Field>
         </div>
-        <button onClick={handleRodar} disabled={running || trechos.length === 0} className={`${PRIMARY_BTN} mt-4`}>
-          {running ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} />}
-          Rodar cálculo da rede
-        </button>
+        <div className="mt-4 flex items-center gap-2">
+          <button onClick={handleRodar} disabled={running || trechos.length === 0} className={PRIMARY_BTN}>
+            {running ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} />}
+            Rodar cálculo da rede
+          </button>
+          {caixas.length > 0 && trechos.length > 0 && (
+            <button
+              onClick={() => setMostrarDiagrama((v) => !v)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
+            >
+              <Network size={16} />
+              {mostrarDiagrama ? 'Ocultar diagrama' : 'Ver diagrama da rede'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {mostrarDiagrama && caixas.length > 0 && (
+        <div className="mb-6">
+          <RedeDiagrama caixas={caixas} trechos={trechos} conformidadePorTrecho={conformidadePorTrecho} />
+        </div>
+      )}
 
       {resultados.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border bg-surface">
@@ -263,7 +314,7 @@ export function RedePluvialPage() {
               </tr>
             </thead>
             <tbody>
-              {resultados.map((r) => (
+              {resultadosOrdenados.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 last:border-0">
                   <td className="px-4 py-2 text-text-primary">{r.trecho_nome}</td>
                   <td className="px-4 py-2 text-text-secondary">{r.q_projeto_m3s?.toFixed(4)}</td>

@@ -102,6 +102,14 @@ export async function saveResultadoRede(input: Omit<ResultadoRedeRecord, 'id'>):
   return data as ResultadoRedeRecord
 }
 
+/** Remove resultados anteriores desses trechos antes de gravar um novo cálculo —
+ * sem isso, cada "Rodar cálculo" apenas acumula linhas em cima das rodadas anteriores. */
+export async function deleteResultadosRedeByTrechoIds(trechoIds: string[]): Promise<void> {
+  if (trechoIds.length === 0) return
+  const { error } = await requireSupabase().from('resultados_rede').delete().in('trecho_id', trechoIds)
+  if (error) throw error
+}
+
 export async function listResultadosRedeByRevisao(
   revisaoId: string
 ): Promise<(ResultadoRedeRecord & { trecho_nome: string })[]> {
