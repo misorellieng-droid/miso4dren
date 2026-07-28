@@ -56,6 +56,45 @@ export async function updateTrechoManning(id: string, manningN: number): Promise
   if (error) throw error
 }
 
+export interface CaixaPatch {
+  tipo?: string
+  cota_terreno?: number | null
+  cota_fundo?: number | null
+}
+
+export async function updateCaixa(id: string, patch: CaixaPatch): Promise<void> {
+  const { error } = await requireSupabase().from('caixas').update(patch).eq('id', id)
+  if (error) throw error
+}
+
+export async function updateCaixasTipoEmLote(ids: string[], tipo: string): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await requireSupabase().from('caixas').update({ tipo }).in('id', ids)
+  if (error) throw error
+}
+
+export interface TrechoPatch {
+  diametro_m?: number
+  declividade_m_m?: number
+  material?: string | null
+  manning_n?: number
+  manning_n_origem?: string
+}
+
+export async function updateTrecho(id: string, patch: TrechoPatch): Promise<void> {
+  const { error } = await requireSupabase().from('trechos').update(patch).eq('id', id)
+  if (error) throw error
+}
+
+export async function updateTrechosManningEmLote(ids: string[], manningN: number): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await requireSupabase()
+    .from('trechos')
+    .update({ manning_n: manningN, manning_n_origem: 'manual' })
+    .in('id', ids)
+  if (error) throw error
+}
+
 /**
  * Grava o resultado de parseLandXml: insere as caixas primeiro, depois
  * resolve os nomes montante/jusante dos trechos para os ids recém-criados.

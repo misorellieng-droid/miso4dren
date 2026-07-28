@@ -15,6 +15,7 @@ import {
   LogOut,
   Mountain,
   Settings,
+  Table2,
   Waves,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
@@ -41,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/clientes', label: 'Clientes', icon: Building2 },
       { to: '/projetos', label: 'Projetos', icon: FolderKanban },
       { to: '/bacias', label: 'Bacias', icon: FolderOpen },
+      { to: '/rede-importada', label: 'Rede Importada', icon: Table2 },
     ],
   },
   {
