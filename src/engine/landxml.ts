@@ -1,12 +1,18 @@
 import type { ManningOrigem, TipoCaixa } from './types'
 
-// Parser do Pipe Network exportado em LandXML pelo Civil 3D. O schema alvo
-// segue o formato usual desse export (<PipeNetworks><PipeNetwork><Structures>
-// <Structure>...</Structure></Structures><Pipes><Pipe>...</Pipe></Pipes>
-// </PipeNetwork></PipeNetworks>), mas variações de nomenclatura entre
-// versões do Civil 3D são esperadas — ajustar os seletores abaixo (função
-// `primeiroValor`/`primeiroAtributo`) contra um export real antes de usar em
-// produção.
+// Parser do Pipe Network exportado em LandXML pelo Civil 3D. Validado contra
+// um export real (Civil 3D 2027): <PipeNetworks><PipeNetwork><Structs>
+// <Struct name="..." desc="..." elevRim="..." elevSump="..."><Center>X Y</Center>
+// <CircStruct diameter="mm"/ ou RectStruct length="m" width="m"/>
+// <Invert elev="..." flowDir="in|out" refPipe="..."/></Struct></Structs>
+// <Pipes><Pipe name="..." refStart="..." refEnd="..." length="..." slope="...">
+// <CircPipe diameter="mm" material="..."/></Pipe></Pipes></PipeNetwork>
+// </PipeNetworks>. Não há atributo `type` nem cotas de fundo no próprio
+// <Pipe> — o tipo da caixa é inferido do `desc` e as cotas de fundo vêm dos
+// <Invert> de cada estrutura, casados pelo nome do tubo (refPipe) e pela
+// direção do fluxo (flowDir). Um formato mais "canônico" (<Structures>/
+// <Structure type="...">, sub-elementos <Rim>/<Sump>/<Length>/<Slope>) também
+// é aceito como fallback, caso uma versão diferente do Civil 3D exporte assim.
 
 export interface CaixaImportada {
   nome: string
@@ -57,14 +63,26 @@ function numAttr(el: Element | null | undefined, name: string): number | undefin
   return Number.isFinite(n) ? n : undefined
 }
 
-function inferirTipoCaixa(structureType: string | null): TipoCaixa {
-  const t = (structureType ?? '').toLowerCase()
+/** Fator de conversão para metros, a partir de <Units><Metric diameterUnit="..."/>. */
+function fatorParaMetros(doc: XMLDocument): number {
+  const unidade = doc.getElementsByTagName('Metric')[0]?.getAttribute('diameterUnit')
+  if (unidade === 'millimeter') return 0.001
+  if (unidade === 'centimeter') return 0.01
+  return 1
+}
+
+function inferirTipoCaixa(tipoAttr: string | null, desc: string | null): TipoCaixa {
+  const t = (tipoAttr ?? '').toLowerCase()
   if (t.includes('inlet') || t.includes('catchbasin') || t.includes('boca')) return 'boca_de_lobo'
   if (t.includes('junction') || t.includes('manhole') || t.includes('pv')) return 'pv'
+
+  const d = (desc ?? '').toLowerCase()
+  if (d.includes('boca') || d.includes('bl') || d.includes('bueiro')) return 'boca_de_lobo'
+  if (d.includes('pv')) return 'pv'
   return 'caixa_passagem'
 }
 
-/** Distância entre dois pontos "x y" (formato PipeNetPos do LandXML). */
+/** Distância entre dois pontos "x y" (formato do texto de <Center> ou <PipeNetPos>). */
 function parsePos(text: string | undefined): { x: number; y: number } | undefined {
   if (!text) return undefined
   const parts = text.trim().split(/\s+/).map(Number)
@@ -72,9 +90,22 @@ function parsePos(text: string | undefined): { x: number; y: number } | undefine
   return { x: parts[0], y: parts[1] }
 }
 
+/** Aceita <Center>X Y</Center> direto ou <Center><PipeNetPos>X Y</PipeNetPos></Center>. */
+function centerPos(center: Element | undefined): { x: number; y: number } | undefined {
+  if (!center) return undefined
+  const nested = center.getElementsByTagName('PipeNetPos')[0]
+  return parsePos(textOf(nested) ?? textOf(center))
+}
+
 function distancia(a?: { x: number; y: number }, b?: { x: number; y: number }): number | undefined {
   if (!a || !b) return undefined
   return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+interface InvertInfo {
+  elev: number
+  flowDir: string
+  refPipe: string
 }
 
 export function parseLandXml(xmlText: string, materiaisManning: Map<string, number>): ResultadoImportLandXml {
@@ -86,27 +117,42 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
     throw new Error('LandXML inválido: ' + (parseError.textContent ?? 'erro de parsing'))
   }
 
+  const fatorDiametro = fatorParaMetros(doc)
   const caixas: CaixaImportada[] = []
   const trechos: TrechoImportado[] = []
+  const posPorNome = new Map<string, { x: number; y: number }>()
+  const invertsPorEstrutura = new Map<string, InvertInfo[]>()
 
-  const structureEls = Array.from(doc.getElementsByTagName('Structure'))
-  for (const s of structureEls) {
+  const structEls = [...Array.from(doc.getElementsByTagName('Struct')), ...Array.from(doc.getElementsByTagName('Structure'))]
+  for (const s of structEls) {
     const nome = s.getAttribute('name') ?? s.getAttribute('desc') ?? ''
     if (!nome) continue
 
-    const center = s.getElementsByTagName('Center')[0]
-    const pos = parsePos(textOf(center?.getElementsByTagName('PipeNetPos')[0]))
+    const pos = centerPos(s.getElementsByTagName('Center')[0])
+    if (pos) posPorNome.set(nome, pos)
+
     const rim = s.getElementsByTagName('Rim')[0]
     const sump = s.getElementsByTagName('Sump')[0]
+    const cotaTerreno = numAttr(s, 'elevRim') ?? numAttr(rim, 'elevation')
+    const cotaFundo = numAttr(s, 'elevSump') ?? numAttr(sump, 'elevation')
 
     caixas.push({
       nome,
-      tipo: inferirTipoCaixa(s.getAttribute('type')),
+      tipo: inferirTipoCaixa(s.getAttribute('type'), s.getAttribute('desc')),
       x: pos?.x,
       y: pos?.y,
-      cotaTerreno: numAttr(rim, 'elevation'),
-      cotaFundo: numAttr(sump, 'elevation'),
+      cotaTerreno,
+      cotaFundo,
     })
+
+    const inverts: InvertInfo[] = []
+    for (const inv of Array.from(s.getElementsByTagName('Invert'))) {
+      const elev = numAttr(inv, 'elev')
+      const flowDir = inv.getAttribute('flowDir') ?? ''
+      const refPipe = inv.getAttribute('refPipe') ?? ''
+      if (elev !== undefined && refPipe) inverts.push({ elev, flowDir, refPipe })
+    }
+    if (inverts.length > 0) invertsPorEstrutura.set(nome, inverts)
   }
 
   const pipeEls = Array.from(doc.getElementsByTagName('Pipe'))
@@ -116,21 +162,40 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
     const caixaJusanteNome = p.getAttribute('refEnd') ?? ''
     if (!nome || !caixaMontanteNome || !caixaJusanteNome) continue
 
-    const circular = p.getElementsByTagName('CircularPipe')[0]
-    const diametroM = numAttr(circular, 'diameter') ?? numAttr(p, 'diameter') ?? 0
+    const circular = p.getElementsByTagName('CircPipe')[0] ?? p.getElementsByTagName('CircularPipe')[0]
+    const diametroM = (numAttr(circular, 'diameter') ?? numAttr(p, 'diameter') ?? 0) * fatorDiametro
 
     const startPos = parsePos(textOf(p.getElementsByTagName('Start')[0]?.getElementsByTagName('PipeNetPos')[0]))
     const endPos = parsePos(textOf(p.getElementsByTagName('End')[0]?.getElementsByTagName('PipeNetPos')[0]))
 
-    const comprimentoM = numOf(p.getElementsByTagName('Length')[0]) ?? distancia(startPos, endPos) ?? 0
+    const comprimentoM =
+      numAttr(p, 'length') ??
+      numOf(p.getElementsByTagName('Length')[0]) ??
+      distancia(startPos, endPos) ??
+      distancia(posPorNome.get(caixaMontanteNome), posPorNome.get(caixaJusanteNome)) ??
+      0
 
-    const invert = p.getElementsByTagName('Invert')[0]
-    const cotaFundoMontante = numAttr(invert, 'start')
-    const cotaFundoJusante = numAttr(invert, 'end')
+    // Formato "canônico": cotas de fundo no próprio <Pipe><Invert start=".." end=".."/>.
+    // Formato real do Civil 3D: cotas de fundo nos <Invert> de cada <Struct>,
+    // casados pelo nome do tubo (refPipe) e pela direção do fluxo.
+    const invertPipe = p.getElementsByTagName('Invert')[0]
+    let cotaFundoMontante = numAttr(invertPipe, 'start')
+    let cotaFundoJusante = numAttr(invertPipe, 'end')
+    if (cotaFundoMontante === undefined) {
+      cotaFundoMontante = invertsPorEstrutura
+        .get(caixaMontanteNome)
+        ?.find((i) => i.refPipe === nome && i.flowDir === 'out')?.elev
+    }
+    if (cotaFundoJusante === undefined) {
+      cotaFundoJusante = invertsPorEstrutura
+        .get(caixaJusanteNome)
+        ?.find((i) => i.refPipe === nome && i.flowDir === 'in')?.elev
+    }
+
     const cotaTopoMontante = cotaFundoMontante !== undefined ? cotaFundoMontante + diametroM : undefined
     const cotaTopoJusante = cotaFundoJusante !== undefined ? cotaFundoJusante + diametroM : undefined
 
-    const declividadeExplicita = numOf(p.getElementsByTagName('Slope')[0])
+    const declividadeExplicita = numAttr(p, 'slope') ?? numOf(p.getElementsByTagName('Slope')[0])
     const declividadeMM =
       declividadeExplicita ??
       (cotaFundoMontante !== undefined && cotaFundoJusante !== undefined && comprimentoM > 0

@@ -2,41 +2,42 @@
 import { describe, expect, it } from 'vitest'
 import { parseLandXml } from '../landxml'
 
+// Formato validado contra um export real do Civil 3D 2027: <Structs>/<Struct>
+// com atributos elevRim/elevSump e <Center>X Y</Center> como texto direto,
+// sem atributo `type` (o tipo é inferido do `desc`); <Pipes>/<Pipe> com
+// length/slope como atributos e <CircPipe diameter="mm"/>; cotas de fundo
+// vêm dos <Invert> de cada estrutura, casados por refPipe + flowDir.
 const FIXTURE_XML = `<?xml version="1.0"?>
 <LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" diameterUnit="millimeter"></Metric>
+  </Units>
   <PipeNetworks>
     <PipeNetwork name="Rede-1">
-      <Structures>
-        <Structure name="PV-01" type="Junction">
-          <Center><PipeNetPos>100.0 200.0</PipeNetPos></Center>
-          <Rim elevation="850.500"/>
-          <Sump elevation="847.200"/>
-        </Structure>
-        <Structure name="PV-02" type="Junction">
-          <Center><PipeNetPos>150.0 210.0</PipeNetPos></Center>
-          <Rim elevation="848.000"/>
-          <Sump elevation="846.700"/>
-        </Structure>
-        <Structure name="BL-01" type="Inlet">
-          <Center><PipeNetPos>90.0 195.0</PipeNetPos></Center>
-          <Rim elevation="851.000"/>
-          <Sump elevation="848.500"/>
-        </Structure>
-      </Structures>
+      <Structs>
+        <Struct name="PV-01" desc="PV TIPO B" elevRim="850.500" elevSump="847.200">
+          <Center>100.0 200.0</Center>
+          <CircStruct diameter="1500." material="CONCRETO"></CircStruct>
+          <Invert elev="847.200" flowDir="out" refPipe="TRECHO-1"></Invert>
+          <Invert elev="848.500" flowDir="in" refPipe="TRECHO-2"></Invert>
+        </Struct>
+        <Struct name="PV-02" desc="PV TIPO B" elevRim="848.000" elevSump="846.700">
+          <Center>150.0 210.0</Center>
+          <CircStruct diameter="1500." material="CONCRETO"></CircStruct>
+          <Invert elev="846.700" flowDir="in" refPipe="TRECHO-1"></Invert>
+        </Struct>
+        <Struct name="BL-01" desc="BLCS" elevRim="851.000" elevSump="848.500">
+          <Center>90.0 195.0</Center>
+          <RectStruct length="0.75" width="2."></RectStruct>
+          <Invert elev="848.500" flowDir="out" refPipe="TRECHO-2"></Invert>
+        </Struct>
+      </Structs>
       <Pipes>
-        <Pipe name="TRECHO-1" refStart="PV-01" refEnd="PV-02" shape="circular">
-          <Start><PipeNetPos>100.0 200.0</PipeNetPos></Start>
-          <End><PipeNetPos>150.0 210.0</PipeNetPos></End>
-          <CircularPipe diameter="0.500" material="CONCRETO"/>
-          <Invert start="847.200" end="846.700"/>
-          <Slope>0.0100</Slope>
-          <Length>50.990</Length>
+        <Pipe name="TRECHO-1" refStart="PV-01" refEnd="PV-02" desc="BSTC DN 0,50 m" length="50.990" slope="0.0100">
+          <CircPipe diameter="500." material="CONCRETO"></CircPipe>
         </Pipe>
-        <Pipe name="TRECHO-2" refStart="BL-01" refEnd="PV-01" shape="circular">
-          <Start><PipeNetPos>90.0 195.0</PipeNetPos></Start>
-          <End><PipeNetPos>100.0 200.0</PipeNetPos></End>
-          <CircularPipe diameter="0.400" material="PVC-DESCONHECIDO"/>
-          <Invert start="848.500" end="847.200"/>
+        <Pipe name="TRECHO-2" refStart="BL-01" refEnd="PV-01" desc="BSTC DN 0,40 m" length="12.910199" slope="0.1006">
+          <CircPipe diameter="400." material="PVC-DESCONHECIDO"></CircPipe>
         </Pipe>
       </Pipes>
     </PipeNetwork>
@@ -60,7 +61,7 @@ describe('parseLandXml', () => {
     expect(bl01?.tipo).toBe('boca_de_lobo')
   })
 
-  it('extrai os trechos com comprimento, diâmetro e declividade explícitos', () => {
+  it('extrai os trechos com comprimento, diâmetro (convertido de mm) e declividade explícitos', () => {
     const { trechos } = parseLandXml(FIXTURE_XML, materiaisManning)
     const t1 = trechos.find((t) => t.nome === 'TRECHO-1')!
 
@@ -69,6 +70,14 @@ describe('parseLandXml', () => {
     expect(t1.diametroM).toBe(0.5)
     expect(t1.comprimentoM).toBe(50.99)
     expect(t1.declividadeMM).toBeCloseTo(0.01)
+  })
+
+  it('resolve as cotas de fundo a partir dos <Invert> das estruturas (refPipe + flowDir)', () => {
+    const { trechos } = parseLandXml(FIXTURE_XML, materiaisManning)
+    const t1 = trechos.find((t) => t.nome === 'TRECHO-1')!
+    expect(t1.cotaFundoMontante).toBeCloseTo(847.2)
+    expect(t1.cotaFundoJusante).toBeCloseTo(846.7)
+    expect(t1.cotaTopoMontante).toBeCloseTo(847.7)
   })
 
   it('resolve manning_n pela tabela interna quando o material é conhecido e não há rugosidade explícita', () => {
@@ -85,14 +94,11 @@ describe('parseLandXml', () => {
     expect(t2.manningNOrigem).toBe('manual')
   })
 
-  it('calcula comprimento por distância euclidiana e declividade pelas cotas de fundo quando ausentes no XML', () => {
-    const { trechos } = parseLandXml(FIXTURE_XML, materiaisManning)
-    const t2 = trechos.find((t) => t.nome === 'TRECHO-2')!
-
-    const distanciaEsperada = Math.hypot(100 - 90, 200 - 195)
-    expect(t2.comprimentoM).toBeCloseTo(distanciaEsperada, 6)
-
-    const declividadeEsperada = Math.abs(848.5 - 847.2) / distanciaEsperada
-    expect(t2.declividadeMM).toBeCloseTo(declividadeEsperada, 6)
+  it('calcula comprimento por distância euclidiana quando ausente no XML', () => {
+    const semLength = FIXTURE_XML.replace(' length="50.990"', '')
+    const { trechos } = parseLandXml(semLength, materiaisManning)
+    const t1 = trechos.find((t) => t.nome === 'TRECHO-1')!
+    const distanciaEsperada = Math.hypot(150 - 100, 210 - 200)
+    expect(t1.comprimentoM).toBeCloseTo(distanciaEsperada, 6)
   })
 })
