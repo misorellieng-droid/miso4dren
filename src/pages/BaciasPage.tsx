@@ -5,7 +5,7 @@ import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { parseLandXml, parseLandXmlParcels, type ResultadoImportLandXml } from '../engine/landxml'
 import { parseBaciasCsv } from '../engine/csvBacias'
-import { pontoDentroPoligono } from '../engine/poligono'
+import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
 import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
 import {
@@ -397,15 +397,15 @@ export function BaciasPage() {
             </thead>
             <tbody>
               {baciasPendentes.map((b) => {
-                const candidatas = b.poligono
-                  ? caixas.filter((c) => c.recebe_vazao && c.x != null && c.y != null && pontoDentroPoligono({ x: c.x, y: c.y }, b.poligono!))
+                const candidatas = b.poligonos
+                  ? caixas.filter((c) => c.recebe_vazao && c.x != null && c.y != null && pontoDentroAlgumPoligono({ x: c.x, y: c.y }, b.poligonos!))
                   : []
                 return (
                   <tr key={b.id} className="border-b border-border/60 last:border-0">
                     <td className="py-2">{b.nome}</td>
                     <td className="py-2 text-text-secondary">{b.area_m2.toFixed(1)}</td>
                     <td className="py-2 text-text-secondary">
-                      {!b.poligono
+                      {!b.poligonos
                         ? '—'
                         : candidatas.length === 0
                           ? 'nenhuma caixa dentro do polígono'

@@ -6,4 +6,6 @@
 -- editável manualmente na tela.
 
 alter table bacias alter column coef_c drop not null;
-alter table bacias add column if not exists poligono jsonb;
+-- array de anéis (jsonb), não um único anel: um Parcel composto no Civil 3D
+-- (união de dois ou mais desenhos) tem mais de um anel fechado.
+alter table bacias add column if not exists poligonos jsonb;

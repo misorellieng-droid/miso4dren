@@ -53,8 +53,10 @@ export interface BaciaImportadaLandXml {
   nome: string
   /** Área do Parcel (m²), já calculada pelo Civil 3D — não recalculamos a partir do polígono. */
   areaM2: number
-  /** Contorno completo do Parcel, na ordem dos vértices — usado pra ponto-em-polígono. */
-  poligono: { x: number; y: number }[]
+  /** Um ou mais anéis fechados, na ordem dos vértices — mais de um anel quando o Parcel é
+   * composto (união de sub-parcels, ex.: "6_union_1"/"6_union_2" dentro de um <Parcels>
+   * aninhado no Civil 3D). Ponto-em-polígono testa contra qualquer um dos anéis (OR). */
+  poligonos: { x: number; y: number }[][]
 }
 
 function textOf(el: Element | null | undefined): string | undefined {
@@ -272,13 +274,56 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
   return { caixas, trechos }
 }
 
+/** Extrai o anel de um Parcel "simples" (CoordGeom direto ou dentro de um <Boundary>). */
+function extrairAnelSimples(p: Element): { x: number; y: number }[] {
+  const coordGeom = p.getElementsByTagName('CoordGeom')[0]
+  const segmentos = coordGeom
+    ? Array.from(coordGeom.children).filter((el) => el.tagName === 'Line' || el.tagName === 'Curve')
+    : []
+
+  const anel: { x: number; y: number }[] = []
+  for (const seg of segmentos) {
+    const start = parsePos(textOf(seg.getElementsByTagName('Start')[0]))
+    if (start) anel.push(start)
+  }
+  const ultimo = segmentos[segmentos.length - 1]
+  const fim = ultimo ? parsePos(textOf(ultimo.getElementsByTagName('End')[0])) : undefined
+  if (fim && (anel.length === 0 || fim.x !== anel[0].x || fim.y !== anel[0].y)) {
+    anel.push(fim)
+  }
+  return anel
+}
+
+/** Um ou mais anéis: um Parcel "composto" (união de sub-parcels) tem um <Parcels> aninhado
+ * como filho direto em vez de um CoordGeom próprio — cada sub-Parcel dentro dele vira um anel. */
+function extrairAneisDoParcel(p: Element): { x: number; y: number }[][] {
+  const parcelsAninhado = Array.from(p.children).find((c) => c.tagName === 'Parcels')
+  if (parcelsAninhado) {
+    return Array.from(parcelsAninhado.children)
+      .filter((c) => c.tagName === 'Parcel')
+      .map(extrairAnelSimples)
+      .filter((anel) => anel.length >= 3)
+  }
+  const anel = extrairAnelSimples(p)
+  return anel.length >= 3 ? [anel] : []
+}
+
 /**
  * Parser do Parcel exportado em LandXML pelo Civil 3D (grupo de bacias/lotes
- * desenhados como polilinha fechada): <Parcels><Parcel name="..." area="...">
- * <Boundary><CoordGeom><Line><Start>X Y</Start><End>X Y</End></Line>...
- * <Curve><Start>.../<End>...</Curve>...</CoordGeom></Boundary></Parcel>
- * </Parcels>. Curvas são aproximadas pela corda (Start-End) — suficiente pra
- * teste ponto-em-polígono, que não precisa da curvatura exata.
+ * desenhados como polilinha fechada). Validado contra um export real (Civil
+ * 3D 2027): <Parcels name="..."><Parcel name="..." area="..." desc="...">
+ * <CoordGeom><Line dir="..." length="..."><Start>N E</Start><End>N E</End>
+ * </Line>...<Curve>...</Curve>...</CoordGeom></Parcel></Parcels> — sem
+ * elemento <Boundary> envolvendo o CoordGeom (diferente do que a doc do
+ * schema LandXML sugere). Curvas são aproximadas pela corda (Start-End) —
+ * suficiente pra teste ponto-em-polígono, que não precisa da curvatura exata.
+ *
+ * Um Parcel "composto" (formado unindo dois ou mais desenhos no Civil 3D) não
+ * traz CoordGeom próprio — em vez disso tem um <Parcels> ANINHADO com um
+ * sub-Parcel por pedaço original (ex.: "6_union_1"/"6_union_2"), cada um com
+ * seu próprio anel fechado e SEM atributo `area`. Só os Parcels de nível
+ * raiz (filhos diretos do <Parcels> do documento, não de um <Parcel>) contam
+ * como bacia — os sub-Parcels da união viram os anéis extras dessa bacia.
  */
 export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLandXml[] } {
   const parser = new DOMParser()
@@ -290,33 +335,18 @@ export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLa
   }
 
   const bacias: BaciaImportadaLandXml[] = []
-  const parcelEls = Array.from(doc.getElementsByTagName('Parcel'))
+  const gruposRaiz = Array.from(doc.getElementsByTagName('Parcels')).filter((el) => el.parentElement?.tagName !== 'Parcel')
+  const parcelEls = gruposRaiz.flatMap((g) => Array.from(g.children).filter((c) => c.tagName === 'Parcel'))
 
   for (const p of parcelEls) {
     const nome = p.getAttribute('name') ?? ''
     const areaM2 = numAttr(p, 'area')
     if (!nome || areaM2 === undefined) continue
 
-    const boundary = p.getElementsByTagName('Boundary')[0]
-    const coordGeom = boundary?.getElementsByTagName('CoordGeom')[0]
-    const segmentos = coordGeom
-      ? Array.from(coordGeom.children).filter((el) => el.tagName === 'Line' || el.tagName === 'Curve')
-      : []
+    const poligonos = extrairAneisDoParcel(p)
+    if (poligonos.length === 0) continue // sem contorno utilizável — ignora o Parcel
 
-    const poligono: { x: number; y: number }[] = []
-    for (const seg of segmentos) {
-      const start = parsePos(textOf(seg.getElementsByTagName('Start')[0]))
-      if (start) poligono.push(start)
-    }
-    const ultimo = segmentos[segmentos.length - 1]
-    const fim = ultimo ? parsePos(textOf(ultimo.getElementsByTagName('End')[0])) : undefined
-    if (fim && (poligono.length === 0 || fim.x !== poligono[0].x || fim.y !== poligono[0].y)) {
-      poligono.push(fim)
-    }
-
-    if (poligono.length < 3) continue // sem contorno utilizável — ignora o Parcel
-
-    bacias.push({ nome, areaM2, poligono })
+    bacias.push({ nome, areaM2, poligonos })
   }
 
   return { bacias }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centroidePoligono, pontoDentroPoligono } from '../poligono'
+import { centroidePoligono, pontoDentroAlgumPoligono, pontoDentroPoligono } from '../poligono'
 
 describe('pontoDentroPoligono', () => {
   const quadrado = [
@@ -32,6 +32,30 @@ describe('pontoDentroPoligono', () => {
 
   it('retorna false pra polígono degenerado (menos de 3 vértices)', () => {
     expect(pontoDentroPoligono({ x: 1, y: 1 }, [{ x: 0, y: 0 }])).toBe(false)
+  })
+})
+
+describe('pontoDentroAlgumPoligono', () => {
+  const anel1 = [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+  ]
+  const anel2 = [
+    { x: 100, y: 100 },
+    { x: 110, y: 100 },
+    { x: 110, y: 110 },
+    { x: 100, y: 110 },
+  ]
+
+  it('conta como dentro se o ponto cai em qualquer um dos anéis (parcel composto)', () => {
+    expect(pontoDentroAlgumPoligono({ x: 5, y: 5 }, [anel1, anel2])).toBe(true)
+    expect(pontoDentroAlgumPoligono({ x: 105, y: 105 }, [anel1, anel2])).toBe(true)
+  })
+
+  it('retorna false se não cair em nenhum anel', () => {
+    expect(pontoDentroAlgumPoligono({ x: 50, y: 50 }, [anel1, anel2])).toBe(false)
   })
 })
 

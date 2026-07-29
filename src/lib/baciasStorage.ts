@@ -1,6 +1,6 @@
 import type { BaciaImportada } from '../engine/csvBacias'
 import type { BaciaImportadaLandXml } from '../engine/landxml'
-import { centroidePoligono, pontoDentroPoligono } from '../engine/poligono'
+import { centroidePoligono, pontoDentroAlgumPoligono } from '../engine/poligono'
 import { vincularBaciasCaixas } from '../engine/vinculo'
 import { upsertCaptacao } from './captacaoStorage'
 import { listCaixas, type CaixaRecord } from './redeStorage'
@@ -18,8 +18,9 @@ export interface BaciaRecord {
   caixa_destino_id: string | null // legado — ver bacia_dispositivo (captacaoStorage.ts)
   vinculo_status: string
   destino_restante_nao_captado: string | null
-  /** Contorno do Parcel (m) — null pra bacias importadas por CSV (só ponto de descarga). */
-  poligono: { x: number; y: number }[] | null
+  /** Anéis do Parcel (m) — null pra bacias importadas por CSV (só ponto de descarga); mais de
+   * um anel quando o Parcel é composto (união de sub-parcels no Civil 3D). */
+  poligonos: { x: number; y: number }[][] | null
 }
 
 function requireSupabase() {
@@ -135,7 +136,9 @@ export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImpo
       .from('bacias')
       .insert(
         novasBacias.map((b) => {
-          const centro = centroidePoligono(b.poligono)
+          // pour point de fallback: centroide do maior anel (o principal, quando composto)
+          const anelPrincipal = [...b.poligonos].sort((x, y) => y.length - x.length)[0] ?? []
+          const centro = centroidePoligono(anelPrincipal)
           return {
             revisao_id: revisaoId,
             nome: b.nome,
@@ -143,7 +146,7 @@ export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImpo
             coef_c: null,
             pour_point_x: centro?.x ?? 0,
             pour_point_y: centro?.y ?? 0,
-            poligono: b.poligono,
+            poligonos: b.poligonos,
             vinculo_status: 'pendente',
           }
         })
@@ -152,7 +155,7 @@ export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImpo
     if (error) throw error
 
     for (const row of inseridas as BaciaRecord[]) {
-      const candidatas = caixasElegiveis.filter((c) => pontoDentroPoligono({ x: c.x, y: c.y }, row.poligono ?? []))
+      const candidatas = caixasElegiveis.filter((c) => pontoDentroAlgumPoligono({ x: c.x, y: c.y }, row.poligonos ?? []))
       if (candidatas.length === 1) {
         await updateBaciaVinculo(row.id, candidatas[0].id, 'automatico')
         try {

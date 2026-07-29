@@ -31,3 +31,9 @@ export function centroidePoligono(poligono: Ponto[]): Ponto | null {
   const soma = poligono.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 })
   return { x: soma.x / poligono.length, y: soma.y / poligono.length }
 }
+
+/** Testa contra vários anéis (OR) — um Parcel composto (união de sub-parcels no Civil 3D)
+ * é representado como mais de um anel; o ponto conta como "dentro" se cair em qualquer um. */
+export function pontoDentroAlgumPoligono(ponto: Ponto, poligonos: Ponto[][]): boolean {
+  return poligonos.some((anel) => pontoDentroPoligono(ponto, anel))
+}
