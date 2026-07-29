@@ -426,13 +426,16 @@ export function RedePluvialPage() {
                       <td className="px-4 py-2 text-text-secondary">{r.y_sobre_d_pct?.toFixed(0)}%</td>
                       <td className="px-4 py-2 text-text-secondary">{r.velocidade_ms?.toFixed(2)}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
-                      <td className="px-4 py-2">
+                      <td className="max-w-[220px] whitespace-normal px-4 py-2 align-top">
                         {r.conforme ? (
                           <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
                         ) : (
-                          <span className="flex items-center gap-1 text-accent-red" title={r.motivo_nao_conformidade ?? undefined}>
-                            <XCircle size={14} /> Não conforme
-                          </span>
+                          <div>
+                            <span className="flex items-center gap-1 text-accent-red"><XCircle size={14} /> Não conforme</span>
+                            {r.motivo_nao_conformidade && (
+                              <div className="mt-0.5 text-[11px] leading-tight text-text-secondary">{r.motivo_nao_conformidade}</div>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td className="px-2 py-2 text-text-secondary/40 group-hover:text-brand">
