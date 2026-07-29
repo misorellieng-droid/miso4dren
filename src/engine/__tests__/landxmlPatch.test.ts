@@ -133,4 +133,56 @@ describe('patchXmlOriginal', () => {
   it('lança erro para XML inválido', () => {
     expect(() => patchXmlOriginal('<not-xml', [], [])).toThrow()
   })
+
+  describe('atributo thickness (espessura de parede, tubo de concreto)', () => {
+    // Formato real: <CircPipe diameter="600." material="CONCRETO" thickness="0.125">.
+    // "thickness" é atrelado ao diâmetro no catálogo de peças do Civil 3D -- manter a
+    // espessura do diâmetro antigo junto com um diâmetro novo trava numa combinação sem
+    // peça de catálogo correspondente, e o Civil recusa a troca (mantém o tubo antigo).
+    const FIXTURE_COM_THICKNESS = `<?xml version="1.0"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" diameterUnit="millimeter"></Metric>
+  </Units>
+  <PipeNetworks>
+    <PipeNetwork name="Rede-1">
+      <Structs>
+        <Struct name="PVA-14" desc="PVA" elevRim="10" elevSump="8">
+          <Center>0 0</Center>
+          <Invert elev="8" flowDir="out" refPipe="TRECHO-1"></Invert>
+        </Struct>
+        <Struct name="PVA-15" desc="PVA" elevRim="9" elevSump="7">
+          <Center>30 0</Center>
+          <Invert elev="7" flowDir="in" refPipe="TRECHO-1"></Invert>
+        </Struct>
+      </Structs>
+      <Pipes>
+        <Pipe name="TRECHO-1" refStart="PVA-14" refEnd="PVA-15" desc="BSTC DN 0,60 m" length="30.000" slope="0.005">
+          <CircPipe diameter="600." material="CONCRETO" thickness="0.125"></CircPipe>
+        </Pipe>
+      </Pipes>
+    </PipeNetwork>
+  </PipeNetworks>
+</LandXML>`
+
+    it('remove thickness quando o diâmetro muda -- deixa o Civil escolher a peça certa', () => {
+      const c1 = caixa({ id: 'c1', nome: 'PVA-14' })
+      const c2 = caixa({ id: 'c2', nome: 'PVA-15' })
+      const t1 = trecho({ nome: 'TRECHO-1', diametro_m: 0.8 }) // editado de 0.6 pra 0.8
+      const xmlPatched = patchXmlOriginal(FIXTURE_COM_THICKNESS, [c1, c2], [t1])
+
+      expect(xmlPatched).toContain('diameter="800"')
+      expect(xmlPatched).not.toContain('thickness')
+    })
+
+    it('mantém thickness quando o diâmetro não muda', () => {
+      const c1 = caixa({ id: 'c1', nome: 'PVA-14' })
+      const c2 = caixa({ id: 'c2', nome: 'PVA-15' })
+      const t1 = trecho({ nome: 'TRECHO-1', diametro_m: 0.6 }) // igual ao original
+      const xmlPatched = patchXmlOriginal(FIXTURE_COM_THICKNESS, [c1, c2], [t1])
+
+      expect(xmlPatched).toContain('diameter="600"')
+      expect(xmlPatched).toContain('thickness="0.125"')
+    })
+  })
 })

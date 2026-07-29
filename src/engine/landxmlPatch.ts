@@ -115,8 +115,22 @@ export function patchXmlOriginal(xmlOriginal: string, caixas: CaixaRecord[], tre
 
     const circular = p.getElementsByTagName('CircPipe')[0] ?? p.getElementsByTagName('CircularPipe')[0]
     if (circular) {
+      const diametroOriginalAttr = circular.getAttribute('diameter')
+      const diametroOriginalM = diametroOriginalAttr != null ? Number(diametroOriginalAttr) * fatorDiametro : null
+      const diametroMudou = diametroOriginalM == null || Math.abs(diametroOriginalM - trecho.diametro_m) > 1e-6
+
       circular.setAttribute('diameter', fmt(trecho.diametro_m / fatorDiametro))
       if (trecho.material) circular.setAttribute('material', trecho.material)
+
+      // "thickness" (espessura de parede) é atrelado ao diâmetro no catálogo de peças do
+      // Civil 3D -- manter a espessura do diâmetro ANTIGO junto com o diâmetro NOVO trava
+      // numa combinação sem peça de catálogo correspondente ("Part Family... found, but an
+      // exact match... was not"), e o Civil mantém o tubo com o diâmetro antigo em vez de
+      // aplicar o novo. Sem saber a espessura correta pro tamanho novo, remove o atributo
+      // quando o diâmetro muda e deixa o Civil escolher a peça certa sozinho.
+      if (diametroMudou && circular.hasAttribute('thickness')) {
+        circular.removeAttribute('thickness')
+      }
     }
     if (trecho.manning_n != null) setPipeManning(p, circular, trecho.manning_n)
   }
