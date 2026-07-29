@@ -83,9 +83,17 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
   if (baciasSemTc.length > 0) {
     avisos.push(`${baciasSemTc.length} bacia(s) sem Tc próprio — usando 10 min como padrão.`)
   }
+  const baciasSemCoefC = baciasCaptadas.filter((b) => b.coef_c == null)
+  if (baciasSemCoefC.length > 0) {
+    avisos.push(
+      `${baciasSemCoefC.length} bacia(s) sem coeficiente C — não entraram no cálculo: ${baciasSemCoefC.map((b) => b.nome).join(', ')}.`
+    )
+  }
 
   // ΣC×A acumulado por trecho — geometria pura, não depende de Q nem de Tc.
-  const caPorBaciaId = new Map(baciasCaptadas.map((b) => [b.id, b.coef_c * b.area_m2]))
+  const caPorBaciaId = new Map(
+    baciasCaptadas.filter((b) => b.coef_c != null).map((b) => [b.id, (b.coef_c as number) * b.area_m2])
+  )
   const caEntradaPorCaixa = new Map<string, number>()
   for (const cap of captacoes) {
     const ca = caPorBaciaId.get(cap.bacia_id)

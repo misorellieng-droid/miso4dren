@@ -49,6 +49,14 @@ export interface ResultadoImportLandXml {
   trechos: TrechoImportado[]
 }
 
+export interface BaciaImportadaLandXml {
+  nome: string
+  /** Área do Parcel (m²), já calculada pelo Civil 3D — não recalculamos a partir do polígono. */
+  areaM2: number
+  /** Contorno completo do Parcel, na ordem dos vértices — usado pra ponto-em-polígono. */
+  poligono: { x: number; y: number }[]
+}
+
 function textOf(el: Element | null | undefined): string | undefined {
   const t = el?.textContent?.trim()
   return t ? t : undefined
@@ -262,4 +270,54 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
   }
 
   return { caixas, trechos }
+}
+
+/**
+ * Parser do Parcel exportado em LandXML pelo Civil 3D (grupo de bacias/lotes
+ * desenhados como polilinha fechada): <Parcels><Parcel name="..." area="...">
+ * <Boundary><CoordGeom><Line><Start>X Y</Start><End>X Y</End></Line>...
+ * <Curve><Start>.../<End>...</Curve>...</CoordGeom></Boundary></Parcel>
+ * </Parcels>. Curvas são aproximadas pela corda (Start-End) — suficiente pra
+ * teste ponto-em-polígono, que não precisa da curvatura exata.
+ */
+export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLandXml[] } {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(xmlText, 'application/xml')
+
+  const parseError = doc.getElementsByTagName('parsererror')[0]
+  if (parseError) {
+    throw new Error('LandXML inválido: ' + (parseError.textContent ?? 'erro de parsing'))
+  }
+
+  const bacias: BaciaImportadaLandXml[] = []
+  const parcelEls = Array.from(doc.getElementsByTagName('Parcel'))
+
+  for (const p of parcelEls) {
+    const nome = p.getAttribute('name') ?? ''
+    const areaM2 = numAttr(p, 'area')
+    if (!nome || areaM2 === undefined) continue
+
+    const boundary = p.getElementsByTagName('Boundary')[0]
+    const coordGeom = boundary?.getElementsByTagName('CoordGeom')[0]
+    const segmentos = coordGeom
+      ? Array.from(coordGeom.children).filter((el) => el.tagName === 'Line' || el.tagName === 'Curve')
+      : []
+
+    const poligono: { x: number; y: number }[] = []
+    for (const seg of segmentos) {
+      const start = parsePos(textOf(seg.getElementsByTagName('Start')[0]))
+      if (start) poligono.push(start)
+    }
+    const ultimo = segmentos[segmentos.length - 1]
+    const fim = ultimo ? parsePos(textOf(ultimo.getElementsByTagName('End')[0])) : undefined
+    if (fim && (poligono.length === 0 || fim.x !== poligono[0].x || fim.y !== poligono[0].y)) {
+      poligono.push(fim)
+    }
+
+    if (poligono.length < 3) continue // sem contorno utilizável — ignora o Parcel
+
+    bacias.push({ nome, areaM2, poligono })
+  }
+
+  return { bacias }
 }

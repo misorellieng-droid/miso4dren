@@ -1,7 +1,9 @@
 import type { BaciaImportada } from '../engine/csvBacias'
+import type { BaciaImportadaLandXml } from '../engine/landxml'
+import { centroidePoligono, pontoDentroPoligono } from '../engine/poligono'
 import { vincularBaciasCaixas } from '../engine/vinculo'
 import { upsertCaptacao } from './captacaoStorage'
-import { listCaixas } from './redeStorage'
+import { listCaixas, type CaixaRecord } from './redeStorage'
 import { supabase } from './supabase'
 
 export interface BaciaRecord {
@@ -9,13 +11,15 @@ export interface BaciaRecord {
   revisao_id: string
   nome: string
   area_m2: number
-  coef_c: number
+  coef_c: number | null
   tc_min: number | null
   pour_point_x: number
   pour_point_y: number
   caixa_destino_id: string | null // legado — ver bacia_dispositivo (captacaoStorage.ts)
   vinculo_status: string
   destino_restante_nao_captado: string | null
+  /** Contorno do Parcel (m) — null pra bacias importadas por CSV (só ponto de descarga). */
+  poligono: { x: number; y: number }[] | null
 }
 
 function requireSupabase() {
@@ -40,6 +44,12 @@ export async function updateBaciaVinculo(id: string, caixaDestinoId: string | nu
 /** Declaração explícita do destino do percentual não captado por nenhum dispositivo (soma de captações < 100%). */
 export async function updateDestinoRestante(id: string, destino: string | null): Promise<void> {
   const { error } = await requireSupabase().from('bacias').update({ destino_restante_nao_captado: destino }).eq('id', id)
+  if (error) throw error
+}
+
+/** Coeficiente de escoamento (método racional) — não vem do Parcel do Civil 3D, precisa ser informado manualmente. */
+export async function updateBaciaCoefC(id: string, coefC: number): Promise<void> {
+  const { error } = await requireSupabase().from('bacias').update({ coef_c: coefC }).eq('id', id)
   if (error) throw error
 }
 
@@ -88,4 +98,74 @@ export async function importarBaciasCsv(revisaoId: string, bacias: BaciaImportad
       }
     }
   }
+}
+
+export interface ResumoImportacaoBaciasLandXml {
+  novas: number
+  jaExistentes: number
+  automaticas: number
+  /** nome da bacia -> nomes das caixas candidatas encontradas dentro do polígono (0 ou 2+, sem vínculo automático). */
+  pendentes: Map<string, string[]>
+}
+
+/**
+ * Importa bacias a partir de Parcels do LandXML (engine/landxml.ts): área vem
+ * pronta do Civil 3D, coef_c fica null (editável manualmente depois — Parcel
+ * não traz esse dado). O vínculo com a rede é geométrico — ponto-em-polígono
+ * contra as caixas aptas a receber vazão (recebe_vazao=true), em vez de
+ * distância até um pour point único: só vincula automático (100%) quando há
+ * exatamente 1 caixa dentro do polígono, senão fica pendente e a UI mostra as
+ * candidatas achadas pra decidir o percentual manualmente.
+ */
+export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImportadaLandXml[]): Promise<ResumoImportacaoBaciasLandXml> {
+  const client = requireSupabase()
+
+  const existentes = await listBacias(revisaoId)
+  const nomesExistentes = new Set(existentes.map((b) => b.nome))
+  const novasBacias = bacias.filter((b) => !nomesExistentes.has(b.nome))
+
+  const caixas = await listCaixas(revisaoId)
+  const caixasElegiveis = caixas.filter((c): c is CaixaRecord & { x: number; y: number } => c.recebe_vazao && c.x != null && c.y != null)
+
+  const pendentes = new Map<string, string[]>()
+  let automaticas = 0
+
+  if (novasBacias.length > 0) {
+    const { data: inseridas, error } = await client
+      .from('bacias')
+      .insert(
+        novasBacias.map((b) => {
+          const centro = centroidePoligono(b.poligono)
+          return {
+            revisao_id: revisaoId,
+            nome: b.nome,
+            area_m2: b.areaM2,
+            coef_c: null,
+            pour_point_x: centro?.x ?? 0,
+            pour_point_y: centro?.y ?? 0,
+            poligono: b.poligono,
+            vinculo_status: 'pendente',
+          }
+        })
+      )
+      .select()
+    if (error) throw error
+
+    for (const row of inseridas as BaciaRecord[]) {
+      const candidatas = caixasElegiveis.filter((c) => pontoDentroPoligono({ x: c.x, y: c.y }, row.poligono ?? []))
+      if (candidatas.length === 1) {
+        await updateBaciaVinculo(row.id, candidatas[0].id, 'automatico')
+        try {
+          await upsertCaptacao(row.id, candidatas[0].id, 100, 'manual')
+        } catch {
+          // migração 009 ainda não aplicada
+        }
+        automaticas++
+      } else {
+        pendentes.set(row.nome, candidatas.map((c) => c.nome))
+      }
+    }
+  }
+
+  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, pendentes }
 }

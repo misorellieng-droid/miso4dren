@@ -3,8 +3,9 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Lock, 
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { parseLandXml, type ResultadoImportLandXml } from '../engine/landxml'
+import { parseLandXml, parseLandXmlParcels, type ResultadoImportLandXml } from '../engine/landxml'
 import { parseBaciasCsv } from '../engine/csvBacias'
+import { pontoDentroPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
 import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
 import {
@@ -17,7 +18,15 @@ import {
   type ModoReimportacao,
   type TrechoRecord,
 } from '../lib/redeStorage'
-import { importarBaciasCsv, listBacias, updateBaciaVinculo, updateDestinoRestante, type BaciaRecord } from '../lib/baciasStorage'
+import {
+  importarBaciasCsv,
+  importarBaciasLandXml,
+  listBacias,
+  updateBaciaCoefC,
+  updateBaciaVinculo,
+  updateDestinoRestante,
+  type BaciaRecord,
+} from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, upsertCaptacao, deleteCaptacao, type CaptacaoRecord } from '../lib/captacaoStorage'
 import { listMateriaisManning, toMateriaisManningMap } from '../lib/materiaisStorage'
 import { supabase } from '../lib/supabase'
@@ -41,6 +50,7 @@ export function BaciasPage() {
 
   const landXmlInputRef = useRef<HTMLInputElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
+  const parcelXmlInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -181,6 +191,48 @@ export function BaciasPage() {
     }
   }
 
+  const handleImportParcelXml = async (file: File) => {
+    if (!revisaoAtiva) return
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const text = await file.text()
+      const { bacias: parcelas } = parseLandXmlParcels(text)
+      if (parcelas.length === 0) {
+        setError('Nenhum Parcel com contorno utilizável encontrado nesse XML.')
+        return
+      }
+      const resumo = await importarBaciasLandXml(revisaoAtiva.id, parcelas)
+      const partes = [`${resumo.novas} bacia(s) nova(s)`, `${resumo.automaticas} vinculada(s) automaticamente`]
+      if (resumo.jaExistentes > 0) partes.push(`${resumo.jaExistentes} já existente(s) (nome repetido, ignoradas)`)
+      if (resumo.pendentes.size > 0) {
+        const detalhe = [...resumo.pendentes.entries()]
+          .map(([nome, candidatas]) => `${nome} (${candidatas.length === 0 ? 'nenhuma caixa dentro' : candidatas.join(', ')})`)
+          .join('; ')
+        partes.push(`${resumo.pendentes.size} pendente(s) — revise abaixo: ${detalhe}`)
+      }
+      setMessage(partes.join(', ') + '. Coeficiente C não vem do Parcel — informe manualmente na tabela abaixo.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao importar Parcels (LandXML).')
+    } finally {
+      setBusy(false)
+      if (parcelXmlInputRef.current) parcelXmlInputRef.current.value = ''
+    }
+  }
+
+  const handleCoefCEdit = async (baciaId: string, value: string) => {
+    const n = Number(value.replace(',', '.'))
+    if (!Number.isFinite(n) || n < 0 || n > 1) return
+    try {
+      await updateBaciaCoefC(baciaId, n)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar coeficiente C.')
+    }
+  }
+
   const handleManualVinculo = async (baciaId: string, caixaId: string) => {
     try {
       await updateBaciaVinculo(baciaId, caixaId || null, caixaId ? 'manual' : 'pendente')
@@ -244,7 +296,7 @@ export function BaciasPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-surface p-4">
           <div className="mb-2 font-sans text-sm font-semibold text-text-primary">1. Importar rede (LandXML)</div>
           <p className="mb-3 text-xs text-text-secondary">Exportado do Pipe Network do Civil 3D — caixas e trechos.</p>
@@ -257,14 +309,32 @@ export function BaciasPage() {
         </div>
 
         <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-2 font-sans text-sm font-semibold text-text-primary">2. Importar bacias (CSV)</div>
-          <p className="mb-3 text-xs text-text-secondary">Data Extraction de Catchment — nome, área, C, Tc, pour point.</p>
+          <div className="mb-2 font-sans text-sm font-semibold text-text-primary">2. Importar bacias (Parcel LandXML)</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            Exporte os Parcels do Civil 3D como LandXML — contorno completo, detecta sozinho quais caixas ficam dentro de cada bacia.
+          </p>
+          <input
+            ref={parcelXmlInputRef}
+            type="file"
+            accept=".xml"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && handleImportParcelXml(e.target.files[0])}
+          />
+          <button onClick={() => parcelXmlInputRef.current?.click()} disabled={busy} className={PRIMARY_BTN}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            Selecionar arquivo .xml
+          </button>
+          <div className="mt-2 text-xs text-text-secondary">{bacias.length} bacia(s) cadastradas</div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 font-sans text-sm font-semibold text-text-primary">2b. Importar bacias (CSV)</div>
+          <p className="mb-3 text-xs text-text-secondary">Alternativa sem polígono — nome, área, C, Tc, pour point (vínculo por distância).</p>
           <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleImportCsv(e.target.files[0])} />
           <button onClick={() => csvInputRef.current?.click()} disabled={busy} className={PRIMARY_BTN}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Selecionar arquivo .csv
           </button>
-          <div className="mt-2 text-xs text-text-secondary">{bacias.length} bacia(s) cadastradas</div>
         </div>
       </div>
 
@@ -321,30 +391,43 @@ export function BaciasPage() {
               <tr className="border-b border-border text-left text-xs text-text-secondary">
                 <th className="pb-2 font-medium">Bacia</th>
                 <th className="pb-2 font-medium">Área (m²)</th>
+                <th className="pb-2 font-medium">Candidatas no polígono</th>
                 <th className="pb-2 font-medium">Caixa de destino</th>
               </tr>
             </thead>
             <tbody>
-              {baciasPendentes.map((b) => (
-                <tr key={b.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-2">{b.nome}</td>
-                  <td className="py-2 text-text-secondary">{b.area_m2.toFixed(1)}</td>
-                  <td className="py-2">
-                    <select
-                      className={`${fieldInputClass} w-48 py-1`}
-                      defaultValue=""
-                      onChange={(e) => handleManualVinculo(b.id, e.target.value)}
-                    >
-                      <option value="">Selecione a caixa...</option>
-                      {caixas.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nome}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
-              ))}
+              {baciasPendentes.map((b) => {
+                const candidatas = b.poligono
+                  ? caixas.filter((c) => c.recebe_vazao && c.x != null && c.y != null && pontoDentroPoligono({ x: c.x, y: c.y }, b.poligono!))
+                  : []
+                return (
+                  <tr key={b.id} className="border-b border-border/60 last:border-0">
+                    <td className="py-2">{b.nome}</td>
+                    <td className="py-2 text-text-secondary">{b.area_m2.toFixed(1)}</td>
+                    <td className="py-2 text-text-secondary">
+                      {!b.poligono
+                        ? '—'
+                        : candidatas.length === 0
+                          ? 'nenhuma caixa dentro do polígono'
+                          : candidatas.map((c) => c.nome).join(', ')}
+                    </td>
+                    <td className="py-2">
+                      <select
+                        className={`${fieldInputClass} w-48 py-1`}
+                        defaultValue=""
+                        onChange={(e) => handleManualVinculo(b.id, e.target.value)}
+                      >
+                        <option value="">Selecione a caixa...</option>
+                        {caixas.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -381,7 +464,18 @@ export function BaciasPage() {
                     <tr className="border-b border-border/60">
                       <td className="py-2">{b.nome}</td>
                       <td className="py-2 text-text-secondary">{b.area_m2.toFixed(1)}</td>
-                      <td className="py-2 text-text-secondary">{b.coef_c}</td>
+                      <td className="py-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          max={1}
+                          defaultValue={b.coef_c ?? ''}
+                          placeholder="informar"
+                          className={`${fieldInputClass} w-20 py-1 ${b.coef_c == null ? 'border-accent-amber/60' : ''}`}
+                          onBlur={(e) => handleCoefCEdit(b.id, e.target.value)}
+                        />
+                      </td>
                       <td className="py-2 text-text-secondary">{b.tc_min ?? '—'}</td>
                       <td className="py-2">
                         <span
