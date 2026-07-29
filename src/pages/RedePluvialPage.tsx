@@ -268,15 +268,9 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
-  const resultadosOrdenados = useMemo(() => {
-    const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
-    return [...resultados].sort((a, b) => posicao(a) - posicao(b))
-  }, [resultados, ordemTrechos])
-
-  const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
-
   // Rede tronco = cadeia principal (maior diâmetro em cada confluência) partindo de cada
   // saída da rede, sem os ramais menores — mesmo critério usado em ordenarTrechosPorFluxo.
+  // Filtra tanto o diagrama quanto a tabela de resultados quando "Só rede tronco" está ativo.
   const troncoIds = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Set<string>()
     return identificarTroncoRede(
@@ -284,6 +278,14 @@ export function RedePluvialPage() {
       trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
   }, [caixas, trechos])
+
+  const resultadosOrdenados = useMemo(() => {
+    const base = visaoDiagrama === 'tronco' ? resultados.filter((r) => troncoIds.has(r.trecho_id)) : resultados
+    const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
+    return [...base].sort((a, b) => posicao(a) - posicao(b))
+  }, [resultados, ordemTrechos, troncoIds, visaoDiagrama])
+
+  const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
 
   const trechosDiagrama = useMemo(
     () => (visaoDiagrama === 'tronco' ? trechos.filter((t) => troncoIds.has(t.id)) : trechos),
