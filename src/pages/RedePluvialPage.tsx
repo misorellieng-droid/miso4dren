@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Droplets, Eye, Loader2, Network, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, Droplets, Eye, Loader2, Network, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
@@ -9,6 +9,8 @@ import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
+import { exportarRedeLandXml } from '../engine/landxmlExport'
+import { baixarArquivoTexto } from '../lib/download'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
@@ -390,6 +392,19 @@ export function RedePluvialPage() {
             >
               <Network size={16} />
               {mostrarDiagrama ? 'Ocultar diagrama' : 'Ver diagrama da rede'}
+            </button>
+          )}
+          {caixas.length > 0 && (
+            <button
+              onClick={() => {
+                const xml = exportarRedeLandXml(caixas, trechos)
+                baixarArquivoTexto(`rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`, xml)
+              }}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
+              title="Gera um LandXML com as cotas/diâmetro/declividade atuais (já com as correções feitas aqui) pra reimportar no Civil 3D."
+            >
+              <Download size={16} />
+              Baixar XML atualizado
             </button>
           )}
         </div>

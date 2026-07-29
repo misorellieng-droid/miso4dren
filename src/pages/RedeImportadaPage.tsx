@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckSquare, Droplets, Loader2, Square } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Download, Droplets, Loader2, Square } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
+import { exportarRedeLandXml } from '../engine/landxmlExport'
+import { baixarArquivoTexto } from '../lib/download'
 import {
   listCaixas,
   listTrechos,
@@ -288,13 +290,28 @@ export function RedeImportadaPage() {
     <div className="mx-auto max-w-6xl">
       <Breadcrumb items={['Cadastros', 'Rede Importada']} />
 
-      <div className="mb-4">
-        <h1 className="font-sans text-xl font-bold text-text-primary">
-          Rede Importada — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
-        </h1>
-        <p className="text-sm text-text-secondary">
-          Edite os dados importados do LandXML: {caixas.length} estrutura(s), {trechos.length} tubo(s).
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-sans text-xl font-bold text-text-primary">
+            Rede Importada — {revisaoAtiva.projeto_nome} — {revisaoAtiva.nome}
+          </h1>
+          <p className="text-sm text-text-secondary">
+            Edite os dados importados do LandXML: {caixas.length} estrutura(s), {trechos.length} tubo(s).
+          </p>
+        </div>
+        {caixas.length > 0 && (
+          <button
+            onClick={() => {
+              const xml = exportarRedeLandXml(caixas, trechos)
+              baixarArquivoTexto(`rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`, xml)
+            }}
+            className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
+            title="Gera um LandXML com as cotas/diâmetro/declividade atuais (já com as correções feitas no app) pra reimportar no Civil 3D."
+          >
+            <Download size={14} />
+            Baixar XML atualizado
+          </button>
+        )}
       </div>
 
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
