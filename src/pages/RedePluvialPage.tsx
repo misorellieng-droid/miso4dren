@@ -124,7 +124,11 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
 
     for (const t of trechos) {
       const ca = caAcumuladoPorTrecho.get(t.id) ?? 0
-      const tcSistema = tcPorCaixa.get(t.caixa_jusante_id) ?? tempoRetorno
+      // Tc usado pra dimensionar ESTE trecho é o Tc que já chegou na caixa MONTANTE dele
+      // (tempo de concentração inicial da bacia, ou acumulado dos trechos anteriores) — não
+      // o Tc da caixa jusante, que já inclui o tempo de percurso deste próprio trecho. Esse
+      // Tc(jusante) = Tc(montante) + Tp(trecho) só deve entrar no cálculo do PRÓXIMO trecho.
+      const tcSistema = tcPorCaixa.get(t.caixa_montante_id) ?? tempoRetorno
       const intensidade = calcularIntensidadeIdf(equacao, tempoRetorno, tcSistema)
       const qProjeto = calcularQProjeto(ca, intensidade)
 
