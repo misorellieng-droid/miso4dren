@@ -1,5 +1,6 @@
 import type { BaciaImportada } from '../engine/csvBacias'
 import type { BaciaImportadaLandXml } from '../engine/landxml'
+import { dividirPercentualIgualmente } from '../engine/percentual'
 import { centroidePoligono, pontoDentroAlgumPoligono } from '../engine/poligono'
 import { vincularBaciasCaixas } from '../engine/vinculo'
 import { upsertCaptacao } from './captacaoStorage'
@@ -115,8 +116,10 @@ export interface ResumoImportacaoBaciasLandXml {
   novas: number
   jaExistentes: number
   automaticas: number
-  /** nome da bacia -> nomes das caixas candidatas encontradas dentro do polígono (0 ou 2+, sem vínculo automático). */
-  pendentes: Map<string, string[]>
+  /** nome da bacia -> caixas onde a captação foi dividida igualmente entre elas (2+ candidatas). */
+  divididas: Map<string, string[]>
+  /** nome da bacia -> fica pendente pra vínculo manual (nenhuma caixa encontrada dentro do polígono). */
+  pendentes: string[]
 }
 
 /**
@@ -124,9 +127,12 @@ export interface ResumoImportacaoBaciasLandXml {
  * pronta do Civil 3D, coef_c fica null (editável manualmente depois — Parcel
  * não traz esse dado). O vínculo com a rede é geométrico — ponto-em-polígono
  * contra as caixas aptas a receber vazão (recebe_vazao=true), em vez de
- * distância até um pour point único: só vincula automático (100%) quando há
- * exatamente 1 caixa dentro do polígono, senão fica pendente e a UI mostra as
- * candidatas achadas pra decidir o percentual manualmente.
+ * distância até um pour point único:
+ * - 1 caixa dentro do polígono → vincula 100% nela.
+ * - 2+ caixas dentro → divide a captação igualmente entre todas (editável
+ *   depois na tela de captação) — em projetos grandes (200+ caixas) exigir
+ *   revisão manual pra cada bacia com mais de uma boca de lobo não escala.
+ * - 0 caixas dentro → fica pendente pra vínculo manual (não tem o que dividir).
  */
 export async function importarBaciasLandXml(
   revisaoId: string,
@@ -142,7 +148,8 @@ export async function importarBaciasLandXml(
   const caixas = await listCaixas(revisaoId)
   const caixasElegiveis = caixas.filter((c): c is CaixaRecord & { x: number; y: number } => c.recebe_vazao && c.x != null && c.y != null)
 
-  const pendentes = new Map<string, string[]>()
+  const divididas = new Map<string, string[]>()
+  const pendentes: string[] = []
   let automaticas = 0
 
   if (novasBacias.length > 0) {
@@ -177,19 +184,27 @@ export async function importarBaciasLandXml(
 
     for (const row of inseridas as BaciaRecord[]) {
       const candidatas = caixasElegiveis.filter((c) => pontoDentroAlgumPoligono({ x: c.x, y: c.y }, row.poligonos ?? []))
-      if (candidatas.length === 1) {
-        await updateBaciaVinculo(row.id, candidatas[0].id, 'automatico')
+
+      if (candidatas.length === 0) {
+        pendentes.push(row.nome)
+        continue
+      }
+
+      const percentuais = dividirPercentualIgualmente(candidatas.length)
+      for (let i = 0; i < candidatas.length; i++) {
         try {
-          await upsertCaptacao(row.id, candidatas[0].id, 100, 'manual')
+          await upsertCaptacao(row.id, candidatas[i].id, percentuais[i], 'manual')
         } catch {
           // migração 009 ainda não aplicada
         }
-        automaticas++
-      } else {
-        pendentes.set(row.nome, candidatas.map((c) => c.nome))
       }
+      // legado (caixa_destino_id) só comporta 1 id — com 2+ candidatas fica null, mas o
+      // status 'automatico' já reflete que a captação real (bacia_dispositivo) foi resolvida
+      await updateBaciaVinculo(row.id, candidatas.length === 1 ? candidatas[0].id : null, 'automatico')
+      if (candidatas.length > 1) divididas.set(row.nome, candidatas.map((c) => c.nome))
+      automaticas++
     }
   }
 
-  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, pendentes }
+  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, divididas, pendentes }
 }

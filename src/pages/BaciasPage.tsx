@@ -232,12 +232,13 @@ export function BaciasPage() {
       }
       const resumo = await importarBaciasLandXml(revisaoAtiva.id, parcelas, file.name)
       const partes = [`${resumo.novas} bacia(s) nova(s)`, `${resumo.automaticas} vinculada(s) automaticamente`]
+      if (resumo.divididas.size > 0) {
+        const detalheDivididas = [...resumo.divididas.entries()].map(([nome, cs]) => `${nome} (${cs.length}× — ${cs.join(', ')})`).join('; ')
+        partes.push(`${resumo.divididas.size} com captação dividida igualmente entre 2+ caixas: ${detalheDivididas}`)
+      }
       if (resumo.jaExistentes > 0) partes.push(`${resumo.jaExistentes} já existente(s) (nome repetido, ignoradas)`)
-      if (resumo.pendentes.size > 0) {
-        const detalhe = [...resumo.pendentes.entries()]
-          .map(([nome, candidatas]) => `${nome} (${candidatas.length === 0 ? 'nenhuma caixa dentro' : candidatas.join(', ')})`)
-          .join('; ')
-        partes.push(`${resumo.pendentes.size} pendente(s) — revise abaixo: ${detalhe}`)
+      if (resumo.pendentes.length > 0) {
+        partes.push(`${resumo.pendentes.length} pendente(s) (nenhuma caixa dentro) — revise abaixo: ${resumo.pendentes.join(', ')}`)
       }
       setMessage(partes.join(', ') + '. Coeficiente C não vem do Parcel — informe manualmente na tabela abaixo.')
       await load()
