@@ -3,9 +3,20 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Lock, 
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { parseLandXml } from '../engine/landxml'
+import { parseLandXml, type ResultadoImportLandXml } from '../engine/landxml'
 import { parseBaciasCsv } from '../engine/csvBacias'
-import { importarRedeLandXml, listCaixas, listTrechos, updateTrechoManning, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
+import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
+import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
+import {
+  aplicarReimportacao,
+  importarRedeLandXml,
+  listCaixas,
+  listTrechos,
+  updateTrechoManning,
+  type CaixaRecord,
+  type ModoReimportacao,
+  type TrechoRecord,
+} from '../lib/redeStorage'
 import { importarBaciasCsv, listBacias, updateBaciaVinculo, updateDestinoRestante, type BaciaRecord } from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, upsertCaptacao, deleteCaptacao, type CaptacaoRecord } from '../lib/captacaoStorage'
 import { listMateriaisManning, toMateriaisManningMap } from '../lib/materiaisStorage'
@@ -26,6 +37,7 @@ export function BaciasPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [diffPendente, setDiffPendente] = useState<{ resultado: ResultadoImportLandXml; diff: DiffImportacao } | null>(null)
 
   const landXmlInputRef = useRef<HTMLInputElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
@@ -105,14 +117,48 @@ export function BaciasPage() {
       const text = await file.text()
       const materiais = await listMateriaisManning()
       const resultado = parseLandXml(text, toMateriaisManningMap(materiais))
-      await importarRedeLandXml(revisaoAtiva.id, resultado)
-      setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).`)
-      await load()
+
+      // Se ainda não há nada cadastrado na revisão, é primeira importação —
+      // não há o que comparar, importa direto sem abrir a tela de diff.
+      if (caixas.length === 0 && trechos.length === 0) {
+        await importarRedeLandXml(revisaoAtiva.id, resultado)
+        setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).`)
+        await load()
+        return
+      }
+
+      const diff = compararImportacao(resultado, caixas, trechos)
+      if (!temMudancas(diff)) {
+        setMessage('Nada novo pra importar — esse XML já bate com a rede cadastrada.')
+        return
+      }
+      setDiffPendente({ resultado, diff })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao importar LandXML.')
     } finally {
       setBusy(false)
       if (landXmlInputRef.current) landXmlInputRef.current.value = ''
+    }
+  }
+
+  const handleEscolherModoReimportacao = async (modo: ModoReimportacao) => {
+    if (!revisaoAtiva || !diffPendente) return
+    setBusy(true)
+    setError(null)
+    try {
+      const resumo = await aplicarReimportacao(revisaoAtiva.id, diffPendente.diff, modo)
+      const partes = [`${resumo.caixasInseridas} caixa(s) nova(s)`, `${resumo.trechosInseridos} trecho(s) novo(s)`]
+      if (modo !== 'ignorar') {
+        partes.push(`${resumo.caixasAtualizadas} caixa(s) atualizada(s)`, `${resumo.trechosAtualizados} trecho(s) atualizado(s)`)
+      }
+      if (resumo.trechosNaoResolvidos > 0) partes.push(`${resumo.trechosNaoResolvidos} trecho(s) não puderam ser resolvidos`)
+      setMessage(`Reimportação (${modo}): ${partes.join(', ')}.`)
+      setDiffPendente(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao aplicar a reimportação.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -391,6 +437,15 @@ export function BaciasPage() {
           </table>
         )}
       </div>
+
+      {diffPendente && (
+        <ImportacaoDiffModal
+          diff={diffPendente.diff}
+          busy={busy}
+          onEscolher={handleEscolherModoReimportacao}
+          onCancelar={() => setDiffPendente(null)}
+        />
+      )}
     </div>
   )
 }

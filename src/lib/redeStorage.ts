@@ -1,4 +1,5 @@
 import type { ResultadoImportLandXml } from '../engine/landxml'
+import type { DiffImportacao } from '../engine/reimportDiff'
 import { supabase } from './supabase'
 
 export interface CaixaRecord {
@@ -61,6 +62,8 @@ export async function updateTrechoManning(id: string, manningN: number): Promise
 
 export interface CaixaPatch {
   tipo?: string
+  x?: number | null
+  y?: number | null
   cota_terreno?: number | null
   cota_fundo?: number | null
   recebe_vazao?: boolean
@@ -166,5 +169,145 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
   if (trechosParaInserir.length > 0) {
     const { error } = await client.from('trechos').insert(trechosParaInserir)
     if (error) throw error
+  }
+}
+
+export type ModoReimportacao = 'atualizar' | 'sobrepor' | 'ignorar'
+
+export interface ResumoReimportacao {
+  caixasInseridas: number
+  caixasAtualizadas: number
+  trechosInseridos: number
+  trechosAtualizados: number
+  trechosNaoResolvidos: number
+}
+
+/**
+ * Aplica um diff calculado por `compararImportacao` (engine/reimportDiff.ts) contra o
+ * estado atual da revisão. Sempre insere itens genuinamente novos (sem conflito). Pra
+ * itens já existentes (casados por nome), o comportamento depende do modo escolhido pelo
+ * usuário na tela de comparação:
+ * - 'ignorar': não toca em nada que já existe, só insere o que é novo.
+ * - 'atualizar': sincroniza os campos vindos do XML (geometria, diâmetro, declividade,
+ *   ligação montante/jusante, cotas) mas preserva edições manuais já feitas no app
+ *   (manning_n quando a origem é 'manual', recebe_vazao).
+ * - 'sobrepor': mesmo que 'atualizar', só que força também manning_n/manning_n_origem e
+ *   recebe_vazao a partir do XML — descarta qualquer edição manual feita depois do último
+ *   import.
+ */
+export async function aplicarReimportacao(
+  revisaoId: string,
+  diff: DiffImportacao,
+  modo: ModoReimportacao
+): Promise<ResumoReimportacao> {
+  const client = requireSupabase()
+
+  const idPorNome = new Map<string, string>()
+  for (const c of diff.caixas) {
+    if (c.atual) idPorNome.set(c.nome, c.atual.id)
+  }
+
+  const caixasNovas = diff.caixas.filter((c) => c.status === 'nova')
+  if (caixasNovas.length > 0) {
+    const { data, error } = await client
+      .from('caixas')
+      .insert(
+        caixasNovas.map((c) => ({
+          revisao_id: revisaoId,
+          nome: c.novo.nome,
+          tipo: c.novo.tipo,
+          x: c.novo.x ?? null,
+          y: c.novo.y ?? null,
+          cota_terreno: c.novo.cotaTerreno ?? null,
+          cota_fundo: c.novo.cotaFundo ?? null,
+          origem: 'landxml',
+          rede_nome: c.novo.redeNome ?? null,
+          recebe_vazao: c.novo.recebeVazao,
+        }))
+      )
+      .select()
+    if (error) throw error
+    for (const row of data as CaixaRecord[]) idPorNome.set(row.nome, row.id)
+  }
+
+  let caixasAtualizadas = 0
+  if (modo !== 'ignorar') {
+    for (const c of diff.caixas) {
+      if (c.status !== 'alterada' || !c.atual) continue
+      const patch: CaixaPatch = {
+        tipo: c.novo.tipo,
+        x: c.novo.x ?? null,
+        y: c.novo.y ?? null,
+        cota_terreno: c.novo.cotaTerreno ?? null,
+        cota_fundo: c.novo.cotaFundo ?? null,
+      }
+      if (modo === 'sobrepor') patch.recebe_vazao = c.novo.recebeVazao
+      await updateCaixa(c.atual.id, patch)
+      caixasAtualizadas++
+    }
+  }
+
+  const trechosNovos = diff.trechos.filter((t) => t.status === 'novo' && !t.semCaixaResolvivel)
+  const trechosParaInserir = trechosNovos
+    .filter((t) => idPorNome.has(t.novo.caixaMontanteNome) && idPorNome.has(t.novo.caixaJusanteNome))
+    .map((t) => ({
+      revisao_id: revisaoId,
+      nome: t.novo.nome,
+      caixa_montante_id: idPorNome.get(t.novo.caixaMontanteNome),
+      caixa_jusante_id: idPorNome.get(t.novo.caixaJusanteNome),
+      comprimento_m: t.novo.comprimentoM,
+      diametro_m: t.novo.diametroM,
+      declividade_m_m: t.novo.declividadeMM,
+      material: t.novo.material ?? null,
+      manning_n: t.novo.manningN,
+      manning_n_origem: t.novo.manningNOrigem,
+      cota_topo_montante: t.novo.cotaTopoMontante ?? null,
+      cota_fundo_montante: t.novo.cotaFundoMontante ?? null,
+      cota_topo_jusante: t.novo.cotaTopoJusante ?? null,
+      cota_fundo_jusante: t.novo.cotaFundoJusante ?? null,
+      rede_nome: t.novo.redeNome ?? null,
+    }))
+  if (trechosParaInserir.length > 0) {
+    const { error } = await client.from('trechos').insert(trechosParaInserir)
+    if (error) throw error
+  }
+
+  let trechosAtualizados = 0
+  const trechosNaoResolvidos = diff.trechos.filter((t) => t.semCaixaResolvivel).length
+  if (modo !== 'ignorar') {
+    for (const t of diff.trechos) {
+      if (t.status !== 'alterado' || !t.atual || t.semCaixaResolvivel) continue
+      const caixaMontanteId = idPorNome.get(t.novo.caixaMontanteNome)
+      const caixaJusanteId = idPorNome.get(t.novo.caixaJusanteNome)
+      if (!caixaMontanteId || !caixaJusanteId) continue
+
+      const patch: Record<string, unknown> = {
+        caixa_montante_id: caixaMontanteId,
+        caixa_jusante_id: caixaJusanteId,
+        comprimento_m: t.novo.comprimentoM,
+        diametro_m: t.novo.diametroM,
+        declividade_m_m: t.novo.declividadeMM,
+        material: t.novo.material ?? null,
+        cota_topo_montante: t.novo.cotaTopoMontante ?? null,
+        cota_fundo_montante: t.novo.cotaFundoMontante ?? null,
+        cota_topo_jusante: t.novo.cotaTopoJusante ?? null,
+        cota_fundo_jusante: t.novo.cotaFundoJusante ?? null,
+      }
+      if (modo === 'sobrepor' || t.atual.manning_n_origem !== 'manual') {
+        patch.manning_n = t.novo.manningN
+        patch.manning_n_origem = t.novo.manningNOrigem
+      }
+      const { error } = await client.from('trechos').update(patch).eq('id', t.atual.id)
+      if (error) throw error
+      trechosAtualizados++
+    }
+  }
+
+  return {
+    caixasInseridas: caixasNovas.length,
+    caixasAtualizadas,
+    trechosInseridos: trechosParaInserir.length,
+    trechosAtualizados,
+    trechosNaoResolvidos,
   }
 }
