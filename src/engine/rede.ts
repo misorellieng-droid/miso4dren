@@ -62,6 +62,54 @@ export interface TrechoGrafo extends ArestaGrafo {
   // alias semântico: montanteId = caixaMontanteId, jusanteId = caixaJusanteId
 }
 
+export interface TrechoOrdenavel extends ArestaGrafo {
+  nome: string
+}
+
+/**
+ * Ordena os trechos por posição no fluxo da rede pra exibição em tabela.
+ * "Nível" de um trecho = maior distância (em nº de trechos) até ele partindo
+ * de qualquer cabeceira (camadas de Kahn) — garante que nenhum trecho apareça
+ * antes de qualquer trecho que esteja a montante dele, mesmo quando um ramo
+ * curto (poucos hops até a cabeceira) confluí numa caixa alimentada por um
+ * ramo bem mais longo vindo de outra cabeceira. Empate no mesmo nível é
+ * resolvido pelo nome do trecho, pra manter a ordem estável.
+ */
+export function ordenarTrechosPorFluxo(caixaIds: string[], trechos: TrechoOrdenavel[]): Map<string, number> {
+  const grauEntrada = new Map<string, number>(caixaIds.map((id) => [id, 0]))
+  const saidas = new Map<string, TrechoOrdenavel[]>(caixaIds.map((id) => [id, []]))
+  for (const t of trechos) {
+    grauEntrada.set(t.jusanteId, (grauEntrada.get(t.jusanteId) ?? 0) + 1)
+    saidas.get(t.montanteId)?.push(t)
+  }
+  for (const lista of saidas.values()) lista.sort((a, b) => a.nome.localeCompare(b.nome))
+
+  const nivelCaixa = new Map<string, number>()
+  const fila: string[] = caixaIds.filter((id) => (grauEntrada.get(id) ?? 0) === 0)
+  for (const id of fila) nivelCaixa.set(id, 0)
+  const grauRestante = new Map(grauEntrada)
+
+  const resultado: { id: string; nivel: number; nome: string }[] = []
+  for (let i = 0; i < fila.length; i++) {
+    const caixaId = fila[i]
+    const nivel = nivelCaixa.get(caixaId) ?? 0
+    for (const t of saidas.get(caixaId) ?? []) {
+      resultado.push({ id: t.id, nivel, nome: t.nome })
+      const grau = (grauRestante.get(t.jusanteId) ?? 0) - 1
+      grauRestante.set(t.jusanteId, grau)
+      nivelCaixa.set(t.jusanteId, Math.max(nivelCaixa.get(t.jusanteId) ?? 0, nivel + 1))
+      if (grau === 0) fila.push(t.jusanteId)
+    }
+  }
+
+  // sobra (grafo com ciclo ou desconexo de qualquer cabeceira) vai no fim, sem travar a tela
+  const processados = new Set(resultado.map((r) => r.id))
+  for (const t of trechos) if (!processados.has(t.id)) resultado.push({ id: t.id, nivel: Infinity, nome: t.nome })
+
+  resultado.sort((a, b) => a.nivel - b.nivel || a.nome.localeCompare(b.nome))
+  return new Map(resultado.map((r, idx) => [r.id, idx]))
+}
+
 /**
  * Acumula uma grandeza aditiva ao longo do grafo, dos nós de cabeceira até
  * a saída — genérico o bastante pra somar tanto vazão pronta quanto C×A.

@@ -6,7 +6,7 @@ import { RedeDiagrama } from '../components/RedeDiagrama'
 import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { acumularVazao, calcularQProjeto, calcularTcSistema } from '../engine/rede'
+import { acumularVazao, calcularQProjeto, calcularTcSistema, ordenarTrechosPorFluxo } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
@@ -256,39 +256,18 @@ export function RedePluvialPage() {
     setResultados(existentes)
   }
 
-  // Ordem de fluxo real (monta pra jusante): caminha a rede em DFS a partir das
-  // cabeceiras — cada trecho aparece logo depois de tudo que está a montante dele,
-  // e seguido imediatamente pela sua própria continuação a jusante, antes de pular
-  // pro próximo ramo. Um simples "nível topológico" (ordenarTopologicamente por
-  // caixa) intercala ramos irmãos de forma confusa porque o Kahn processa a fila
-  // na ordem em que os nós foram descobertos, não na ordem física do cano.
+  // Ordem de fluxo real: nível de cada trecho = maior distância (em nº de
+  // trechos) até ele partindo de qualquer cabeceira — garante que nenhum
+  // trecho apareça antes de qualquer trecho a montante dele, mesmo quando um
+  // ramo curto conflui numa caixa alimentada por um ramo bem mais longo vindo
+  // de outra cabeceira (senão esse trecho curto acaba "preso" no fim da
+  // tabela atrás do ramo longo, apesar de estar fisicamente no começo da rede).
   const ordemTrechos = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
-    const porCaixaMontante = new Map<string, TrechoRecord[]>()
-    for (const t of trechos) {
-      if (!porCaixaMontante.has(t.caixa_montante_id)) porCaixaMontante.set(t.caixa_montante_id, [])
-      porCaixaMontante.get(t.caixa_montante_id)!.push(t)
-    }
-    for (const lista of porCaixaMontante.values()) lista.sort((a, b) => a.nome.localeCompare(b.nome))
-
-    const idsComEntrada = new Set(trechos.map((t) => t.caixa_jusante_id))
-    const cabeceiras = caixas.filter((c) => !idsComEntrada.has(c.id)).map((c) => c.id)
-
-    const visitado = new Set<string>()
-    const ordem: string[] = []
-    const visitarCaixa = (caixaId: string) => {
-      for (const t of porCaixaMontante.get(caixaId) ?? []) {
-        if (visitado.has(t.id)) continue
-        visitado.add(t.id)
-        ordem.push(t.id)
-        visitarCaixa(t.caixa_jusante_id)
-      }
-    }
-    for (const caixaId of cabeceiras) visitarCaixa(caixaId)
-    // sobra (grafo com ciclo ou desconexo de qualquer cabeceira) vai no fim, sem travar a tela
-    for (const t of trechos) if (!visitado.has(t.id)) ordem.push(t.id)
-
-    return new Map(ordem.map((id, i) => [id, i]))
+    return ordenarTrechosPorFluxo(
+      caixas.map((c) => c.id),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome }))
+    )
   }, [caixas, trechos])
 
   const resultadosOrdenados = useMemo(() => {

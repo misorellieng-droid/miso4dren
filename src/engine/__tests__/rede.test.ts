@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { acumularVazao, calcularQEntradaBacia, calcularQProjeto, calcularTcSistema, ordenarTopologicamente } from '../rede'
+import {
+  acumularVazao,
+  calcularQEntradaBacia,
+  calcularQProjeto,
+  calcularTcSistema,
+  ordenarTopologicamente,
+  ordenarTrechosPorFluxo,
+} from '../rede'
 
 describe('ordenarTopologicamente', () => {
   it('ordena das cabeceiras até a saída', () => {
@@ -20,6 +27,49 @@ describe('ordenarTopologicamente', () => {
       { id: 't2', montanteId: 'B', jusanteId: 'A' },
     ]
     expect(() => ordenarTopologicamente(['A', 'B'], arestas)).toThrow()
+  })
+})
+
+describe('ordenarTrechosPorFluxo', () => {
+  it('ordena uma rede linear estritamente montante -> jusante', () => {
+    const trechos = [
+      { id: 't3', montanteId: 'C', jusanteId: 'D', nome: 'T3' },
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1' },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', nome: 'T2' },
+    ]
+    const ordem = ordenarTrechosPorFluxo(['A', 'B', 'C', 'D'], trechos)
+    expect(ordem.get('t1')).toBeLessThan(ordem.get('t2')!)
+    expect(ordem.get('t2')).toBeLessThan(ordem.get('t3')!)
+  })
+
+  it('não deixa um ramo curto preso atrás de um ramo longo que conflui na mesma caixa', () => {
+    // Cenário real reportado: cabeceira "S" alimenta X com 1 trecho só, mas X também é
+    // alimentada por uma cadeia de 3 trechos vindo de outra cabeceira "B" — o trecho de S
+    // é fisicamente o início da rede e não pode aparecer depois da cadeia toda de B.
+    const trechos = [
+      { id: 't_curto', montanteId: 'S', jusanteId: 'X', nome: 'BSTC-curto' },
+      { id: 't_b1', montanteId: 'B', jusanteId: 'M1', nome: 'TUBO-b1' },
+      { id: 't_b2', montanteId: 'M1', jusanteId: 'M2', nome: 'TUBO-b2' },
+      { id: 't_b3', montanteId: 'M2', jusanteId: 'X', nome: 'TUBO-b3' },
+      { id: 't_saida', montanteId: 'X', jusanteId: 'FIM', nome: 'TUBO-saida' },
+    ]
+    const ordem = ordenarTrechosPorFluxo(['S', 'B', 'M1', 'M2', 'X', 'FIM'], trechos)
+
+    // o trecho curto (nível 0, direto da cabeceira) tem que vir ANTES da cadeia longa inteira
+    expect(ordem.get('t_curto')).toBeLessThan(ordem.get('t_b2')!)
+    expect(ordem.get('t_curto')).toBeLessThan(ordem.get('t_b3')!)
+    // e a saída, que depende de ambos os ramos convergindo em X, vem por último
+    expect(ordem.get('t_saida')).toBeGreaterThan(ordem.get('t_curto')!)
+    expect(ordem.get('t_saida')).toBeGreaterThan(ordem.get('t_b3')!)
+  })
+
+  it('resolve empate no mesmo nível pelo nome do trecho', () => {
+    const trechos = [
+      { id: 't_z', montanteId: 'A', jusanteId: 'X', nome: 'Z-trecho' },
+      { id: 't_a', montanteId: 'B', jusanteId: 'Y', nome: 'A-trecho' },
+    ]
+    const ordem = ordenarTrechosPorFluxo(['A', 'B', 'X', 'Y'], trechos)
+    expect(ordem.get('t_a')).toBeLessThan(ordem.get('t_z')!)
   })
 })
 
