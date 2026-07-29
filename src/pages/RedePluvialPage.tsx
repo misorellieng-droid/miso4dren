@@ -393,7 +393,15 @@ export function RedePluvialPage() {
         <div className="mb-3 font-sans text-sm font-semibold text-text-primary">Critérios de conformidade</div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Field label="y/D máx (%)">
-            <input type="number" step="any" className={`${fieldInputClass} py-1.5`} value={limites.limiteYD * 100} onChange={(e) => setLimites({ ...limites, limiteYD: Number(e.target.value) / 100 })} />
+            <input
+              type="number"
+              step="any"
+              className={`${fieldInputClass} py-1.5`}
+              // arredonda o valor exibido -- limiteYD*100 sofre ruído de ponto flutuante
+              // (ex.: 0.07*100 = 7.000000000000001 em JS) que aparecia direto no campo
+              value={Number((limites.limiteYD * 100).toFixed(4))}
+              onChange={(e) => setLimites({ ...limites, limiteYD: Number(e.target.value) / 100 })}
+            />
           </Field>
           <Field label="V mín (m/s)">
             <input type="number" step="any" className={`${fieldInputClass} py-1.5`} value={limites.velMinMs} onChange={(e) => setLimites({ ...limites, velMinMs: Number(e.target.value) })} />

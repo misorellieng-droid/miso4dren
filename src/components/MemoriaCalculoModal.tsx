@@ -136,7 +136,16 @@ export function MemoriaCalculoModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-overlay-in" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-overlay-in"
+      // fecha só no mousedown que bate direto no overlay (mesmo padrão de ui/Modal.tsx) —
+      // não no onClick: um duplo clique num campo do modal, se disparar um re-render no meio
+      // (ex.: outro campo perdendo foco e recalculando a rede), pode fazer o alvo do evento de
+      // click mudar entre o primeiro e o segundo clique e "vazar" pro overlay, fechando à toa.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
       <div
         className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl bg-surface p-5 shadow-xl animate-modal-in"
         onClick={(e) => e.stopPropagation()}
