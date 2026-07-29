@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, X, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Lightbulb, Loader2, X, XCircle } from 'lucide-react'
 import { fieldInputClass } from './ui/Field'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import { updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
@@ -17,6 +17,10 @@ interface MemoriaCalculoModalProps {
   trecho: TrechoRecord
   trechos: TrechoRecord[]
   caixas: CaixaRecord[]
+  /** Menor diâmetro comercial (m) que resolveria a não conformidade, mantendo a declividade atual. */
+  sugestaoDiametroM?: number | null
+  /** Declividade (m/m) mais próxima da atual que resolveria a não conformidade, mantendo o diâmetro atual. */
+  sugestaoDeclividadeMM?: number | null
   onClose: () => void
   /** Persiste diâmetro/declividade (com cascata já aplicada) e roda o cálculo da rede de novo. */
   onRecalcular: () => Promise<void>
@@ -31,7 +35,16 @@ function Linha({ label, valor }: { label: string; valor: string }) {
   )
 }
 
-export function MemoriaCalculoModal({ resultado, trecho, trechos, caixas, onClose, onRecalcular }: MemoriaCalculoModalProps) {
+export function MemoriaCalculoModal({
+  resultado,
+  trecho,
+  trechos,
+  caixas,
+  sugestaoDiametroM,
+  sugestaoDeclividadeMM,
+  onClose,
+  onRecalcular,
+}: MemoriaCalculoModalProps) {
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [cascataPendente, setCascataPendente] = useState<{ patches: PatchCascata[] } | null>(null)
@@ -155,6 +168,44 @@ export function MemoriaCalculoModal({ resultado, trecho, trechos, caixas, onClos
         </div>
 
         {erro && <div className="mb-3 rounded-md border border-accent-red/40 bg-accent-red/10 p-2.5 text-xs text-accent-red">{erro}</div>}
+
+        {!resultado.conforme && (sugestaoDiametroM != null || sugestaoDeclividadeMM != null) && (
+          <div className="mb-3 rounded-md border border-brand/30 bg-brand/5 p-2.5">
+            <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-primary">
+              <Lightbulb size={14} className="text-brand shrink-0" />
+              Sugestão pra ficar conforme
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {sugestaoDiametroM != null && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleEditar(sugestaoDiametroM, trecho.declividade_m_m)}
+                  disabled={busy}
+                  className={SMALL_BTN}
+                >
+                  Aplicar Ø {sugestaoDiametroM.toFixed(3)} m
+                </button>
+              )}
+              {sugestaoDeclividadeMM != null && (
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleEditar(trecho.diametro_m, sugestaoDeclividadeMM)}
+                  disabled={busy}
+                  className={SMALL_BTN}
+                >
+                  Aplicar i {sugestaoDeclividadeMM.toFixed(4)} m/m
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!resultado.conforme && sugestaoDiametroM == null && sugestaoDeclividadeMM == null && (
+          <div className="mb-3 rounded-md border border-accent-amber/40 bg-accent-amber/5 p-2.5 text-xs text-accent-amber">
+            Nenhum diâmetro comercial nem inclinação dentro da faixa configurada (Critérios de conformidade) resolve sozinho — considere
+            ajustar os dois juntos.
+          </div>
+        )}
 
         <div className="mb-4 grid grid-cols-2 gap-3 rounded-md border border-border/60 bg-elevated/30 p-3">
           <div>

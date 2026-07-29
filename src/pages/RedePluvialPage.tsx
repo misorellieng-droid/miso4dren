@@ -8,6 +8,7 @@ import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
+import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
@@ -300,8 +301,25 @@ export function RedePluvialPage() {
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
 
+  // Sugestão de correção (diâmetro comercial mínimo ou declividade mais próxima da atual)
+  // pra cada trecho não conforme, dentro dos critérios configurados acima.
+  const sugestoesPorTrecho = useMemo(() => {
+    const mapa = new Map<string, { diametroM: number | null; declividadeMM: number | null }>()
+    for (const r of resultados) {
+      if (r.conforme || r.q_projeto_m3s == null) continue
+      const trecho = trechoPorId.get(r.trecho_id)
+      if (!trecho || trecho.manning_n == null) continue
+      mapa.set(r.trecho_id, {
+        diametroM: sugerirDiametro(r.q_projeto_m3s, trecho.declividade_m_m, trecho.manning_n, limites),
+        declividadeMM: sugerirDeclividade(r.q_projeto_m3s, trecho.diametro_m, trecho.manning_n, limites, trecho.declividade_m_m),
+      })
+    }
+    return mapa
+  }, [resultados, trechoPorId, limites])
+
   const resultadoModal = trechoModalId ? (resultados.find((r) => r.trecho_id === trechoModalId) ?? null) : null
   const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
+  const sugestaoModal = trechoModalId ? (sugestoesPorTrecho.get(trechoModalId) ?? null) : null
 
   if (!supabase || !revisaoAtiva) {
     return (
@@ -426,7 +444,7 @@ export function RedePluvialPage() {
                       <td className="px-4 py-2 text-text-secondary">{r.y_sobre_d_pct?.toFixed(0)}%</td>
                       <td className="px-4 py-2 text-text-secondary">{r.velocidade_ms?.toFixed(2)}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
-                      <td className="max-w-[220px] whitespace-normal px-4 py-2 align-top">
+                      <td className="max-w-[260px] whitespace-normal px-4 py-2 align-top">
                         {r.conforme ? (
                           <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
                         ) : (
@@ -435,6 +453,23 @@ export function RedePluvialPage() {
                             {r.motivo_nao_conformidade && (
                               <div className="mt-0.5 text-[11px] leading-tight text-text-secondary">{r.motivo_nao_conformidade}</div>
                             )}
+                            {(() => {
+                              const s = sugestoesPorTrecho.get(r.trecho_id)
+                              if (!s) return null
+                              if (s.diametroM == null && s.declividadeMM == null) {
+                                return (
+                                  <div className="mt-1 text-[11px] leading-tight text-accent-amber">
+                                    Nenhum diâmetro comercial nem inclinação na faixa configurada resolve sozinho.
+                                  </div>
+                                )
+                              }
+                              const partes: string[] = []
+                              if (s.diametroM != null) partes.push(`Ø ${s.diametroM.toFixed(3)} m`)
+                              if (s.declividadeMM != null) partes.push(`i ${s.declividadeMM.toFixed(4)} m/m`)
+                              return (
+                                <div className="mt-1 text-[11px] leading-tight text-brand">Sugestão: {partes.join(' ou ')}</div>
+                              )
+                            })()}
                           </div>
                         )}
                       </td>
@@ -456,6 +491,8 @@ export function RedePluvialPage() {
           trecho={trechoModal}
           trechos={trechos}
           caixas={caixas}
+          sugestaoDiametroM={sugestaoModal?.diametroM ?? null}
+          sugestaoDeclividadeMM={sugestaoModal?.declividadeMM ?? null}
           onClose={() => setTrechoModalId(null)}
           onRecalcular={handleRecalcularAposEdicao}
         />
