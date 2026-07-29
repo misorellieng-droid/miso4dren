@@ -1,5 +1,6 @@
 import type { ResultadoImportLandXml } from '../engine/landxml'
 import type { DiffImportacao } from '../engine/reimportDiff'
+import { criarImportacao } from './importacoesStorage'
 import { supabase } from './supabase'
 
 export interface CaixaRecord {
@@ -14,6 +15,7 @@ export interface CaixaRecord {
   origem: string
   rede_nome: string | null
   recebe_vazao: boolean
+  importacao_id: string | null
 }
 
 export interface TrechoRecord {
@@ -33,6 +35,7 @@ export interface TrechoRecord {
   cota_topo_jusante: number | null
   cota_fundo_jusante: number | null
   rede_nome: string | null
+  importacao_id: string | null
 }
 
 function requireSupabase() {
@@ -136,10 +139,24 @@ export async function updateTrechosManningEmLote(ids: string[], manningN: number
 /**
  * Grava o resultado de parseLandXml: insere as caixas primeiro, depois
  * resolve os nomes montante/jusante dos trechos para os ids recém-criados.
- * Caixas já existentes na revisão (mesmo nome) são reaproveitadas.
+ * Caixas já existentes na revisão (mesmo nome) são reaproveitadas. Cria um
+ * registro em `importacoes` e marca cada linha nova com o importacao_id —
+ * dá pra ver o histórico de importações e excluir o lote inteiro depois
+ * (ver importacoesStorage.ts).
  */
-export async function importarRedeLandXml(revisaoId: string, resultado: ResultadoImportLandXml): Promise<void> {
+export async function importarRedeLandXml(
+  revisaoId: string,
+  resultado: ResultadoImportLandXml,
+  nomeArquivo: string | null = null
+): Promise<void> {
   const client = requireSupabase()
+
+  const importacaoId = await criarImportacao(
+    revisaoId,
+    'rede_landxml',
+    nomeArquivo,
+    `${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s)`
+  )
 
   const existentes = await listCaixas(revisaoId)
   const idPorNome = new Map(existentes.map((c) => [c.nome, c.id]))
@@ -160,6 +177,7 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
           origem: 'landxml',
           rede_nome: c.redeNome ?? null,
           recebe_vazao: c.recebeVazao,
+          importacao_id: importacaoId,
         }))
       )
       .select()
@@ -185,6 +203,7 @@ export async function importarRedeLandXml(revisaoId: string, resultado: Resultad
       cota_topo_jusante: t.cotaTopoJusante ?? null,
       cota_fundo_jusante: t.cotaFundoJusante ?? null,
       rede_nome: t.redeNome ?? null,
+      importacao_id: importacaoId,
     }))
 
   if (trechosParaInserir.length > 0) {
@@ -219,16 +238,25 @@ export interface ResumoReimportacao {
 export async function aplicarReimportacao(
   revisaoId: string,
   diff: DiffImportacao,
-  modo: ModoReimportacao
+  modo: ModoReimportacao,
+  nomeArquivo: string | null = null
 ): Promise<ResumoReimportacao> {
   const client = requireSupabase()
+
+  const caixasNovas = diff.caixas.filter((c) => c.status === 'nova')
+  const trechosNovosPreview = diff.trechos.filter((t) => t.status === 'novo' && !t.semCaixaResolvivel)
+  const importacaoId = await criarImportacao(
+    revisaoId,
+    'rede_landxml',
+    nomeArquivo,
+    `reimportação (${modo}): ${caixasNovas.length} caixa(s) nova(s), ${trechosNovosPreview.length} trecho(s) novo(s)`
+  )
 
   const idPorNome = new Map<string, string>()
   for (const c of diff.caixas) {
     if (c.atual) idPorNome.set(c.nome, c.atual.id)
   }
 
-  const caixasNovas = diff.caixas.filter((c) => c.status === 'nova')
   if (caixasNovas.length > 0) {
     const { data, error } = await client
       .from('caixas')
@@ -241,6 +269,7 @@ export async function aplicarReimportacao(
           y: c.novo.y ?? null,
           cota_terreno: c.novo.cotaTerreno ?? null,
           cota_fundo: c.novo.cotaFundo ?? null,
+          importacao_id: importacaoId,
           origem: 'landxml',
           rede_nome: c.novo.redeNome ?? null,
           recebe_vazao: c.novo.recebeVazao,
@@ -287,6 +316,7 @@ export async function aplicarReimportacao(
       cota_topo_jusante: t.novo.cotaTopoJusante ?? null,
       cota_fundo_jusante: t.novo.cotaFundoJusante ?? null,
       rede_nome: t.novo.redeNome ?? null,
+      importacao_id: importacaoId,
     }))
   if (trechosParaInserir.length > 0) {
     const { error } = await client.from('trechos').insert(trechosParaInserir)

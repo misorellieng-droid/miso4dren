@@ -29,6 +29,7 @@ import {
   type BaciaRecord,
 } from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, upsertCaptacao, deleteCaptacao, type CaptacaoRecord } from '../lib/captacaoStorage'
+import { excluirImportacao, listImportacoes, type ImportacaoRecord } from '../lib/importacoesStorage'
 import { listMateriaisManning, toMateriaisManningMap } from '../lib/materiaisStorage'
 import { supabase } from '../lib/supabase'
 
@@ -47,9 +48,14 @@ export function BaciasPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [diffPendente, setDiffPendente] = useState<{ resultado: ResultadoImportLandXml; diff: DiffImportacao; textoOriginal: string } | null>(
-    null
-  )
+  const [diffPendente, setDiffPendente] = useState<{
+    resultado: ResultadoImportLandXml
+    diff: DiffImportacao
+    textoOriginal: string
+    nomeArquivo: string
+  } | null>(null)
+  const [importacoes, setImportacoes] = useState<ImportacaoRecord[]>([])
+  const [excluindoImportacaoId, setExcluindoImportacaoId] = useState<string | null>(null)
 
   const landXmlInputRef = useRef<HTMLInputElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
@@ -68,6 +74,12 @@ export function BaciasPage() {
       setCaptacoes(await listCaptacoesPorRevisao(revisaoAtiva.id))
     } catch {
       setCaptacoes([])
+    }
+    // isolado: tabela importacoes é nova (migração 020) e pode ainda não existir
+    try {
+      setImportacoes(await listImportacoes(revisaoAtiva.id))
+    } catch {
+      setImportacoes([])
     }
   }
 
@@ -134,7 +146,7 @@ export function BaciasPage() {
       // Se ainda não há nada cadastrado na revisão, é primeira importação —
       // não há o que comparar, importa direto sem abrir a tela de diff.
       if (caixas.length === 0 && trechos.length === 0) {
-        await importarRedeLandXml(revisaoAtiva.id, resultado)
+        await importarRedeLandXml(revisaoAtiva.id, resultado, file.name)
         // guarda o XML bruto pro botão "Baixar XML atualizado" poder editar em cima
         // do original (preserva geometria da estrutura) em vez de gerar do zero
         try {
@@ -152,7 +164,7 @@ export function BaciasPage() {
         setMessage('Nada novo pra importar — esse XML já bate com a rede cadastrada.')
         return
       }
-      setDiffPendente({ resultado, diff, textoOriginal: text })
+      setDiffPendente({ resultado, diff, textoOriginal: text, nomeArquivo: file.name })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao importar LandXML.')
     } finally {
@@ -166,7 +178,7 @@ export function BaciasPage() {
     setBusy(true)
     setError(null)
     try {
-      const resumo = await aplicarReimportacao(revisaoAtiva.id, diffPendente.diff, modo)
+      const resumo = await aplicarReimportacao(revisaoAtiva.id, diffPendente.diff, modo, diffPendente.nomeArquivo)
       try {
         await salvarXmlOriginal(revisaoAtiva.id, diffPendente.textoOriginal)
       } catch {
@@ -195,7 +207,7 @@ export function BaciasPage() {
     try {
       const text = await file.text()
       const parsed = parseBaciasCsv(text)
-      await importarBaciasCsv(revisaoAtiva.id, parsed)
+      await importarBaciasCsv(revisaoAtiva.id, parsed, 5, file.name)
       setMessage(`${parsed.length} bacia(s) importada(s).`)
       await load()
     } catch (err) {
@@ -218,7 +230,7 @@ export function BaciasPage() {
         setError('Nenhum Parcel com contorno utilizável encontrado nesse XML.')
         return
       }
-      const resumo = await importarBaciasLandXml(revisaoAtiva.id, parcelas)
+      const resumo = await importarBaciasLandXml(revisaoAtiva.id, parcelas, file.name)
       const partes = [`${resumo.novas} bacia(s) nova(s)`, `${resumo.automaticas} vinculada(s) automaticamente`]
       if (resumo.jaExistentes > 0) partes.push(`${resumo.jaExistentes} já existente(s) (nome repetido, ignoradas)`)
       if (resumo.pendentes.size > 0) {
@@ -234,6 +246,27 @@ export function BaciasPage() {
     } finally {
       setBusy(false)
       if (parcelXmlInputRef.current) parcelXmlInputRef.current.value = ''
+    }
+  }
+
+  const handleExcluirImportacao = async (importacaoId: string) => {
+    if (!confirm('Excluir essa importação inteira? Remove todas as caixas/trechos/bacias que vieram dela (e os resultados calculados a partir delas).')) {
+      return
+    }
+    setExcluindoImportacaoId(importacaoId)
+    setError(null)
+    try {
+      await excluirImportacao(importacaoId)
+      setMessage('Importação excluída.')
+      await load()
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Erro ao excluir a importação: ${err.message} — provavelmente algo dessa importação está referenciado por outra (ex.: um trecho novo ligado numa caixa antiga).`
+          : 'Erro ao excluir a importação.'
+      )
+    } finally {
+      setExcluindoImportacaoId(null)
     }
   }
 
@@ -546,6 +579,48 @@ export function BaciasPage() {
           </table>
         )}
       </div>
+
+      {importacoes.length > 0 && (
+        <div className="mt-6 rounded-lg border border-border bg-surface p-4">
+          <div className="mb-3 flex items-center gap-2 font-sans text-sm font-semibold text-text-primary">
+            <FolderOpen size={16} className="text-brand" />
+            Histórico de importações
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-text-secondary">
+                <th className="pb-2 font-medium">Quando</th>
+                <th className="pb-2 font-medium">Tipo</th>
+                <th className="pb-2 font-medium">Arquivo</th>
+                <th className="pb-2 font-medium">O que veio</th>
+                <th className="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {importacoes.map((imp) => (
+                <tr key={imp.id} className="border-b border-border/60 last:border-0">
+                  <td className="py-2 text-text-secondary">{new Date(imp.criado_em).toLocaleString('pt-BR')}</td>
+                  <td className="py-2 text-text-secondary">
+                    {imp.tipo === 'rede_landxml' ? 'Rede (LandXML)' : imp.tipo === 'bacias_parcel_landxml' ? 'Bacias (Parcel)' : 'Bacias (CSV)'}
+                  </td>
+                  <td className="py-2 text-text-secondary">{imp.nome_arquivo ?? '—'}</td>
+                  <td className="py-2 text-text-secondary">{imp.resumo}</td>
+                  <td className="py-2">
+                    <button
+                      onClick={() => handleExcluirImportacao(imp.id)}
+                      disabled={excluindoImportacaoId === imp.id}
+                      className="flex items-center gap-1 text-xs text-accent-red hover:underline disabled:opacity-60"
+                    >
+                      {excluindoImportacaoId === imp.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {diffPendente && (
         <ImportacaoDiffModal

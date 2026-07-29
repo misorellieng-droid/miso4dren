@@ -3,6 +3,7 @@ import type { BaciaImportadaLandXml } from '../engine/landxml'
 import { centroidePoligono, pontoDentroAlgumPoligono } from '../engine/poligono'
 import { vincularBaciasCaixas } from '../engine/vinculo'
 import { upsertCaptacao } from './captacaoStorage'
+import { criarImportacao } from './importacoesStorage'
 import { listCaixas, type CaixaRecord } from './redeStorage'
 import { supabase } from './supabase'
 
@@ -21,6 +22,7 @@ export interface BaciaRecord {
   /** Anéis do Parcel (m) — null pra bacias importadas por CSV (só ponto de descarga); mais de
    * um anel quando o Parcel é composto (união de sub-parcels no Civil 3D). */
   poligonos: { x: number; y: number }[][] | null
+  importacao_id: string | null
 }
 
 function requireSupabase() {
@@ -58,8 +60,15 @@ export async function updateBaciaCoefC(id: string, coefC: number): Promise<void>
  * Importa as bacias do CSV e roda o vínculo automático bacia→caixa contra as
  * caixas já cadastradas na revisão (tolerância default 5 m).
  */
-export async function importarBaciasCsv(revisaoId: string, bacias: BaciaImportada[], toleranciaM = 5): Promise<void> {
+export async function importarBaciasCsv(
+  revisaoId: string,
+  bacias: BaciaImportada[],
+  toleranciaM = 5,
+  nomeArquivo: string | null = null
+): Promise<void> {
   const client = requireSupabase()
+
+  const importacaoId = await criarImportacao(revisaoId, 'bacias_csv', nomeArquivo, `${bacias.length} bacia(s)`)
 
   const { data: inseridas, error } = await client
     .from('bacias')
@@ -73,6 +82,7 @@ export async function importarBaciasCsv(revisaoId: string, bacias: BaciaImportad
         pour_point_x: b.pourPointX,
         pour_point_y: b.pourPointY,
         vinculo_status: 'pendente',
+        importacao_id: importacaoId,
       }))
     )
     .select()
@@ -118,7 +128,11 @@ export interface ResumoImportacaoBaciasLandXml {
  * exatamente 1 caixa dentro do polígono, senão fica pendente e a UI mostra as
  * candidatas achadas pra decidir o percentual manualmente.
  */
-export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImportadaLandXml[]): Promise<ResumoImportacaoBaciasLandXml> {
+export async function importarBaciasLandXml(
+  revisaoId: string,
+  bacias: BaciaImportadaLandXml[],
+  nomeArquivo: string | null = null
+): Promise<ResumoImportacaoBaciasLandXml> {
   const client = requireSupabase()
 
   const existentes = await listBacias(revisaoId)
@@ -132,6 +146,12 @@ export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImpo
   let automaticas = 0
 
   if (novasBacias.length > 0) {
+    const importacaoId = await criarImportacao(
+      revisaoId,
+      'bacias_parcel_landxml',
+      nomeArquivo,
+      `${novasBacias.length} bacia(s) nova(s)`
+    )
     const { data: inseridas, error } = await client
       .from('bacias')
       .insert(
@@ -148,6 +168,7 @@ export async function importarBaciasLandXml(revisaoId: string, bacias: BaciaImpo
             pour_point_y: centro?.y ?? 0,
             poligonos: b.poligonos,
             vinculo_status: 'pendente',
+            importacao_id: importacaoId,
           }
         })
       )

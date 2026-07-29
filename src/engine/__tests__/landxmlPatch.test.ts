@@ -49,6 +49,7 @@ function caixa(over: Partial<CaixaRecord> = {}): CaixaRecord {
     origem: 'landxml',
     rede_nome: 'Rede-1',
     recebe_vazao: false,
+    importacao_id: null,
     ...over,
   }
 }
@@ -71,6 +72,7 @@ function trecho(over: Partial<TrechoRecord> = {}): TrechoRecord {
     cota_topo_jusante: 847.2,
     cota_fundo_jusante: 846.7,
     rede_nome: 'Rede-1',
+    importacao_id: null,
     ...over,
   }
 }
