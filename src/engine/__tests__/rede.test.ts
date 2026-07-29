@@ -31,44 +31,68 @@ describe('ordenarTopologicamente', () => {
 })
 
 describe('ordenarTrechosPorFluxo', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
   it('ordena uma rede linear estritamente montante -> jusante', () => {
+    const caixas = ['A', 'B', 'C', 'D'].map(caixa)
     const trechos = [
-      { id: 't3', montanteId: 'C', jusanteId: 'D', nome: 'T3' },
-      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1' },
-      { id: 't2', montanteId: 'B', jusanteId: 'C', nome: 'T2' },
+      { id: 't3', montanteId: 'C', jusanteId: 'D', nome: 'T3', diametroM: 0.3 },
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', nome: 'T2', diametroM: 0.3 },
     ]
-    const ordem = ordenarTrechosPorFluxo(['A', 'B', 'C', 'D'], trechos)
+    const ordem = ordenarTrechosPorFluxo(caixas, trechos)
     expect(ordem.get('t1')).toBeLessThan(ordem.get('t2')!)
     expect(ordem.get('t2')).toBeLessThan(ordem.get('t3')!)
   })
 
-  it('não deixa um ramo curto preso atrás de um ramo longo que conflui na mesma caixa', () => {
-    // Cenário real reportado: cabeceira "S" alimenta X com 1 trecho só, mas X também é
-    // alimentada por uma cadeia de 3 trechos vindo de outra cabeceira "B" — o trecho de S
-    // é fisicamente o início da rede e não pode aparecer depois da cadeia toda de B.
+  it('prioriza o tronco (maior diâmetro) sobre os ramais em cada confluência, fundindo pares Start/EndNullStruct', () => {
+    // Reproduz a rede real reportada: tronco de concreto (BSTC) PV-001 -> [emenda sem
+    // estrutura] -> PV-002 -> PV-003 -> PV-004 -> PV-005, com ramais de PVC (menor
+    // diâmetro) desaguando em cada PV do tronco. Esperado: PVC-5, BSTC-1, BSTC-1(1),
+    // PVC-6/7 (ordem entre eles livre), BSTC-2, PVC-8, PVC-9, BSTC-3, PVC-10, BSTC-4, PVC-11.
+    const caixas = [
+      'BLCS-06', 'BLCS-08', 'BLCS-09', 'BLCS-10', 'BLCS-11', 'BLCS-12', 'BLCS-13',
+      'PV-001', 'PV-002', 'PV-003', 'PV-004', 'PV-005',
+      'StartNullStruct0', 'EndNullStruct0',
+    ].map(caixa)
     const trechos = [
-      { id: 't_curto', montanteId: 'S', jusanteId: 'X', nome: 'BSTC-curto' },
-      { id: 't_b1', montanteId: 'B', jusanteId: 'M1', nome: 'TUBO-b1' },
-      { id: 't_b2', montanteId: 'M1', jusanteId: 'M2', nome: 'TUBO-b2' },
-      { id: 't_b3', montanteId: 'M2', jusanteId: 'X', nome: 'TUBO-b3' },
-      { id: 't_saida', montanteId: 'X', jusanteId: 'FIM', nome: 'TUBO-saida' },
+      { id: 'pvc5', montanteId: 'BLCS-06', jusanteId: 'PV-001', nome: 'PVC-5', diametroM: 0.2 },
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+      { id: 'pvc6', montanteId: 'BLCS-08', jusanteId: 'PV-002', nome: 'PVC-6', diametroM: 0.4 },
+      { id: 'pvc7', montanteId: 'BLCS-09', jusanteId: 'PV-002', nome: 'PVC-7', diametroM: 0.5 },
+      { id: 'bstc2', montanteId: 'PV-002', jusanteId: 'PV-003', nome: 'BSTC-2', diametroM: 0.6 },
+      { id: 'pvc8', montanteId: 'BLCS-10', jusanteId: 'BLCS-11', nome: 'PVC-8', diametroM: 0.2 },
+      { id: 'pvc9', montanteId: 'BLCS-11', jusanteId: 'PV-003', nome: 'PVC-9', diametroM: 0.5 },
+      { id: 'bstc3', montanteId: 'PV-003', jusanteId: 'PV-004', nome: 'BSTC-3', diametroM: 0.6 },
+      { id: 'pvc10', montanteId: 'BLCS-12', jusanteId: 'PV-004', nome: 'PVC-10', diametroM: 0.2 },
+      { id: 'bstc4', montanteId: 'PV-004', jusanteId: 'PV-005', nome: 'BSTC-4', diametroM: 1.0 },
+      { id: 'pvc11', montanteId: 'BLCS-13', jusanteId: 'PV-005', nome: 'PVC-11', diametroM: 0.4 },
     ]
-    const ordem = ordenarTrechosPorFluxo(['S', 'B', 'M1', 'M2', 'X', 'FIM'], trechos)
+    const ordem = ordenarTrechosPorFluxo(caixas, trechos)
 
-    // o trecho curto (nível 0, direto da cabeceira) tem que vir ANTES da cadeia longa inteira
-    expect(ordem.get('t_curto')).toBeLessThan(ordem.get('t_b2')!)
-    expect(ordem.get('t_curto')).toBeLessThan(ordem.get('t_b3')!)
-    // e a saída, que depende de ambos os ramos convergindo em X, vem por último
-    expect(ordem.get('t_saida')).toBeGreaterThan(ordem.get('t_curto')!)
-    expect(ordem.get('t_saida')).toBeGreaterThan(ordem.get('t_b3')!)
+    expect(ordem.get('pvc5')).toBe(0)
+    expect(ordem.get('bstc1')).toBe(1)
+    expect(ordem.get('bstc1b')).toBe(2)
+    // pvc6/pvc7 vêm logo depois, em qualquer ordem entre si, mas antes de bstc2
+    expect(Math.max(ordem.get('pvc6')!, ordem.get('pvc7')!)).toBeLessThan(ordem.get('bstc2')!)
+    expect(Math.min(ordem.get('pvc6')!, ordem.get('pvc7')!)).toBeGreaterThan(ordem.get('bstc1b')!)
+    // ramal encadeado (pvc8 -> pvc9) aparece entre bstc2 e bstc3, na ordem certa entre si
+    expect(ordem.get('pvc8')).toBeLessThan(ordem.get('pvc9')!)
+    expect(ordem.get('bstc2')).toBeLessThan(ordem.get('pvc8')!)
+    expect(ordem.get('pvc9')).toBeLessThan(ordem.get('bstc3')!)
+    expect(ordem.get('bstc3')).toBeLessThan(ordem.get('pvc10')!)
+    expect(ordem.get('pvc10')).toBeLessThan(ordem.get('bstc4')!)
+    expect(ordem.get('bstc4')).toBeLessThan(ordem.get('pvc11')!)
   })
 
-  it('resolve empate no mesmo nível pelo nome do trecho', () => {
+  it('resolve empate de diâmetro pelo nome do trecho', () => {
+    const caixas = ['A', 'B', 'X'].map(caixa)
     const trechos = [
-      { id: 't_z', montanteId: 'A', jusanteId: 'X', nome: 'Z-trecho' },
-      { id: 't_a', montanteId: 'B', jusanteId: 'Y', nome: 'A-trecho' },
+      { id: 't_z', montanteId: 'A', jusanteId: 'X', nome: 'Z-trecho', diametroM: 0.3 },
+      { id: 't_a', montanteId: 'B', jusanteId: 'X', nome: 'A-trecho', diametroM: 0.3 },
     ]
-    const ordem = ordenarTrechosPorFluxo(['A', 'B', 'X', 'Y'], trechos)
+    const ordem = ordenarTrechosPorFluxo(caixas, trechos)
     expect(ordem.get('t_a')).toBeLessThan(ordem.get('t_z')!)
   })
 })

@@ -64,50 +64,89 @@ export interface TrechoGrafo extends ArestaGrafo {
 
 export interface TrechoOrdenavel extends ArestaGrafo {
   nome: string
+  diametroM: number
+}
+
+export interface CaixaOrdenavel {
+  id: string
+  nome: string
+}
+
+/** Civil 3D representa um tubo emendando direto no outro (sem estrutura real no meio) como
+ * um par StartNullStructN / EndNullStructN com o mesmo N — fisicamente é o mesmo ponto. */
+function chaveNullStruct(nome: string): string | null {
+  const m = /^(?:start|end)nullstruct(\d+)$/i.exec(nome.trim())
+  return m ? m[1] : null
 }
 
 /**
- * Ordena os trechos por posição no fluxo da rede pra exibição em tabela.
- * "Nível" de um trecho = maior distância (em nº de trechos) até ele partindo
- * de qualquer cabeceira (camadas de Kahn) — garante que nenhum trecho apareça
- * antes de qualquer trecho que esteja a montante dele, mesmo quando um ramo
- * curto (poucos hops até a cabeceira) confluí numa caixa alimentada por um
- * ramo bem mais longo vindo de outra cabeceira. Empate no mesmo nível é
- * resolvido pelo nome do trecho, pra manter a ordem estável.
+ * Ordena os trechos seguindo o caminho físico da água, de montante pra jusante,
+ * tratando a rede como "tronco + ramais": em cada confluência, o trecho de maior
+ * diâmetro é tratado como a continuação do tronco — tudo que está a montante dele
+ * (o resto do tronco) é emitido primeiro, e só depois os ramais menores que também
+ * desaguam ali (o critério de nível/distância-da-cabeceira usado antes intercalava
+ * ramais e tronco de forma arbitrária, na ordem alfabética da cabeceira). Pares
+ * StartNullStructN/EndNullStructN são fundidos num único ponto pra fins de ordenação,
+ * senão o tronco parece "quebrar" bem no meio quando o Civil 3D não desenhou uma
+ * estrutura real ali.
  */
-export function ordenarTrechosPorFluxo(caixaIds: string[], trechos: TrechoOrdenavel[]): Map<string, number> {
-  const grauEntrada = new Map<string, number>(caixaIds.map((id) => [id, 0]))
-  const saidas = new Map<string, TrechoOrdenavel[]>(caixaIds.map((id) => [id, []]))
-  for (const t of trechos) {
-    grauEntrada.set(t.jusanteId, (grauEntrada.get(t.jusanteId) ?? 0) + 1)
-    saidas.get(t.montanteId)?.push(t)
+export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
+  const porChaveNull = new Map<string, string[]>()
+  for (const c of caixas) {
+    const chave = chaveNullStruct(c.nome)
+    if (!chave) continue
+    if (!porChaveNull.has(chave)) porChaveNull.set(chave, [])
+    porChaveNull.get(chave)!.push(c.id)
   }
-  for (const lista of saidas.values()) lista.sort((a, b) => a.nome.localeCompare(b.nome))
+  const canonico = new Map<string, string>()
+  for (const ids of porChaveNull.values()) {
+    if (ids.length < 2) continue
+    const [primeiro, ...resto] = ids
+    for (const id of resto) canonico.set(id, primeiro)
+  }
+  const resolve = (id: string) => canonico.get(id) ?? id
 
-  const nivelCaixa = new Map<string, number>()
-  const fila: string[] = caixaIds.filter((id) => (grauEntrada.get(id) ?? 0) === 0)
-  for (const id of fila) nivelCaixa.set(id, 0)
-  const grauRestante = new Map(grauEntrada)
+  const nomePorCaixa = new Map<string, string>()
+  for (const c of caixas) {
+    const id = resolve(c.id)
+    if (!nomePorCaixa.has(id)) nomePorCaixa.set(id, c.nome)
+  }
 
-  const resultado: { id: string; nivel: number; nome: string }[] = []
-  for (let i = 0; i < fila.length; i++) {
-    const caixaId = fila[i]
-    const nivel = nivelCaixa.get(caixaId) ?? 0
-    for (const t of saidas.get(caixaId) ?? []) {
-      resultado.push({ id: t.id, nivel, nome: t.nome })
-      const grau = (grauRestante.get(t.jusanteId) ?? 0) - 1
-      grauRestante.set(t.jusanteId, grau)
-      nivelCaixa.set(t.jusanteId, Math.max(nivelCaixa.get(t.jusanteId) ?? 0, nivel + 1))
-      if (grau === 0) fila.push(t.jusanteId)
+  const entradasPorCaixa = new Map<string, TrechoOrdenavel[]>()
+  const temSaida = new Set<string>()
+  for (const t of trechos) {
+    const jusante = resolve(t.jusanteId)
+    if (!entradasPorCaixa.has(jusante)) entradasPorCaixa.set(jusante, [])
+    entradasPorCaixa.get(jusante)!.push(t)
+    temSaida.add(resolve(t.montanteId))
+  }
+  // maior diâmetro primeiro (continuação do tronco); empate resolvido pelo nome do trecho
+  for (const lista of entradasPorCaixa.values()) lista.sort((a, b) => b.diametroM - a.diametroM || a.nome.localeCompare(b.nome))
+
+  const idsCaixas = [...new Set(caixas.map((c) => resolve(c.id)))]
+  const outfalls = idsCaixas.filter((id) => !temSaida.has(id))
+  outfalls.sort((a, b) => (nomePorCaixa.get(a) ?? '').localeCompare(nomePorCaixa.get(b) ?? ''))
+
+  const ordem: string[] = []
+  const trechoVisitado = new Set<string>()
+  const caixaVisitada = new Set<string>()
+
+  const emitir = (caixaId: string) => {
+    if (caixaVisitada.has(caixaId)) return
+    caixaVisitada.add(caixaId)
+    for (const t of entradasPorCaixa.get(caixaId) ?? []) {
+      if (trechoVisitado.has(t.id)) continue
+      trechoVisitado.add(t.id)
+      emitir(resolve(t.montanteId))
+      ordem.push(t.id)
     }
   }
+  for (const outfallId of outfalls) emitir(outfallId)
 
-  // sobra (grafo com ciclo ou desconexo de qualquer cabeceira) vai no fim, sem travar a tela
-  const processados = new Set(resultado.map((r) => r.id))
-  for (const t of trechos) if (!processados.has(t.id)) resultado.push({ id: t.id, nivel: Infinity, nome: t.nome })
+  // sobra (grafo com ciclo ou desconexo de todo outfall) vai no fim, sem travar a tela
+  for (const t of trechos) if (!trechoVisitado.has(t.id)) ordem.push(t.id)
 
-  resultado.sort((a, b) => a.nivel - b.nivel || a.nome.localeCompare(b.nome))
-  return new Map(resultado.map((r, idx) => [r.id, idx]))
+  return new Map(ordem.map((id, i) => [id, i]))
 }
 
 /**

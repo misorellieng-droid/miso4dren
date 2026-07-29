@@ -256,17 +256,14 @@ export function RedePluvialPage() {
     setResultados(existentes)
   }
 
-  // Ordem de fluxo real: nível de cada trecho = maior distância (em nº de
-  // trechos) até ele partindo de qualquer cabeceira — garante que nenhum
-  // trecho apareça antes de qualquer trecho a montante dele, mesmo quando um
-  // ramo curto conflui numa caixa alimentada por um ramo bem mais longo vindo
-  // de outra cabeceira (senão esse trecho curto acaba "preso" no fim da
-  // tabela atrás do ramo longo, apesar de estar fisicamente no começo da rede).
+  // Ordem de fluxo real: tronco + ramais (ver doc de ordenarTrechosPorFluxo em
+  // engine/rede.ts) — em cada confluência o trecho de maior diâmetro é tratado
+  // como a continuação do tronco, ramais menores desaguam nele em seguida.
   const ordemTrechos = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
     return ordenarTrechosPorFluxo(
-      caixas.map((c) => c.id),
-      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome }))
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
   }, [caixas, trechos])
 
