@@ -4,8 +4,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
-import { exportarRedeLandXml } from '../engine/landxmlExport'
-import { baixarArquivoTexto } from '../lib/download'
+import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import {
   listCaixas,
   listTrechos,
@@ -43,12 +42,38 @@ export function RedeImportadaPage() {
   const [manningLote, setManningLote] = useState('')
   const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[] } | null>(null)
   const [redeSelecionada, setRedeSelecionada] = useState<string>('todas')
+  const [avisoExport, setAvisoExport] = useState<string | null>(null)
+  const [exportando, setExportando] = useState(false)
 
   const load = async () => {
     if (!revisaoAtiva) return
     const [c, t] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id)])
     setCaixas(c)
     setTrechos(t)
+  }
+
+  const handleExportarXml = async () => {
+    if (!revisaoAtiva) return
+    setExportando(true)
+    setAvisoExport(null)
+    try {
+      const { modo } = await exportarRedeXmlAtualizado(
+        revisaoAtiva.id,
+        `rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`,
+        caixas,
+        trechos
+      )
+      if (modo === 'gerado') {
+        setAvisoExport(
+          'Não achei o LandXML original salvo pra essa revisão (importado antes dessa funcionalidade existir) — gerei um arquivo do zero, ' +
+            'que não traz a geometria física das estruturas e pode ser rejeitado pelo Civil 3D ao reimportar. Reimporte a rede uma vez (mesmo arquivo de sempre) pra habilitar o modo completo.'
+        )
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar o XML.')
+    } finally {
+      setExportando(false)
+    }
   }
 
   useEffect(() => {
@@ -301,20 +326,21 @@ export function RedeImportadaPage() {
         </div>
         {caixas.length > 0 && (
           <button
-            onClick={() => {
-              const xml = exportarRedeLandXml(caixas, trechos)
-              baixarArquivoTexto(`rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`, xml)
-            }}
-            className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
-            title="Gera um LandXML com as cotas/diâmetro/declividade atuais (já com as correções feitas no app) pra reimportar no Civil 3D."
+            onClick={handleExportarXml}
+            disabled={exportando}
+            className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+            title="Edita o LandXML original importado com as cotas/diâmetro/declividade/material/manning atuais (já com as correções feitas no app) pra reimportar no Civil 3D."
           >
-            <Download size={14} />
+            {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
             Baixar XML atualizado
           </button>
         )}
       </div>
 
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
+      {avisoExport && (
+        <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3 text-sm text-accent-amber">{avisoExport}</div>
+      )}
 
       <div className="mb-4 flex items-center gap-2">
         <button

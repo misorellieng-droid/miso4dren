@@ -9,8 +9,7 @@ import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
-import { exportarRedeLandXml } from '../engine/landxmlExport'
-import { baixarArquivoTexto } from '../lib/download'
+import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
@@ -196,6 +195,7 @@ export function RedePluvialPage() {
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
   const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
+  const [exportando, setExportando] = useState(false)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -242,6 +242,30 @@ export function RedePluvialPage() {
       setError(err instanceof Error ? err.message : 'Erro ao calcular a rede.')
     } finally {
       setRunning(false)
+    }
+  }
+
+  const handleExportarXml = async () => {
+    if (!revisaoAtiva) return
+    setExportando(true)
+    try {
+      const { modo } = await exportarRedeXmlAtualizado(
+        revisaoAtiva.id,
+        `rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`,
+        caixas,
+        trechos
+      )
+      if (modo === 'gerado') {
+        setAvisos((atual) => [
+          ...atual,
+          'Não achei o LandXML original salvo pra essa revisão (importado antes dessa funcionalidade existir) — gerei um arquivo do zero, ' +
+            'que não traz a geometria física das estruturas e pode ser rejeitado pelo Civil 3D ao reimportar. Reimporte a rede uma vez (mesmo arquivo de sempre) pra habilitar o modo completo.',
+        ])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar o XML.')
+    } finally {
+      setExportando(false)
     }
   }
 
@@ -396,14 +420,12 @@ export function RedePluvialPage() {
           )}
           {caixas.length > 0 && (
             <button
-              onClick={() => {
-                const xml = exportarRedeLandXml(caixas, trechos)
-                baixarArquivoTexto(`rede-${revisaoAtiva.nome.replace(/\s+/g, '-')}.xml`, xml)
-              }}
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
-              title="Gera um LandXML com as cotas/diâmetro/declividade atuais (já com as correções feitas aqui) pra reimportar no Civil 3D."
+              onClick={handleExportarXml}
+              disabled={exportando}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+              title="Edita o LandXML original importado com as cotas/diâmetro/declividade/material/manning atuais (já com as correções feitas aqui) pra reimportar no Civil 3D."
             >
-              <Download size={16} />
+              {exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               Baixar XML atualizado
             </button>
           )}

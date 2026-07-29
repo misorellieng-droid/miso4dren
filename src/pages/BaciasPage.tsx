@@ -13,6 +13,7 @@ import {
   importarRedeLandXml,
   listCaixas,
   listTrechos,
+  salvarXmlOriginal,
   updateTrechoManning,
   type CaixaRecord,
   type ModoReimportacao,
@@ -46,7 +47,9 @@ export function BaciasPage() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [diffPendente, setDiffPendente] = useState<{ resultado: ResultadoImportLandXml; diff: DiffImportacao } | null>(null)
+  const [diffPendente, setDiffPendente] = useState<{ resultado: ResultadoImportLandXml; diff: DiffImportacao; textoOriginal: string } | null>(
+    null
+  )
 
   const landXmlInputRef = useRef<HTMLInputElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
@@ -132,6 +135,13 @@ export function BaciasPage() {
       // não há o que comparar, importa direto sem abrir a tela de diff.
       if (caixas.length === 0 && trechos.length === 0) {
         await importarRedeLandXml(revisaoAtiva.id, resultado)
+        // guarda o XML bruto pro botão "Baixar XML atualizado" poder editar em cima
+        // do original (preserva geometria da estrutura) em vez de gerar do zero
+        try {
+          await salvarXmlOriginal(revisaoAtiva.id, text)
+        } catch {
+          // não bloqueia a importação se isso falhar (ex.: migração 019 ainda não aplicada)
+        }
         setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).`)
         await load()
         return
@@ -142,7 +152,7 @@ export function BaciasPage() {
         setMessage('Nada novo pra importar — esse XML já bate com a rede cadastrada.')
         return
       }
-      setDiffPendente({ resultado, diff })
+      setDiffPendente({ resultado, diff, textoOriginal: text })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao importar LandXML.')
     } finally {
@@ -157,6 +167,11 @@ export function BaciasPage() {
     setError(null)
     try {
       const resumo = await aplicarReimportacao(revisaoAtiva.id, diffPendente.diff, modo)
+      try {
+        await salvarXmlOriginal(revisaoAtiva.id, diffPendente.textoOriginal)
+      } catch {
+        // não bloqueia a reimportação se isso falhar (ex.: migração 019 ainda não aplicada)
+      }
       const partes = [`${resumo.caixasInseridas} caixa(s) nova(s)`, `${resumo.trechosInseridos} trecho(s) novo(s)`]
       if (modo !== 'ignorar') {
         partes.push(`${resumo.caixasAtualizadas} caixa(s) atualizada(s)`, `${resumo.trechosAtualizados} trecho(s) atualizado(s)`)

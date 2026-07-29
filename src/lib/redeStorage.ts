@@ -52,6 +52,27 @@ export async function listTrechos(revisaoId: string): Promise<TrechoRecord[]> {
   return data as TrechoRecord[]
 }
 
+/** Guarda o texto bruto do LandXML de Pipe Network importado — usado pelo export
+ * (landxmlPatch.ts) pra editar só os campos alterados dentro do arquivo original,
+ * preservando a geometria da estrutura (CircStruct/RectStruct) que o app não edita
+ * mas o Civil 3D exige pra reimportar sem erro. */
+export async function salvarXmlOriginal(revisaoId: string, conteudo: string): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('redes_xml_original')
+    .upsert({ revisao_id: revisaoId, conteudo, atualizado_em: new Date().toISOString() })
+  if (error) throw error
+}
+
+export async function getXmlOriginal(revisaoId: string): Promise<string | null> {
+  const { data, error } = await requireSupabase()
+    .from('redes_xml_original')
+    .select('conteudo')
+    .eq('revisao_id', revisaoId)
+    .maybeSingle()
+  if (error) throw error
+  return data?.conteudo ?? null
+}
+
 export async function updateTrechoManning(id: string, manningN: number): Promise<void> {
   const { error } = await requireSupabase()
     .from('trechos')
