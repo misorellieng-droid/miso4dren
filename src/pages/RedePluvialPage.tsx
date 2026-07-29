@@ -390,7 +390,12 @@ export function RedePluvialPage() {
 
       {mostrarDiagrama && caixas.length > 0 && (
         <div className="mb-6">
-          <RedeDiagrama caixas={caixas} trechos={trechos} conformidadePorTrecho={conformidadePorTrecho} />
+          <RedeDiagrama
+            caixas={caixas}
+            trechos={trechos}
+            conformidadePorTrecho={conformidadePorTrecho}
+            onSelecionarTrecho={(trechoId) => setTrechoModalId(trechoId)}
+          />
         </div>
       )}
 
@@ -485,7 +490,7 @@ export function RedePluvialPage() {
         </>
       )}
 
-      {resultadoModal && trechoModal && (
+      {trechoModal && (
         <MemoriaCalculoModal
           resultado={resultadoModal}
           trecho={trechoModal}

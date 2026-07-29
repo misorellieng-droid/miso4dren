@@ -13,7 +13,8 @@ interface LinhaResultado extends ResultadoRedeRecord {
 }
 
 interface MemoriaCalculoModalProps {
-  resultado: LinhaResultado
+  /** null quando o trecho ainda não tem resultado calculado (ex.: aberto direto pelo diagrama antes de "Rodar cálculo"). */
+  resultado: LinhaResultado | null
   trecho: TrechoRecord
   trechos: TrechoRecord[]
   caixas: CaixaRecord[]
@@ -143,7 +144,7 @@ export function MemoriaCalculoModal({
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <div className="font-sans text-sm font-semibold text-text-primary">Memória de cálculo</div>
-            <div className="text-xs text-text-secondary">{resultado.trecho_nome}</div>
+            <div className="text-xs text-text-secondary">{resultado?.trecho_nome ?? trecho.nome}</div>
           </div>
           <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
             <X size={18} />
@@ -151,7 +152,9 @@ export function MemoriaCalculoModal({
         </div>
 
         <div className="mb-3">
-          {resultado.conforme ? (
+          {!resultado ? (
+            <span className="text-sm text-text-secondary">Sem cálculo rodado ainda pra esse trecho — edite e rode o cálculo depois.</span>
+          ) : resultado.conforme ? (
             <span className="flex items-center gap-1.5 text-sm font-medium text-accent-green">
               <CheckCircle2 size={16} /> Conforme
             </span>
@@ -169,7 +172,7 @@ export function MemoriaCalculoModal({
 
         {erro && <div className="mb-3 rounded-md border border-accent-red/40 bg-accent-red/10 p-2.5 text-xs text-accent-red">{erro}</div>}
 
-        {!resultado.conforme && (sugestaoDiametroM != null || sugestaoDeclividadeMM != null) && (
+        {resultado && !resultado.conforme && (sugestaoDiametroM != null || sugestaoDeclividadeMM != null) && (
           <div className="mb-3 rounded-md border border-brand/30 bg-brand/5 p-2.5">
             <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-primary">
               <Lightbulb size={14} className="text-brand shrink-0" />
@@ -200,7 +203,7 @@ export function MemoriaCalculoModal({
           </div>
         )}
 
-        {!resultado.conforme && sugestaoDiametroM == null && sugestaoDeclividadeMM == null && (
+        {resultado && !resultado.conforme && sugestaoDiametroM == null && sugestaoDeclividadeMM == null && (
           <div className="mb-3 rounded-md border border-accent-amber/40 bg-accent-amber/5 p-2.5 text-xs text-accent-amber">
             Nenhum diâmetro comercial nem inclinação dentro da faixa configurada (Critérios de conformidade) resolve sozinho — considere
             ajustar os dois juntos.
@@ -310,15 +313,19 @@ export function MemoriaCalculoModal({
             label="Origem do manning n"
             valor={trecho.manning_n_origem === 'manual' ? 'manual' : trecho.manning_n_origem === 'tabela_interna' ? 'tabela interna' : 'landxml'}
           />
-          <Linha label="ΣC×A acumulado (m²)" valor={resultado.ca_acumulado?.toFixed(2) ?? '—'} />
-          <Linha label="Tc do sistema (min)" valor={resultado.tc_sistema_min?.toFixed(2) ?? '—'} />
-          <Linha label="Intensidade (mm/h)" valor={resultado.intensidade_mm_h?.toFixed(2) ?? '—'} />
-          <Linha label="Q projeto = 2,78×10⁻⁷ × ΣCA × i (m³/s)" valor={resultado.q_projeto_m3s?.toFixed(4) ?? '—'} />
-          <Linha label="Lâmina (m)" valor={resultado.lamina_m?.toFixed(3) ?? '—'} />
-          <Linha label="y/D" valor={resultado.y_sobre_d_pct != null ? `${resultado.y_sobre_d_pct.toFixed(0)}%` : '—'} />
-          <Linha label="Raio hidráulico (m)" valor={resultado.raio_hidraulico_m?.toFixed(3) ?? '—'} />
-          <Linha label="Velocidade (m/s)" valor={resultado.velocidade_ms?.toFixed(2) ?? '—'} />
-          <Linha label="Vazão de capacidade do tubo (m³/s)" valor={resultado.vazao_calculada_m3s?.toFixed(4) ?? '—'} />
+          {resultado && (
+            <>
+              <Linha label="ΣC×A acumulado (m²)" valor={resultado.ca_acumulado?.toFixed(2) ?? '—'} />
+              <Linha label="Tc do sistema (min)" valor={resultado.tc_sistema_min?.toFixed(2) ?? '—'} />
+              <Linha label="Intensidade (mm/h)" valor={resultado.intensidade_mm_h?.toFixed(2) ?? '—'} />
+              <Linha label="Q projeto = 2,78×10⁻⁷ × ΣCA × i (m³/s)" valor={resultado.q_projeto_m3s?.toFixed(4) ?? '—'} />
+              <Linha label="Lâmina (m)" valor={resultado.lamina_m?.toFixed(3) ?? '—'} />
+              <Linha label="y/D" valor={resultado.y_sobre_d_pct != null ? `${resultado.y_sobre_d_pct.toFixed(0)}%` : '—'} />
+              <Linha label="Raio hidráulico (m)" valor={resultado.raio_hidraulico_m?.toFixed(3) ?? '—'} />
+              <Linha label="Velocidade (m/s)" valor={resultado.velocidade_ms?.toFixed(2) ?? '—'} />
+              <Linha label="Vazão de capacidade do tubo (m³/s)" valor={resultado.vazao_calculada_m3s?.toFixed(4) ?? '—'} />
+            </>
+          )}
         </div>
       </div>
     </div>

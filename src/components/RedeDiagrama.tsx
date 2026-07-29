@@ -18,6 +18,8 @@ interface RedeDiagramaProps {
   caixas: CaixaPonto[]
   trechos: TrechoAresta[]
   conformidadePorTrecho: Map<string, boolean | null>
+  /** Chamado ao clicar num trecho — o consumidor decide o que fazer (ex.: abrir modal de edição). */
+  onSelecionarTrecho?: (trechoId: string) => void
 }
 
 const W = 1000
@@ -25,12 +27,15 @@ const PAD = 30
 
 /** Diagrama de plano da rede: posiciona as caixas pelas coordenadas reais (X/Y do LandXML),
  * desenha os trechos como setas montante->jusante coloridas por conformidade. Arrastar move,
- * scroll faz zoom — feito com transform de SVG puro, sem lib externa. */
-export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho }: RedeDiagramaProps) {
+ * scroll faz zoom, hover mostra o nome do trecho, clique abre a edição — feito com transform de
+ * SVG puro, sem lib externa. */
+export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho, onSelecionarTrecho }: RedeDiagramaProps) {
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [arrastando, setArrastando] = useState(false)
   const dragOrigemRef = useRef<{ x: number; y: number } | null>(null)
+  const [hover, setHover] = useState<{ trechoId: string; clientX: number; clientY: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
 
   const nomePorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
 
@@ -85,8 +90,16 @@ export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho }: RedeDia
     setOffset({ x: 0, y: 0 })
   }
 
+  const trechoHover = hover ? trechos.find((t) => t.id === hover.trechoId) : null
+
   return (
-    <div className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border bg-elevated/30">
+    <div
+      ref={containerRef}
+      className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border bg-elevated/30"
+      onMouseMove={(e) => {
+        if (hover) setHover({ ...hover, clientX: e.clientX, clientY: e.clientY })
+      }}
+    >
       <svg
         viewBox={viewBox}
         className="h-full w-full"
@@ -117,14 +130,36 @@ export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho }: RedeDia
             const corClasse = conforme === undefined ? 'stroke-text-secondary' : conforme ? 'stroke-accent-green' : 'stroke-accent-red'
             const marker =
               conforme === undefined ? 'url(#seta-neutra)' : conforme ? 'url(#seta-conforme)' : 'url(#seta-nao-conforme)'
+            const emHover = hover?.trechoId === t.id
             return (
-              <line key={t.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={1.4} markerEnd={marker} className={corClasse}>
-                <title>
-                  {`${t.nome}\n${nomePorId.get(t.caixa_montante_id) ?? '?'} -> ${nomePorId.get(t.caixa_jusante_id) ?? '?'}\n${
-                    conforme === undefined ? 'sem cálculo' : conforme ? 'conforme' : 'não conforme'
-                  }`}
-                </title>
-              </line>
+              <g key={t.id}>
+                <line
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                  strokeWidth={emHover ? 3 : 1.4}
+                  markerEnd={marker}
+                  className={corClasse}
+                  style={{ pointerEvents: 'none', transition: 'stroke-width 0.1s' }}
+                />
+                {/* faixa invisível mais larga por cima, só pra facilitar hover/clique num traço fino */}
+                <line
+                  x1={a.x}
+                  y1={a.y}
+                  x2={b.x}
+                  y2={b.y}
+                  strokeWidth={10}
+                  stroke="transparent"
+                  style={{ cursor: onSelecionarTrecho ? 'pointer' : 'default' }}
+                  onMouseEnter={(e) => setHover({ trechoId: t.id, clientX: e.clientX, clientY: e.clientY })}
+                  onMouseLeave={() => setHover((h) => (h?.trechoId === t.id ? null : h))}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelecionarTrecho?.(t.id)
+                  }}
+                />
+              </g>
             )
           })}
           {[...pontos.entries()].map(([id, p]) => {
@@ -154,8 +189,33 @@ export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho }: RedeDia
         <div className="flex items-center gap-1.5">
           <span className="h-0.5 w-3 bg-accent-red" /> Trecho não conforme
         </div>
-        <div className="mt-1 text-[9px] text-text-secondary/80">arraste para mover · scroll para zoom</div>
+        <div className="mt-1 text-[9px] text-text-secondary/80">
+          arraste para mover · scroll para zoom{onSelecionarTrecho ? ' · clique num trecho pra editar' : ''}
+        </div>
       </div>
+
+      {trechoHover &&
+        containerRef.current &&
+        (() => {
+          const rect = containerRef.current.getBoundingClientRect()
+          const left = hover!.clientX - rect.left + 12
+          const top = hover!.clientY - rect.top + 12
+          const conforme = conformidadePorTrecho.get(trechoHover.id) ?? undefined
+          return (
+            <div
+              className="pointer-events-none absolute z-10 max-w-[220px] rounded-md border border-border bg-surface px-2.5 py-1.5 text-[11px] shadow-lg"
+              style={{ left, top }}
+            >
+              <div className="font-medium text-text-primary">{trechoHover.nome}</div>
+              <div className="text-text-secondary">
+                {nomePorId.get(trechoHover.caixa_montante_id) ?? '?'} → {nomePorId.get(trechoHover.caixa_jusante_id) ?? '?'}
+              </div>
+              <div className={conforme === undefined ? 'text-text-secondary' : conforme ? 'text-accent-green' : 'text-accent-red'}>
+                {conforme === undefined ? 'sem cálculo' : conforme ? 'conforme' : 'não conforme'}
+              </div>
+            </div>
+          )
+        })()}
 
       <button
         onClick={resetView}
