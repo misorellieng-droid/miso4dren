@@ -4,6 +4,7 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
+  identificarTroncoRede,
   ordenarTopologicamente,
   ordenarTrechosPorFluxo,
 } from '../rede'
@@ -94,6 +95,47 @@ describe('ordenarTrechosPorFluxo', () => {
     ]
     const ordem = ordenarTrechosPorFluxo(caixas, trechos)
     expect(ordem.get('t_a')).toBeLessThan(ordem.get('t_z')!)
+  })
+})
+
+describe('identificarTroncoRede', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
+  it('inclui só o trecho de maior diâmetro em cada confluência, deixando ramais menores de fora', () => {
+    const caixas = ['A', 'B', 'C', 'X'].map(caixa)
+    const trechos = [
+      { id: 'tronco', montanteId: 'A', jusanteId: 'X', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'ramal1', montanteId: 'B', jusanteId: 'X', nome: 'PVC-1', diametroM: 0.2 },
+      { id: 'ramal2', montanteId: 'C', jusanteId: 'X', nome: 'PVC-2', diametroM: 0.3 },
+    ]
+    const tronco = identificarTroncoRede(caixas, trechos)
+    expect(tronco.has('tronco')).toBe(true)
+    expect(tronco.has('ramal1')).toBe(false)
+    expect(tronco.has('ramal2')).toBe(false)
+  })
+
+  it('reproduz o tronco da rede real (cadeia de BSTC, sem os ramais de PVC)', () => {
+    const caixas = [
+      'BLCS-06', 'BLCS-08', 'BLCS-09', 'BLCS-10', 'BLCS-11', 'BLCS-12', 'BLCS-13',
+      'PV-001', 'PV-002', 'PV-003', 'PV-004', 'PV-005',
+      'StartNullStruct0', 'EndNullStruct0',
+    ].map(caixa)
+    const trechos = [
+      { id: 'pvc5', montanteId: 'BLCS-06', jusanteId: 'PV-001', nome: 'PVC-5', diametroM: 0.2 },
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+      { id: 'pvc6', montanteId: 'BLCS-08', jusanteId: 'PV-002', nome: 'PVC-6', diametroM: 0.4 },
+      { id: 'pvc7', montanteId: 'BLCS-09', jusanteId: 'PV-002', nome: 'PVC-7', diametroM: 0.5 },
+      { id: 'bstc2', montanteId: 'PV-002', jusanteId: 'PV-003', nome: 'BSTC-2', diametroM: 0.6 },
+      { id: 'pvc8', montanteId: 'BLCS-10', jusanteId: 'BLCS-11', nome: 'PVC-8', diametroM: 0.2 },
+      { id: 'pvc9', montanteId: 'BLCS-11', jusanteId: 'PV-003', nome: 'PVC-9', diametroM: 0.5 },
+      { id: 'bstc3', montanteId: 'PV-003', jusanteId: 'PV-004', nome: 'BSTC-3', diametroM: 0.6 },
+      { id: 'pvc10', montanteId: 'BLCS-12', jusanteId: 'PV-004', nome: 'PVC-10', diametroM: 0.2 },
+      { id: 'bstc4', montanteId: 'PV-004', jusanteId: 'PV-005', nome: 'BSTC-4', diametroM: 1.0 },
+      { id: 'pvc11', montanteId: 'BLCS-13', jusanteId: 'PV-005', nome: 'PVC-11', diametroM: 0.4 },
+    ]
+    const tronco = identificarTroncoRede(caixas, trechos)
+    expect([...tronco].sort()).toEqual(['bstc1', 'bstc1b', 'bstc2', 'bstc3', 'bstc4', 'pvc5'].sort())
   })
 })
 

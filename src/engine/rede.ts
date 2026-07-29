@@ -80,17 +80,14 @@ function chaveNullStruct(nome: string): string | null {
 }
 
 /**
- * Ordena os trechos seguindo o caminho físico da água, de montante pra jusante,
- * tratando a rede como "tronco + ramais": em cada confluência, o trecho de maior
- * diâmetro é tratado como a continuação do tronco — tudo que está a montante dele
- * (o resto do tronco) é emitido primeiro, e só depois os ramais menores que também
- * desaguam ali (o critério de nível/distância-da-cabeceira usado antes intercalava
- * ramais e tronco de forma arbitrária, na ordem alfabética da cabeceira). Pares
- * StartNullStructN/EndNullStructN são fundidos num único ponto pra fins de ordenação,
- * senão o tronco parece "quebrar" bem no meio quando o Civil 3D não desenhou uma
- * estrutura real ali.
+ * Monta a estrutura compartilhada por ordenarTrechosPorFluxo e identificarTroncoRede:
+ * funde pares StartNullStructN/EndNullStructN (mesmo N — jeito do Civil 3D representar
+ * um tubo emendando direto no outro, sem estrutura real desenhada no meio) num único
+ * ponto lógico, agrupa os trechos de entrada de cada caixa já ordenados por diâmetro
+ * decrescente (o de maior diâmetro é tratado como a continuação do tronco), e identifica
+ * as saídas da rede (caixas sem trecho de saída).
  */
-export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
+function montarEstruturaFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]) {
   const porChaveNull = new Map<string, string[]>()
   for (const c of caixas) {
     const chave = chaveNullStruct(c.nome)
@@ -127,6 +124,20 @@ export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: Trecho
   const outfalls = idsCaixas.filter((id) => !temSaida.has(id))
   outfalls.sort((a, b) => (nomePorCaixa.get(a) ?? '').localeCompare(nomePorCaixa.get(b) ?? ''))
 
+  return { resolve, entradasPorCaixa, outfalls }
+}
+
+/**
+ * Ordena os trechos seguindo o caminho físico da água, de montante pra jusante,
+ * tratando a rede como "tronco + ramais": em cada confluência, o trecho de maior
+ * diâmetro é tratado como a continuação do tronco — tudo que está a montante dele
+ * (o resto do tronco) é emitido primeiro, e só depois os ramais menores que também
+ * desaguam ali (o critério de nível/distância-da-cabeceira usado antes intercalava
+ * ramais e tronco de forma arbitrária, na ordem alfabética da cabeceira).
+ */
+export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
+  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+
   const ordem: string[] = []
   const trechoVisitado = new Set<string>()
   const caixaVisitada = new Set<string>()
@@ -147,6 +158,32 @@ export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: Trecho
   for (const t of trechos) if (!trechoVisitado.has(t.id)) ordem.push(t.id)
 
   return new Map(ordem.map((id, i) => [id, i]))
+}
+
+/**
+ * Identifica os trechos que formam a "rede tronco": partindo de cada saída da rede,
+ * segue só o trecho de MAIOR diâmetro em cada confluência (em vez de todos, como
+ * ordenarTrechosPorFluxo) — define a cadeia principal de cada saída, deixando de fora
+ * os ramais menores que desaguam nela. Usa o mesmo critério de diâmetro e a mesma fusão
+ * de pares Start/EndNullStruct que a ordenação, então o resultado é sempre consistente
+ * com o que aparece primeiro entre os trechos concorrentes na tabela.
+ */
+export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Set<string> {
+  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+
+  const tronco = new Set<string>()
+  const caixaVisitada = new Set<string>()
+  const seguir = (caixaId: string) => {
+    if (caixaVisitada.has(caixaId)) return
+    caixaVisitada.add(caixaId)
+    const entradas = entradasPorCaixa.get(caixaId)
+    if (!entradas || entradas.length === 0) return
+    const principal = entradas[0] // já ordenado por diâmetro desc (empate: nome)
+    tronco.add(principal.id)
+    seguir(resolve(principal.montanteId))
+  }
+  for (const outfallId of outfalls) seguir(outfallId)
+  return tronco
 }
 
 /**

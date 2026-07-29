@@ -6,7 +6,7 @@ import { RedeDiagrama } from '../components/RedeDiagrama'
 import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { acumularVazao, calcularQProjeto, calcularTcSistema, ordenarTrechosPorFluxo } from '../engine/rede'
+import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
@@ -184,6 +184,7 @@ export function RedePluvialPage() {
   const [error, setError] = useState<string | null>(null)
   const [avisos, setAvisos] = useState<string[]>([])
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
+  const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
 
   const load = async () => {
@@ -273,6 +274,26 @@ export function RedePluvialPage() {
   }, [resultados, ordemTrechos])
 
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
+
+  // Rede tronco = cadeia principal (maior diâmetro em cada confluência) partindo de cada
+  // saída da rede, sem os ramais menores — mesmo critério usado em ordenarTrechosPorFluxo.
+  const troncoIds = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return new Set<string>()
+    return identificarTroncoRede(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+    )
+  }, [caixas, trechos])
+
+  const trechosDiagrama = useMemo(
+    () => (visaoDiagrama === 'tronco' ? trechos.filter((t) => troncoIds.has(t.id)) : trechos),
+    [trechos, troncoIds, visaoDiagrama]
+  )
+  const caixasDiagrama = useMemo(() => {
+    if (visaoDiagrama !== 'tronco') return caixas
+    const idsUsados = new Set(trechosDiagrama.flatMap((t) => [t.caixa_montante_id, t.caixa_jusante_id]))
+    return caixas.filter((c) => idsUsados.has(c.id))
+  }, [caixas, trechosDiagrama, visaoDiagrama])
 
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
@@ -366,9 +387,32 @@ export function RedePluvialPage() {
 
       {mostrarDiagrama && caixas.length > 0 && (
         <div className="mb-6">
+          <div className="mb-2 inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+            <button
+              onClick={() => setVisaoDiagrama('completa')}
+              className={`rounded-md px-3 py-1.5 font-medium transition ${
+                visaoDiagrama === 'completa' ? 'bg-brand text-white' : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              Rede completa
+            </button>
+            <button
+              onClick={() => setVisaoDiagrama('tronco')}
+              className={`rounded-md px-3 py-1.5 font-medium transition ${
+                visaoDiagrama === 'tronco' ? 'bg-brand text-white' : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              Só rede tronco
+            </button>
+          </div>
+          {visaoDiagrama === 'tronco' && (
+            <div className="mb-2 text-[11px] text-text-secondary">
+              Mostra só a cadeia principal (maior diâmetro em cada confluência) — os ramais menores ficam ocultos.
+            </div>
+          )}
           <RedeDiagrama
-            caixas={caixas}
-            trechos={trechos}
+            caixas={caixasDiagrama}
+            trechos={trechosDiagrama}
             conformidadePorTrecho={conformidadePorTrecho}
             onSelecionarTrecho={(trechoId) => setTrechoModalId(trechoId)}
           />

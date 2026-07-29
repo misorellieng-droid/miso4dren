@@ -97,7 +97,13 @@ export function RedeDiagrama({ caixas, trechos, conformidadePorTrecho, onSelecio
       ref={containerRef}
       className="relative h-[560px] w-full overflow-hidden rounded-lg border border-border bg-elevated/30"
       onMouseMove={(e) => {
-        if (hover) setHover({ ...hover, clientX: e.clientX, clientY: e.clientY })
+        // atualizador funcional -- se usasse a `hover` capturada no fechamento deste
+        // render, um mousemove do container e um mouseenter de uma linha nova podiam
+        // disparar no mesmo tick com o `hover` desatualizado ainda apontando pro trecho
+        // anterior, sobrescrevendo de volta o trechoId que o mouseenter acabara de setar
+        // (por isso o tooltip ficava sempre preso no primeiro trecho passado o mouse).
+        const { clientX, clientY } = e
+        setHover((h) => (h ? { ...h, clientX, clientY } : null))
       }}
     >
       <svg
