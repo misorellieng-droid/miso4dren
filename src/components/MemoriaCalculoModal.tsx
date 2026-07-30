@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, Lightbulb, Loader2, X, XCircle } from 'lucide-react'
 import { fieldInputClass } from './ui/Field'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
+import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import type { ResultadoRedeRecord } from '../lib/resultadosStorage'
 
@@ -18,6 +19,10 @@ interface MemoriaCalculoModalProps {
   trecho: TrechoRecord
   trechos: TrechoRecord[]
   caixas: CaixaRecord[]
+  /** Catálogo de peças (material+diâmetro -> espessura de parede) — quando tem item pro
+   * material do trecho, o campo de diâmetro vira dropdown restrito a esses tamanhos (só
+   * assim a reimportação no Civil 3D consegue trocar a peça sem erro). */
+  biblioteca: ItemBiblioteca[]
   /** Menor diâmetro comercial (m) que resolveria a não conformidade, mantendo a declividade atual. */
   sugestaoDiametroM?: number | null
   /** Declividade (m/m) mais próxima da atual que resolveria a não conformidade, mantendo o diâmetro atual. */
@@ -41,6 +46,7 @@ export function MemoriaCalculoModal({
   trecho,
   trechos,
   caixas,
+  biblioteca,
   sugestaoDiametroM,
   sugestaoDeclividadeMM,
   onClose,
@@ -222,17 +228,47 @@ export function MemoriaCalculoModal({
         <div className="mb-4 grid grid-cols-2 gap-3 rounded-md border border-border/60 bg-elevated/30 p-3">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-text-secondary">Diâmetro (m)</div>
-            <input
-              type="number"
-              step="any"
-              defaultValue={trecho.diametro_m}
-              disabled={busy}
-              onBlur={(e) => {
-                const n = Number(e.target.value)
-                if (Number.isFinite(n) && n > 0 && n !== trecho.diametro_m) handleEditar(n, trecho.declividade_m_m)
-              }}
-              className={`${fieldInputClass} mt-1 py-1`}
-            />
+            {(() => {
+              const itensDoMaterial = biblioteca
+                .filter((i) => i.material.toUpperCase() === (trecho.material ?? '').toUpperCase())
+                .sort((a, b) => a.diametro_m - b.diametro_m)
+              if (itensDoMaterial.length === 0) {
+                // sem catálogo cadastrado pro material desse trecho -- cai pro número livre
+                return (
+                  <input
+                    type="number"
+                    step="any"
+                    defaultValue={trecho.diametro_m}
+                    disabled={busy}
+                    onBlur={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n) && n > 0 && n !== trecho.diametro_m) handleEditar(n, trecho.declividade_m_m)
+                    }}
+                    className={`${fieldInputClass} mt-1 py-1`}
+                  />
+                )
+              }
+              return (
+                <select
+                  value={trecho.diametro_m}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    if (Number.isFinite(n) && n > 0 && n !== trecho.diametro_m) handleEditar(n, trecho.declividade_m_m)
+                  }}
+                  className={`${fieldInputClass} mt-1 py-1`}
+                >
+                  {!itensDoMaterial.some((i) => Math.abs(i.diametro_m - trecho.diametro_m) < 0.001) && (
+                    <option value={trecho.diametro_m}>{trecho.diametro_m} (fora do catálogo)</option>
+                  )}
+                  {itensDoMaterial.map((i) => (
+                    <option key={i.id} value={i.diametro_m}>
+                      {i.nome_peca ?? `${i.diametro_m} m`}
+                    </option>
+                  ))}
+                </select>
+              )
+            })()}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-text-secondary">Inclinação — declividade (m/m)</div>

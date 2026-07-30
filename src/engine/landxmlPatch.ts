@@ -1,4 +1,17 @@
+import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
 import type { CaixaRecord, TrechoRecord } from '../lib/redeStorage'
+
+const TOLERANCIA_DIAMETRO_M = 0.001
+
+/** Acha a espessura de parede certa pro material+diâmetro na biblioteca de peças (ver
+ * bibliotecaStorage.ts) — precisa bater exato (dentro de 1mm) com o catálogo real do
+ * Civil 3D, senão a troca de diâmetro na reimportação é recusada. */
+function acharEspessuraNaBiblioteca(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): number | null {
+  const item = biblioteca.find(
+    (i) => i.material.toUpperCase() === (material ?? '').toUpperCase() && Math.abs(i.diametro_m - diametroM) < TOLERANCIA_DIAMETRO_M
+  )
+  return item?.espessura_parede_m ?? null
+}
 
 function fmt(n: number): string {
   return Number(n.toFixed(6)).toString()
@@ -69,7 +82,12 @@ function setPipeManning(pipe: Element, circular: Element | undefined, valor: num
  * via CircStruct/RectStruct, desc, atributos que o parser de importação nem lê).
  * Casa Struct/Pipe/Invert pelo nome (name/refPipe), igual o parser de importação faz.
  */
-export function patchXmlOriginal(xmlOriginal: string, caixas: CaixaRecord[], trechos: TrechoRecord[]): string {
+export function patchXmlOriginal(
+  xmlOriginal: string,
+  caixas: CaixaRecord[],
+  trechos: TrechoRecord[],
+  biblioteca: ItemBiblioteca[] = []
+): string {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlOriginal, 'application/xml')
   const parseError = doc.getElementsByTagName('parsererror')[0]
@@ -126,10 +144,18 @@ export function patchXmlOriginal(xmlOriginal: string, caixas: CaixaRecord[], tre
       // Civil 3D -- manter a espessura do diâmetro ANTIGO junto com o diâmetro NOVO trava
       // numa combinação sem peça de catálogo correspondente ("Part Family... found, but an
       // exact match... was not"), e o Civil mantém o tubo com o diâmetro antigo em vez de
-      // aplicar o novo. Sem saber a espessura correta pro tamanho novo, remove o atributo
-      // quando o diâmetro muda e deixa o Civil escolher a peça certa sozinho.
-      if (diametroMudou && circular.hasAttribute('thickness')) {
-        circular.removeAttribute('thickness')
+      // aplicar o novo. Quando o diâmetro muda, busca a espessura EXATA do catálogo
+      // (biblioteca_pecas, cadastrada a partir do Parts List real do Civil 3D do usuário)
+      // pro tamanho novo -- sem isso, o thickness (independente do valor) sempre vai
+      // corresponder ao diâmetro errado. thickness é sempre em metros (linearUnit), não
+      // sofre a conversão de unidade do atributo diameter (diameterUnit).
+      if (diametroMudou) {
+        const espessura = acharEspessuraNaBiblioteca(biblioteca, trecho.material, trecho.diametro_m)
+        if (espessura != null) {
+          circular.setAttribute('thickness', fmt(espessura))
+        } else if (circular.hasAttribute('thickness')) {
+          circular.removeAttribute('thickness')
+        }
       }
     }
     if (trecho.manning_n != null) setPipeManning(p, circular, trecho.manning_n)

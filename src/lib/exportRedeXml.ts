@@ -1,5 +1,6 @@
 import { patchXmlOriginal } from '../engine/landxmlPatch'
 import { exportarRedeLandXml } from '../engine/landxmlExport'
+import { listBibliotecaPecas } from './bibliotecaStorage'
 import { baixarArquivoTexto } from './download'
 import { getXmlOriginal, type CaixaRecord, type TrechoRecord } from './redeStorage'
 
@@ -26,7 +27,13 @@ export async function exportarRedeXmlAtualizado(
   }
 
   if (xmlOriginal) {
-    baixarArquivoTexto(nomeArquivo, patchXmlOriginal(xmlOriginal, caixas, trechos))
+    let biblioteca: Awaited<ReturnType<typeof listBibliotecaPecas>> = []
+    try {
+      biblioteca = await listBibliotecaPecas()
+    } catch {
+      // migração 021 ainda não aplicada -- segue sem a biblioteca (thickness só é removido)
+    }
+    baixarArquivoTexto(nomeArquivo, patchXmlOriginal(xmlOriginal, caixas, trechos, biblioteca))
     return { modo: 'patch' }
   }
 

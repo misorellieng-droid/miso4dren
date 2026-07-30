@@ -14,6 +14,7 @@ import {
   FolderOpen,
   LogOut,
   Mountain,
+  Package,
   Settings,
   Table2,
   Waves,
@@ -66,6 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/equacoes-idf', label: 'Equações IDF', icon: Calculator },
       { to: '/materiais', label: 'Materiais e rugosidade', icon: Beaker },
+      { to: '/biblioteca-pecas', label: 'Biblioteca de Peças', icon: Package },
     ],
   },
 ]

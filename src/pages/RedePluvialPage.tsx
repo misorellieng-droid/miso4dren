@@ -10,6 +10,7 @@ import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRe
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
+import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
@@ -200,6 +201,7 @@ export function RedePluvialPage() {
   const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
+  const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -207,6 +209,12 @@ export function RedePluvialPage() {
     setCaixas(c)
     setTrechos(t)
     setBacias(b)
+    // isolado: biblioteca_pecas é nova (migração 021) e pode ainda não existir no banco
+    try {
+      setBiblioteca(await listBibliotecaPecas())
+    } catch {
+      setBiblioteca([])
+    }
     // isolado de propósito: bacia_dispositivo é nova (migração 009) e pode
     // ainda não existir no banco — o resto da página continua funcionando
     try {
@@ -574,6 +582,7 @@ export function RedePluvialPage() {
           resultado={resultadoModal}
           trecho={trechoModal}
           trechos={trechos}
+          biblioteca={biblioteca}
           caixas={caixas}
           sugestaoDiametroM={sugestaoModal?.diametroM ?? null}
           sugestaoDeclividadeMM={sugestaoModal?.declividadeMM ?? null}

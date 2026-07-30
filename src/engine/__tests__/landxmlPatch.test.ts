@@ -165,7 +165,7 @@ describe('patchXmlOriginal', () => {
   </PipeNetworks>
 </LandXML>`
 
-    it('remove thickness quando o diâmetro muda -- deixa o Civil escolher a peça certa', () => {
+    it('remove thickness quando o diâmetro muda e não há biblioteca (fallback)', () => {
       const c1 = caixa({ id: 'c1', nome: 'PVA-14' })
       const c2 = caixa({ id: 'c2', nome: 'PVA-15' })
       const t1 = trecho({ nome: 'TRECHO-1', diametro_m: 0.8 }) // editado de 0.6 pra 0.8
@@ -173,6 +173,20 @@ describe('patchXmlOriginal', () => {
 
       expect(xmlPatched).toContain('diameter="800"')
       expect(xmlPatched).not.toContain('thickness')
+    })
+
+    it('escreve a espessura EXATA do catálogo (biblioteca_pecas) quando o diâmetro muda', () => {
+      const c1 = caixa({ id: 'c1', nome: 'PVA-14' })
+      const c2 = caixa({ id: 'c2', nome: 'PVA-15' })
+      const t1 = trecho({ nome: 'TRECHO-1', diametro_m: 0.8 }) // editado de 0.6 pra 0.8
+      const biblioteca = [
+        { id: 'b1', material: 'CONCRETO', diametro_m: 0.6, espessura_parede_m: 0.125, nome_peca: 'BSTC DN 0,60 m', created_at: '' },
+        { id: 'b2', material: 'CONCRETO', diametro_m: 0.8, espessura_parede_m: 0.175, nome_peca: 'BSTC DN 0,80 m', created_at: '' },
+      ]
+      const xmlPatched = patchXmlOriginal(FIXTURE_COM_THICKNESS, [c1, c2], [t1], biblioteca)
+
+      expect(xmlPatched).toContain('diameter="800"')
+      expect(xmlPatched).toContain('thickness="0.175"') // espessura do catálogo pro tamanho novo, não a do antigo
     })
 
     it('mantém thickness quando o diâmetro não muda', () => {

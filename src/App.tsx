@@ -13,6 +13,7 @@ import { ConformidadePage } from './pages/ConformidadePage'
 import { RelatoriosPage } from './pages/RelatoriosPage'
 import { EquacoesIdfPage } from './pages/EquacoesIdfPage'
 import { MateriaisPage } from './pages/MateriaisPage'
+import { BibliotecaPecasPage } from './pages/BibliotecaPecasPage'
 import { ArquivoPage } from './pages/ArquivoPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="relatorios" element={<RelatoriosPage />} />
         <Route path="equacoes-idf" element={<EquacoesIdfPage />} />
         <Route path="materiais" element={<MateriaisPage />} />
+        <Route path="biblioteca-pecas" element={<BibliotecaPecasPage />} />
         <Route path="arquivo" element={<ArquivoPage />} />
         <Route path="manual" element={<PlaceholderPage title="Manual / Ajuda" />} />
       </Route>
