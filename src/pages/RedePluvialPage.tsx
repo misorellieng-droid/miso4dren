@@ -7,7 +7,7 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
-import { calcularCotasPorEnergia } from '../engine/energia'
+import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia } from '../engine/energia'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
@@ -450,11 +450,14 @@ export function RedePluvialPage() {
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
 
-  // Degrau de energia = o quanto a cota de fundo montante (já ajustada pelo cálculo de
-  // energia) difere da continuação "ingênua" (menor cota de fundo jusante entre os trechos
-  // que chegam na caixa montante deste trecho) — mostra o efeito do ajuste por EGL em vez da
-  // cota absoluta. Positivo = cota ficou mais baixa que a continuação simples (degrau pra
-  // baixo, energia "sobrando"); negativo = cota ficou mais alta (energia "faltando").
+  // Degrau de energia (informativo, memória de cálculo) = o quanto a linha de energia PEDIRIA
+  // mudar a cota de fundo montante em relação à continuação "ingênua" (menor cota de fundo
+  // jusante entre os trechos que chegam na caixa montante), calculado pela fórmula bruta —
+  // SEM o limite anti-represamento aplicado no cálculo que é persistido (ver
+  // calcularCotasPorEnergia em engine/energia.ts, que nunca deixa a cota subir acima da
+  // continuação pra não represar água na caixa). Aqui é só pra mostrar na tabela/memória o que
+  // a energia "pediria": positivo = degrau pra baixo (energia sobrando, aplicado normalmente);
+  // negativo = a energia pediria SUBIR a cota (não é aplicado — fica só como registro).
   // Cabeceira (nenhum trecho chega na caixa montante) não tem continuação pra comparar: '—'.
   const entradasPorCaixa = useMemo(() => {
     const mapa = new Map<string, TrechoRecord[]>()
@@ -466,10 +469,15 @@ export function RedePluvialPage() {
     return mapa
   }, [trechos])
 
+  const laminaPorTrechoResultado = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.lamina_m])), [resultados])
+  const velocidadePorTrechoResultado = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.velocidade_ms])), [resultados])
+
   const degrauEnergiaPorTrecho = useMemo(() => {
     const mapa = new Map<string, number | null>()
     for (const t of trechos) {
-      if (t.cota_fundo_montante == null) {
+      const laminaSaida = laminaPorTrechoResultado.get(t.id)
+      const velocidadeSaida = velocidadePorTrechoResultado.get(t.id)
+      if (laminaSaida == null || velocidadeSaida == null) {
         mapa.set(t.id, null)
         continue
       }
@@ -478,11 +486,24 @@ export function RedePluvialPage() {
         mapa.set(t.id, null)
         continue
       }
-      const continuacaoNaive = Math.min(...entradas.map((e) => e.cota_fundo_jusante as number))
-      mapa.set(t.id, continuacaoNaive - t.cota_fundo_montante)
+      const candidatos: number[] = []
+      let continuacaoNaive = Infinity
+      for (const e of entradas) {
+        const laminaEntrada = laminaPorTrechoResultado.get(e.id)
+        const velocidadeEntrada = velocidadePorTrechoResultado.get(e.id)
+        if (laminaEntrada == null || velocidadeEntrada == null) continue
+        const cotaEntrada = e.cota_fundo_jusante as number
+        continuacaoNaive = Math.min(continuacaoNaive, cotaEntrada)
+        candidatos.push(calcularCotaMontantePorEnergia(cotaEntrada, laminaEntrada, velocidadeEntrada, laminaSaida, velocidadeSaida))
+      }
+      if (candidatos.length === 0) {
+        mapa.set(t.id, null)
+        continue
+      }
+      mapa.set(t.id, continuacaoNaive - Math.min(...candidatos))
     }
     return mapa
-  }, [trechos, entradasPorCaixa])
+  }, [trechos, entradasPorCaixa, laminaPorTrechoResultado, velocidadePorTrechoResultado])
 
   // Sugestão de correção (diâmetro comercial mínimo ou declividade mais próxima da atual)
   // pra cada trecho não conforme, dentro dos critérios configurados acima.
@@ -769,7 +790,15 @@ export function RedePluvialPage() {
                           )
                         }
                         return (
-                          <td key={c.key} className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}>
+                          <td
+                            key={c.key}
+                            className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}
+                            title={
+                              c.key === 'degrauEnergia' && degrau != null && degrau < 0
+                                ? 'A linha de energia pediria subir a cota de fundo aqui, mas isso não foi aplicado (deixaria água represada na caixa) — valor só informativo.'
+                                : undefined
+                            }
+                          >
                             {valores[c.key]}
                           </td>
                         )
