@@ -7,13 +7,14 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
+import { calcularCotasPorEnergia } from '../engine/energia'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
-import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
+import { listCaixas, listTrechos, updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, type CaptacaoRecord } from '../lib/captacaoStorage'
 import {
@@ -76,6 +77,7 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     montanteId: t.caixa_montante_id,
     jusanteId: t.caixa_jusante_id,
     comprimentoM: t.comprimento_m,
+    declividadeMM: t.declividade_m_m,
   }))
 
   const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
@@ -116,6 +118,8 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
 
   let velocidadePorTrecho = new Map<string, number>(trechos.map((t) => [t.id, 1]))
   let linhas: Omit<ResultadoRedeRecord, 'id'>[] = []
+  const laminaFinalPorTrecho = new Map<string, number>()
+  const velocidadeFinalPorTrecho = new Map<string, number>()
 
   const NUM_PASSADAS = 2
   for (let passada = 0; passada < NUM_PASSADAS; passada++) {
@@ -149,6 +153,9 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
 
       if (!ultimaPassada) continue
 
+      laminaFinalPorTrecho.set(t.id, solver.lamina)
+      velocidadeFinalPorTrecho.set(t.id, solver.velocidade)
+
       const yD = solver.lamina / t.diametro_m
       const motivos: string[] = []
       if (!solver.convergiu) motivos.push('vazão de projeto excede a capacidade do tubo até 0,93×D')
@@ -176,6 +183,39 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     }
 
     velocidadePorTrecho = novaVelocidadePorTrecho
+  }
+
+  // Ajusta a cota de fundo de cada trecho pra manter a linha de energia (EGL — cota de
+  // fundo + lâmina + V²/2g) contínua entre montante e jusante, em vez de só continuar a
+  // cota diretamente — necessário sempre que lâmina/velocidade mudam numa confluência
+  // (tipicamente quando o diâmetro muda). Cabeceiras preservam a própria cota atual como
+  // âncora; o restante é recalculado a partir dela, trecho a trecho, na ordem do fluxo.
+  const cotaFundoMontanteAtualPorTrecho = new Map(trechos.map((t) => [t.id, t.cota_fundo_montante ?? 0]))
+  const cotasPorEnergia = calcularCotasPorEnergia(
+    caixaIds,
+    trechosComComprimento,
+    cotaFundoMontanteAtualPorTrecho,
+    laminaFinalPorTrecho,
+    velocidadeFinalPorTrecho
+  )
+  const TOLERANCIA_COTA_M = 0.001
+  let trechosComCotaAjustada = 0
+  for (const t of trechos) {
+    const nova = cotasPorEnergia.get(t.id)
+    if (!nova) continue
+    const mudouMontante = t.cota_fundo_montante == null || Math.abs(t.cota_fundo_montante - nova.cotaFundoMontante) > TOLERANCIA_COTA_M
+    const mudouJusante = t.cota_fundo_jusante == null || Math.abs(t.cota_fundo_jusante - nova.cotaFundoJusante) > TOLERANCIA_COTA_M
+    if (!mudouMontante && !mudouJusante) continue
+    await updateTrecho(t.id, {
+      cota_fundo_montante: nova.cotaFundoMontante,
+      cota_fundo_jusante: nova.cotaFundoJusante,
+      cota_topo_montante: nova.cotaFundoMontante + t.diametro_m,
+      cota_topo_jusante: nova.cotaFundoJusante + t.diametro_m,
+    })
+    trechosComCotaAjustada++
+  }
+  if (trechosComCotaAjustada > 0) {
+    avisos.push(`${trechosComCotaAjustada} trecho(s) tiveram a cota de fundo ajustada pra manter a linha de energia contínua entre montante e jusante.`)
   }
 
   await deleteResultadosRedeByTrechoIds(trechos.map((t) => t.id))
