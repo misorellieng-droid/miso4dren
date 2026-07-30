@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Download, Droplets, Eye, Loader2, Network, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, Droplets, Eye, FileSpreadsheet, Loader2, Network, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
@@ -10,6 +10,7 @@ import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRe
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
+import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { listCaixas, listTrechos, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
@@ -201,6 +202,7 @@ export function RedePluvialPage() {
   const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
+  const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
 
   const load = async () => {
@@ -278,6 +280,27 @@ export function RedePluvialPage() {
       setError(err instanceof Error ? err.message : 'Erro ao gerar o XML.')
     } finally {
       setExportando(false)
+    }
+  }
+
+  const handleBaixarRelatorioDiametros = async () => {
+    if (!revisaoAtiva) return
+    setGerandoRelatorio(true)
+    try {
+      const { modo, quantidade } = await baixarRelatorioDiametros(
+        revisaoAtiva.id,
+        `diametros-alterados-${revisaoAtiva.nome.replace(/\s+/g, '-')}.csv`,
+        trechos
+      )
+      if (modo === 'sem-xml-original') {
+        setError('Não achei o LandXML original salvo pra essa revisão — reimporte a rede uma vez (mesmo arquivo de sempre) pra habilitar esse relatório.')
+      } else if (quantidade === 0) {
+        setAvisos((atual) => [...atual, 'Nenhum trecho com diâmetro alterado desde a última importação — nada pra baixar.'])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar o relatório de diâmetros.')
+    } finally {
+      setGerandoRelatorio(false)
     }
   }
 
@@ -447,6 +470,17 @@ export function RedePluvialPage() {
             >
               {exportando ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               Baixar XML atualizado
+            </button>
+          )}
+          {caixas.length > 0 && (
+            <button
+              onClick={handleBaixarRelatorioDiametros}
+              disabled={gerandoRelatorio}
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+              title="Lista os trechos com diâmetro alterado no app (nome, diâmetro antigo e novo) — diâmetro não aplica de volta via reimportação de LandXML (limitação do Civil 3D), use essa lista pra editar em lote no Panorama."
+            >
+              {gerandoRelatorio ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+              Relatório de diâmetros alterados
             </button>
           )}
         </div>
