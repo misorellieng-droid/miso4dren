@@ -45,6 +45,12 @@ export interface CotaPorEnergia {
  *   usa a mais restritiva (menor) — garante que nenhum ramo de entrada fica afogado pela
  *   caixa, mesmo que isso dê um degrau maior que o estritamente necessário pro ramo
  *   dominante.
+ * - Nunca deixa a cota subir acima da cota de fundo jusante de nenhum ramo que entra: mesmo
+ *   que a conservação de energia "permita" (ou peça) um degrau pra cima quando o trecho de
+ *   saída tem menos carga cinética que o de entrada, isso deixaria a água represada na caixa
+ *   até encher até a nova cota em vez de escoar — fisicamente indesejável numa rede de
+ *   drenagem. Nesse caso o ganho de energia é ignorado e a cota apenas continua a do ramo de
+ *   entrada (degrau zero pra aquele ramo).
  * Assume no máximo 1 trecho de saída por caixa (topologia normal de rede de drenagem —
  * bifurcação de vazão não é modelada).
  */
@@ -82,15 +88,14 @@ export function calcularCotasPorEnergia(
       for (const entrada of entradas) {
         const cotaFundoJusanteEntrada = cotaFundoJusantePorTrecho.get(entrada.id)
         if (cotaFundoJusanteEntrada == null) continue
-        candidatos.push(
-          calcularCotaMontantePorEnergia(
-            cotaFundoJusanteEntrada,
-            laminaPorTrecho.get(entrada.id) ?? 0,
-            velocidadePorTrecho.get(entrada.id) ?? 0,
-            laminaSaida,
-            velocidadeSaida
-          )
+        const candidatoEnergia = calcularCotaMontantePorEnergia(
+          cotaFundoJusanteEntrada,
+          laminaPorTrecho.get(entrada.id) ?? 0,
+          velocidadePorTrecho.get(entrada.id) ?? 0,
+          laminaSaida,
+          velocidadeSaida
         )
+        candidatos.push(Math.min(candidatoEnergia, cotaFundoJusanteEntrada))
       }
       cotaFundoMontante = candidatos.length > 0 ? Math.min(...candidatos) : (cotaFundoMontanteAtualPorTrecho.get(saida.id) ?? 0)
     }

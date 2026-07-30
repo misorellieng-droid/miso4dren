@@ -109,4 +109,36 @@ describe('calcularCotasPorEnergia', () => {
     const t3 = resultado.get('t3')!
     expect(t3.cotaFundoMontante).toBeCloseTo(Math.min(candidatoT1, candidatoT2), 6)
   })
+
+  it('nunca deixa a cota subir acima da cota de fundo jusante de quem está entrando (evita água represada na caixa)', () => {
+    // t1: cabeceira com lâmina pequena e velocidade alta (muita carga cinética).
+    // t2: tubo maior/mais lento a jusante -- a conservação de energia "pediria" uma cota de
+    // fundo montante em t2 ACIMA da cota de fundo jusante de t1 (a carga cinética que sobra
+    // vira cota), o que deixaria água represada na caixa em vez de escoar. Deve ser limitado
+    // à cota de fundo jusante de t1 (degrau zero), não à cota "ideal" pela energia.
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 10, declividadeMM: 0.01 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.005 },
+    ]
+    const cotaAtual = new Map([['t1', 100]])
+    const lamina = new Map([
+      ['t1', 0.1],
+      ['t2', 0.5],
+    ])
+    const velocidade = new Map([
+      ['t1', 3.0],
+      ['t2', 0.2],
+    ])
+    const resultado = calcularCotasPorEnergia(['A', 'B', 'C'], trechos, cotaAtual, lamina, velocidade)
+
+    const t1 = resultado.get('t1')!
+    expect(t1.cotaFundoJusante).toBeCloseTo(99.9, 6)
+
+    // confirma que a energia realmente "pediria" subir (sem o limite, ficaria > 99.9)
+    const candidatoSemLimite = calcularCotaMontantePorEnergia(t1.cotaFundoJusante, 0.1, 3.0, 0.5, 0.2)
+    expect(candidatoSemLimite).toBeGreaterThan(t1.cotaFundoJusante)
+
+    const t2 = resultado.get('t2')!
+    expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante, 6)
+  })
 })

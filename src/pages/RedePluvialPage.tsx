@@ -689,7 +689,7 @@ export function RedePluvialPage() {
                       className={`group/th sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}
                     >
                       <div className="flex items-start justify-between gap-1">
-                        <span className="line-clamp-3 max-w-[110px] leading-tight">{c.label}</span>
+                        <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{c.label}</span>
                         <button
                           onClick={() => setColunasOcultas((prev) => new Set(prev).add(c.key))}
                           className="shrink-0 text-text-secondary/50 opacity-0 transition hover:text-accent-red group-hover/th:opacity-100"
