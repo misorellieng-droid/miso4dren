@@ -501,6 +501,8 @@ export function RedePluvialPage() {
                   <th className="px-4 py-2 font-medium">Caixa jusante</th>
                   <th className="px-4 py-2 font-medium">Diâm. (m)</th>
                   <th className="px-4 py-2 font-medium">Inclinação (m/m)</th>
+                  <th className="px-4 py-2 font-medium">Cota fundo montante (m)</th>
+                  <th className="px-4 py-2 font-medium">Cota fundo jusante (m)</th>
                   <th className="px-4 py-2 font-medium">Manning n</th>
                   <th className="px-4 py-2 font-medium">ΣC×A (m²)</th>
                   <th className="px-4 py-2 font-medium">Intensidade (mm/h)</th>
@@ -528,6 +530,8 @@ export function RedePluvialPage() {
                       <td className="px-4 py-2 text-text-secondary">{trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.diametro_m.toFixed(3) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.declividade_m_m.toFixed(4) ?? '—'}</td>
+                      <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
+                      <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.manning_n?.toFixed(4) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.ca_acumulado?.toFixed(2) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.intensidade_mm_h?.toFixed(2) ?? '—'}</td>

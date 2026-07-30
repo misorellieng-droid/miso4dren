@@ -354,6 +354,8 @@ export function MemoriaCalculoModal({
           <Linha label="Caixa montante" valor={nomeMontante} />
           <Linha label="Caixa jusante" valor={nomeJusante} />
           <Linha label="Comprimento (m)" valor={trecho.comprimento_m.toFixed(2)} />
+          <Linha label="Cota de fundo montante (m)" valor={trecho.cota_fundo_montante?.toFixed(3) ?? '—'} />
+          <Linha label="Cota de fundo jusante (m)" valor={trecho.cota_fundo_jusante?.toFixed(3) ?? '—'} />
           <Linha
             label="Origem do manning n"
             valor={trecho.manning_n_origem === 'manual' ? 'manual' : trecho.manning_n_origem === 'tabela_interna' ? 'tabela interna' : 'landxml'}
