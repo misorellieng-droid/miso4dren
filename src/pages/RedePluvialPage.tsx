@@ -429,6 +429,17 @@ export function RedePluvialPage() {
   const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
   const sugestaoModal = trechoModalId ? (sugestoesPorTrecho.get(trechoModalId) ?? null) : null
 
+  // Navegação anterior/próximo no modal segue a mesma ordem de fluxo da tabela (tronco
+  // primeiro em cada confluência, ver ordenarTrechosPorFluxo) — respeita o filtro "só rede
+  // tronco" ativo no momento, já que resultadosOrdenados já vem filtrado por ele.
+  const indiceModalNaOrdem = trechoModalId ? resultadosOrdenados.findIndex((r) => r.trecho_id === trechoModalId) : -1
+  const trechoAnteriorId =
+    indiceModalNaOrdem > 0 ? resultadosOrdenados[indiceModalNaOrdem - 1].trecho_id : null
+  const trechoProximoId =
+    indiceModalNaOrdem >= 0 && indiceModalNaOrdem < resultadosOrdenados.length - 1
+      ? resultadosOrdenados[indiceModalNaOrdem + 1].trecho_id
+      : null
+
   if (!supabase || !revisaoAtiva) {
     return (
       <div className="mx-auto max-w-3xl">
@@ -526,9 +537,9 @@ export function RedePluvialPage() {
         </div>
       </div>
 
-      {mostrarDiagrama && caixas.length > 0 && (
-        <div className="mb-6">
-          <div className="mb-2 inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+      {caixas.length > 0 && trechos.length > 0 && (
+        <div className="mb-4">
+          <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
             <button
               onClick={() => setVisaoDiagrama('completa')}
               className={`rounded-md px-3 py-1.5 font-medium transition ${
@@ -547,10 +558,15 @@ export function RedePluvialPage() {
             </button>
           </div>
           {visaoDiagrama === 'tronco' && (
-            <div className="mb-2 text-[11px] text-text-secondary">
-              Mostra só a cadeia principal (maior diâmetro em cada confluência) — os ramais menores ficam ocultos.
+            <div className="mt-1 text-[11px] text-text-secondary">
+              Mostra só a cadeia principal (maior diâmetro em cada confluência) — os ramais menores ficam ocultos na tabela e no diagrama.
             </div>
           )}
+        </div>
+      )}
+
+      {mostrarDiagrama && caixas.length > 0 && (
+        <div className="mb-6">
           <RedeDiagrama
             caixas={caixasDiagrama}
             trechos={trechosDiagrama}
@@ -593,6 +609,7 @@ export function RedePluvialPage() {
               <tbody>
                 {resultadosOrdenados.map((r) => {
                   const trecho = trechoPorId.get(r.trecho_id)
+                  const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
                   return (
                     <tr
                       key={r.id}
@@ -600,26 +617,26 @@ export function RedePluvialPage() {
                       className="group cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
                       title="Ver memória de cálculo"
                     >
-                      <td className="px-4 py-2 text-text-primary">{r.trecho_nome}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho?.diametro_m.toFixed(3) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho?.declividade_m_m.toFixed(4) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">
+                      <td className={`px-4 py-2 font-medium ${corTexto}`}>{r.trecho_nome}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.diametro_m.toFixed(3) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.declividade_m_m.toFixed(4) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>
                         {trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
                           ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms).toFixed(3)
                           : '—'}
                       </td>
-                      <td className="px-4 py-2 text-text-secondary">{trecho?.manning_n?.toFixed(4) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.ca_acumulado?.toFixed(2) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.intensidade_mm_h?.toFixed(2) ?? '—'}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.q_projeto_m3s?.toFixed(4)}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.lamina_m?.toFixed(3)}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.y_sobre_d_pct?.toFixed(0)}%</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.velocidade_ms?.toFixed(2)}</td>
-                      <td className="px-4 py-2 text-text-secondary">{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.manning_n?.toFixed(4) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.ca_acumulado?.toFixed(2) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.intensidade_mm_h?.toFixed(2) ?? '—'}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.q_projeto_m3s?.toFixed(4)}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.lamina_m?.toFixed(3)}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.y_sobre_d_pct?.toFixed(0)}%</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.velocidade_ms?.toFixed(2)}</td>
+                      <td className={`px-4 py-2 ${corTexto}`}>{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
                       <td className="max-w-[260px] whitespace-normal px-4 py-2 align-top">
                         {r.conforme ? (
                           <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
@@ -672,6 +689,8 @@ export function RedePluvialPage() {
           sugestaoDeclividadeMM={sugestaoModal?.declividadeMM ?? null}
           onClose={() => setTrechoModalId(null)}
           onRecalcular={handleRecalcularAposEdicao}
+          onAnterior={trechoAnteriorId ? () => setTrechoModalId(trechoAnteriorId) : null}
+          onProximo={trechoProximoId ? () => setTrechoModalId(trechoProximoId) : null}
         />
       )}
     </div>

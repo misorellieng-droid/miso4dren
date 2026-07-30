@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Lightbulb, Loader2, X, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Lightbulb, Loader2, X, XCircle } from 'lucide-react'
 import { fieldInputClass } from './ui/Field'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
@@ -30,6 +30,9 @@ interface MemoriaCalculoModalProps {
   onClose: () => void
   /** Persiste diâmetro/declividade (com cascata já aplicada) e roda o cálculo da rede de novo. */
   onRecalcular: () => Promise<void>
+  /** null quando não há trecho anterior/próximo na ordem de fluxo atual (início/fim da lista, ou filtro "só rede tronco" ativo). */
+  onAnterior: (() => void) | null
+  onProximo: (() => void) | null
 }
 
 function Linha({ label, valor }: { label: string; valor: string }) {
@@ -51,6 +54,8 @@ export function MemoriaCalculoModal({
   sugestaoDeclividadeMM,
   onClose,
   onRecalcular,
+  onAnterior,
+  onProximo,
 }: MemoriaCalculoModalProps) {
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -161,9 +166,27 @@ export function MemoriaCalculoModal({
             <div className="font-sans text-sm font-semibold text-text-primary">Memória de cálculo</div>
             <div className="text-xs text-text-secondary">{resultado?.trecho_nome ?? trecho.nome}</div>
           </div>
-          <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onAnterior?.()}
+              disabled={!onAnterior}
+              title="Trecho anterior (ordem de fluxo montante → jusante)"
+              className="rounded p-1 text-text-secondary hover:bg-elevated hover:text-text-primary disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <button
+              onClick={() => onProximo?.()}
+              disabled={!onProximo}
+              title="Próximo trecho (ordem de fluxo montante → jusante)"
+              className="rounded p-1 text-text-secondary hover:bg-elevated hover:text-text-primary disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              <ChevronRight size={18} />
+            </button>
+            <button onClick={onClose} className="ml-1 text-text-secondary hover:text-text-primary">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="mb-3">
