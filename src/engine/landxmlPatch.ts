@@ -3,14 +3,15 @@ import type { CaixaRecord, TrechoRecord } from '../lib/redeStorage'
 
 const TOLERANCIA_DIAMETRO_M = 0.001
 
-/** Acha a espessura de parede certa pro material+diâmetro na biblioteca de peças (ver
- * bibliotecaStorage.ts) — precisa bater exato (dentro de 1mm) com o catálogo real do
- * Civil 3D, senão a troca de diâmetro na reimportação é recusada. */
-function acharEspessuraNaBiblioteca(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): number | null {
-  const item = biblioteca.find(
-    (i) => i.material.toUpperCase() === (material ?? '').toUpperCase() && Math.abs(i.diametro_m - diametroM) < TOLERANCIA_DIAMETRO_M
+/** Acha o item certo (espessura de parede + nome da peça) pro material+diâmetro na
+ * biblioteca de peças (ver bibliotecaStorage.ts) — precisa bater exato (dentro de 1mm)
+ * com o catálogo real do Civil 3D, senão a troca de diâmetro na reimportação é recusada. */
+function acharItemNaBiblioteca(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): ItemBiblioteca | null {
+  return (
+    biblioteca.find(
+      (i) => i.material.toUpperCase() === (material ?? '').toUpperCase() && Math.abs(i.diametro_m - diametroM) < TOLERANCIA_DIAMETRO_M
+    ) ?? null
   )
-  return item?.espessura_parede_m ?? null
 }
 
 function fmt(n: number): string {
@@ -140,22 +141,26 @@ export function patchXmlOriginal(
       circular.setAttribute('diameter', fmt(trecho.diametro_m / fatorDiametro))
       if (trecho.material) circular.setAttribute('material', trecho.material)
 
-      // "thickness" (espessura de parede) é atrelado ao diâmetro no catálogo de peças do
-      // Civil 3D -- manter a espessura do diâmetro ANTIGO junto com o diâmetro NOVO trava
-      // numa combinação sem peça de catálogo correspondente ("Part Family... found, but an
-      // exact match... was not"), e o Civil mantém o tubo com o diâmetro antigo em vez de
-      // aplicar o novo. Quando o diâmetro muda, busca a espessura EXATA do catálogo
+      // "thickness" (espessura de parede) e o "Part Size Name" (ex.: "BSTC DN 0,60 m",
+      // gravado no `desc` do <Pipe> -- ver abaixo) são atrelados ao diâmetro no catálogo
+      // de peças do Civil 3D -- manter os do diâmetro ANTIGO junto com o diâmetro NOVO
+      // trava numa combinação sem peça de catálogo correspondente ("Part Family... found,
+      // but an exact match... was not"), e o Civil mantém o tubo com o diâmetro antigo em
+      // vez de aplicar o novo. Quando o diâmetro muda, busca o item EXATO do catálogo
       // (biblioteca_pecas, cadastrada a partir do Parts List real do Civil 3D do usuário)
-      // pro tamanho novo -- sem isso, o thickness (independente do valor) sempre vai
-      // corresponder ao diâmetro errado. thickness é sempre em metros (linearUnit), não
-      // sofre a conversão de unidade do atributo diameter (diameterUnit).
+      // pro tamanho novo. thickness é sempre em metros (linearUnit), não sofre a conversão
+      // de unidade do atributo diameter (diameterUnit).
       if (diametroMudou) {
-        const espessura = acharEspessuraNaBiblioteca(biblioteca, trecho.material, trecho.diametro_m)
-        if (espessura != null) {
-          circular.setAttribute('thickness', fmt(espessura))
+        const item = acharItemNaBiblioteca(biblioteca, trecho.material, trecho.diametro_m)
+        if (item?.espessura_parede_m != null) {
+          circular.setAttribute('thickness', fmt(item.espessura_parede_m))
         } else if (circular.hasAttribute('thickness')) {
           circular.removeAttribute('thickness')
         }
+        // desc do <Pipe> é o "Part Size Name" do Civil 3D (ex.: "BSTC DN 0,60 m") -- nunca
+        // mexe no `name` (identificador que casa o Pipe com o trecho aqui e no próprio
+        // Civil), só no desc, que é rótulo/descrição.
+        if (item?.nome_peca) p.setAttribute('desc', item.nome_peca)
       }
     }
     if (trecho.manning_n != null) setPipeManning(p, circular, trecho.manning_n)

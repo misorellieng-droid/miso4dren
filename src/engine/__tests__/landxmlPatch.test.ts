@@ -187,6 +187,11 @@ describe('patchXmlOriginal', () => {
 
       expect(xmlPatched).toContain('diameter="800"')
       expect(xmlPatched).toContain('thickness="0.175"') // espessura do catálogo pro tamanho novo, não a do antigo
+      // desc do <Pipe> é o Part Size Name -- também tem que virar o do tamanho novo
+      expect(xmlPatched).toContain('desc="BSTC DN 0,80 m"')
+      expect(xmlPatched).not.toContain('desc="BSTC DN 0,60 m"')
+      // o `name` (identificador que casa com o trecho) NUNCA muda, só o desc
+      expect(xmlPatched).toContain('name="TRECHO-1"')
     })
 
     it('mantém thickness quando o diâmetro não muda', () => {
@@ -197,6 +202,7 @@ describe('patchXmlOriginal', () => {
 
       expect(xmlPatched).toContain('diameter="600"')
       expect(xmlPatched).toContain('thickness="0.125"')
+      expect(xmlPatched).toContain('desc="BSTC DN 0,60 m"') // desc não mexido quando diâmetro não muda
     })
   })
 })
