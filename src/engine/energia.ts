@@ -2,6 +2,11 @@ import { ordenarTopologicamente, type ArestaGrafo } from './rede'
 
 const G = 9.81 // aceleração da gravidade (m/s²)
 
+/** Linha de energia (EGL) num ponto do trecho: cota de fundo + lâmina + carga cinética V²/2g. */
+export function calcularLinhaEnergia(cotaFundoM: number, laminaM: number, velocidadeMs: number): number {
+  return cotaFundoM + laminaM + (velocidadeMs * velocidadeMs) / (2 * G)
+}
+
 /**
  * Cota de fundo montante do trecho JUSANTE que alinha a linha de energia (EGL — cota de
  * fundo + lâmina + carga cinética V²/2g) com a saída do trecho MONTANTE, em vez de só

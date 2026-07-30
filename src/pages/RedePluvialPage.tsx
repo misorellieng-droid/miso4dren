@@ -7,7 +7,7 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
-import { calcularCotasPorEnergia } from '../engine/energia'
+import { calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
@@ -577,6 +577,7 @@ export function RedePluvialPage() {
                   <th className="px-4 py-2 font-medium">Inclinação (m/m)</th>
                   <th className="px-4 py-2 font-medium">Cota fundo montante (m)</th>
                   <th className="px-4 py-2 font-medium">Cota fundo jusante (m)</th>
+                  <th className="px-4 py-2 font-medium">Linha de energia (m)</th>
                   <th className="px-4 py-2 font-medium">Manning n</th>
                   <th className="px-4 py-2 font-medium">ΣC×A (m²)</th>
                   <th className="px-4 py-2 font-medium">Intensidade (mm/h)</th>
@@ -606,6 +607,11 @@ export function RedePluvialPage() {
                       <td className="px-4 py-2 text-text-secondary">{trecho?.declividade_m_m.toFixed(4) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
+                      <td className="px-4 py-2 text-text-secondary">
+                        {trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
+                          ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms).toFixed(3)
+                          : '—'}
+                      </td>
                       <td className="px-4 py-2 text-text-secondary">{trecho?.manning_n?.toFixed(4) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.ca_acumulado?.toFixed(2) ?? '—'}</td>
                       <td className="px-4 py-2 text-text-secondary">{r.intensidade_mm_h?.toFixed(2) ?? '—'}</td>

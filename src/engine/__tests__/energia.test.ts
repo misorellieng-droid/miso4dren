@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia } from '../energia'
+import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaEnergia } from '../energia'
+
+describe('calcularLinhaEnergia', () => {
+  it('soma cota de fundo + lâmina + carga cinética V²/2g', () => {
+    const egl = calcularLinhaEnergia(100, 0.3, 2.0)
+    expect(egl).toBeCloseTo(100 + 0.3 + (2.0 * 2.0) / (2 * 9.81), 6)
+  })
+
+  it('degrau zero implica EGL jusante == EGL montante (consistência com calcularCotaMontantePorEnergia)', () => {
+    const cotaJusante = calcularCotaMontantePorEnergia(100, 0.2, 2.0, 0.4, 1.0)
+    const eglMontante = calcularLinhaEnergia(100, 0.2, 2.0)
+    const eglJusante = calcularLinhaEnergia(cotaJusante, 0.4, 1.0)
+    expect(eglJusante).toBeCloseTo(eglMontante, 6)
+  })
+})
 
 describe('calcularCotaMontantePorEnergia', () => {
   it('degrau zero quando lâmina e velocidade são iguais dos dois lados', () => {
