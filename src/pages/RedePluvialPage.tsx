@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Download, Droplets, Eye, FileSpreadsheet, Loader2, Network, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, Droplets, Eye, EyeOff, FileSpreadsheet, Loader2, Network, RotateCcw, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
@@ -7,7 +7,7 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
-import { calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
+import { calcularCotasPorEnergia } from '../engine/energia'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
@@ -28,6 +28,45 @@ import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
+
+type ColunaKey =
+  | 'trecho'
+  | 'caixaMontante'
+  | 'caixaJusante'
+  | 'diametro'
+  | 'inclinacao'
+  | 'cotaFundoMontante'
+  | 'cotaFundoJusante'
+  | 'degrauEnergia'
+  | 'manning'
+  | 'ca'
+  | 'intensidade'
+  | 'qProjeto'
+  | 'lamina'
+  | 'yd'
+  | 'velocidade'
+  | 'tc'
+  | 'conformidade'
+
+const COLUNAS: { key: ColunaKey; label: string }[] = [
+  { key: 'trecho', label: 'Trecho' },
+  { key: 'caixaMontante', label: 'Caixa montante' },
+  { key: 'caixaJusante', label: 'Caixa jusante' },
+  { key: 'diametro', label: 'Diâm. (m)' },
+  { key: 'inclinacao', label: 'Inclinação (m/m)' },
+  { key: 'cotaFundoMontante', label: 'Cota fundo montante (m)' },
+  { key: 'cotaFundoJusante', label: 'Cota fundo jusante (m)' },
+  { key: 'degrauEnergia', label: 'Degrau de energia (m)' },
+  { key: 'manning', label: 'Manning n' },
+  { key: 'ca', label: 'ΣC×A (m²)' },
+  { key: 'intensidade', label: 'Intensidade (mm/h)' },
+  { key: 'qProjeto', label: 'Q projeto (m³/s)' },
+  { key: 'lamina', label: 'Lâmina (m)' },
+  { key: 'yd', label: 'y/D' },
+  { key: 'velocidade', label: 'Velocidade (m/s)' },
+  { key: 'tc', label: 'Tc sistema (min)' },
+  { key: 'conformidade', label: 'Conformidade' },
+]
 
 const DEFAULT_LIMITES = {
   limiteYD: 0.85,
@@ -244,6 +283,8 @@ export function RedePluvialPage() {
   const [exportando, setExportando] = useState(false)
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
+  const [fonteCompacta, setFonteCompacta] = useState(false)
+  const [colunasOcultas, setColunasOcultas] = useState<Set<ColunaKey>>(new Set())
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -408,6 +449,40 @@ export function RedePluvialPage() {
 
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
+
+  // Degrau de energia = o quanto a cota de fundo montante (já ajustada pelo cálculo de
+  // energia) difere da continuação "ingênua" (menor cota de fundo jusante entre os trechos
+  // que chegam na caixa montante deste trecho) — mostra o efeito do ajuste por EGL em vez da
+  // cota absoluta. Positivo = cota ficou mais baixa que a continuação simples (degrau pra
+  // baixo, energia "sobrando"); negativo = cota ficou mais alta (energia "faltando").
+  // Cabeceira (nenhum trecho chega na caixa montante) não tem continuação pra comparar: '—'.
+  const entradasPorCaixa = useMemo(() => {
+    const mapa = new Map<string, TrechoRecord[]>()
+    for (const t of trechos) {
+      const lista = mapa.get(t.caixa_jusante_id) ?? []
+      lista.push(t)
+      mapa.set(t.caixa_jusante_id, lista)
+    }
+    return mapa
+  }, [trechos])
+
+  const degrauEnergiaPorTrecho = useMemo(() => {
+    const mapa = new Map<string, number | null>()
+    for (const t of trechos) {
+      if (t.cota_fundo_montante == null) {
+        mapa.set(t.id, null)
+        continue
+      }
+      const entradas = (entradasPorCaixa.get(t.caixa_montante_id) ?? []).filter((e) => e.cota_fundo_jusante != null)
+      if (entradas.length === 0) {
+        mapa.set(t.id, null)
+        continue
+      }
+      const continuacaoNaive = Math.min(...entradas.map((e) => e.cota_fundo_jusante as number))
+      mapa.set(t.id, continuacaoNaive - t.cota_fundo_montante)
+    }
+    return mapa
+  }, [trechos, entradasPorCaixa])
 
   // Sugestão de correção (diâmetro comercial mínimo ou declividade mais próxima da atual)
   // pra cada trecho não conforme, dentro dos critérios configurados acima.
@@ -578,38 +653,80 @@ export function RedePluvialPage() {
 
       {resultados.length > 0 && (
         <>
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-text-secondary">
-            <Eye size={13} />
-            Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+              <Eye size={13} />
+              Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={fonteCompacta}
+                  onChange={(e) => setFonteCompacta(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-border"
+                />
+                Fonte compacta (caber mais colunas na tela)
+              </label>
+              {colunasOcultas.size > 0 && (
+                <button
+                  onClick={() => setColunasOcultas(new Set())}
+                  className="flex items-center gap-1 text-xs text-brand hover:underline"
+                >
+                  <RotateCcw size={12} />
+                  Restaurar {colunasOcultas.size} coluna(s) oculta(s)
+                </button>
+              )}
+            </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-            <table className="w-full whitespace-nowrap text-sm">
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface">
+            <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
               <thead>
-                <tr className="border-b border-border bg-elevated/50 text-left text-xs text-text-secondary">
-                  <th className="px-4 py-2 font-medium">Trecho</th>
-                  <th className="px-4 py-2 font-medium">Caixa montante</th>
-                  <th className="px-4 py-2 font-medium">Caixa jusante</th>
-                  <th className="px-4 py-2 font-medium">Diâm. (m)</th>
-                  <th className="px-4 py-2 font-medium">Inclinação (m/m)</th>
-                  <th className="px-4 py-2 font-medium">Cota fundo montante (m)</th>
-                  <th className="px-4 py-2 font-medium">Cota fundo jusante (m)</th>
-                  <th className="px-4 py-2 font-medium">Linha de energia (m)</th>
-                  <th className="px-4 py-2 font-medium">Manning n</th>
-                  <th className="px-4 py-2 font-medium">ΣC×A (m²)</th>
-                  <th className="px-4 py-2 font-medium">Intensidade (mm/h)</th>
-                  <th className="px-4 py-2 font-medium">Q projeto (m³/s)</th>
-                  <th className="px-4 py-2 font-medium">Lâmina (m)</th>
-                  <th className="px-4 py-2 font-medium">y/D</th>
-                  <th className="px-4 py-2 font-medium">Velocidade (m/s)</th>
-                  <th className="px-4 py-2 font-medium">Tc sistema (min)</th>
-                  <th className="px-4 py-2 font-medium">Conformidade</th>
-                  <th className="w-8 px-2 py-2"></th>
+                <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
+                  {COLUNAS.filter((c) => !colunasOcultas.has(c.key)).map((c) => (
+                    <th
+                      key={c.key}
+                      className={`group/th sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="line-clamp-3 max-w-[110px] leading-tight">{c.label}</span>
+                        <button
+                          onClick={() => setColunasOcultas((prev) => new Set(prev).add(c.key))}
+                          className="shrink-0 text-text-secondary/50 opacity-0 transition hover:text-accent-red group-hover/th:opacity-100"
+                          title={`Ocultar coluna "${c.label}"`}
+                        >
+                          <EyeOff size={12} />
+                        </button>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="sticky top-0 z-10 w-8 bg-elevated px-2 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {resultadosOrdenados.map((r) => {
                   const trecho = trechoPorId.get(r.trecho_id)
                   const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
+                  const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
+                  const degrau = degrauEnergiaPorTrecho.get(r.trecho_id)
+                  const valores: Record<Exclude<ColunaKey, 'conformidade'>, string> = {
+                    trecho: r.trecho_nome,
+                    caixaMontante: trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—',
+                    caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
+                    diametro: trecho?.diametro_m.toFixed(3) ?? '—',
+                    inclinacao: trecho?.declividade_m_m.toFixed(4) ?? '—',
+                    cotaFundoMontante: trecho?.cota_fundo_montante?.toFixed(3) ?? '—',
+                    cotaFundoJusante: trecho?.cota_fundo_jusante?.toFixed(3) ?? '—',
+                    degrauEnergia: degrau != null ? `${degrau >= 0 ? '+' : ''}${degrau.toFixed(3)}` : '—',
+                    manning: trecho?.manning_n?.toFixed(4) ?? '—',
+                    ca: r.ca_acumulado?.toFixed(2) ?? '—',
+                    intensidade: r.intensidade_mm_h?.toFixed(2) ?? '—',
+                    qProjeto: r.q_projeto_m3s?.toFixed(4) ?? '—',
+                    lamina: r.lamina_m?.toFixed(3) ?? '—',
+                    yd: r.y_sobre_d_pct != null ? `${r.y_sobre_d_pct.toFixed(0)}%` : '—',
+                    velocidade: r.velocidade_ms?.toFixed(2) ?? '—',
+                    tc: r.tc_sistema_min?.toFixed(1) ?? '—',
+                  }
                   return (
                     <tr
                       key={r.id}
@@ -617,57 +734,48 @@ export function RedePluvialPage() {
                       className="group cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
                       title="Ver memória de cálculo"
                     >
-                      <td className={`px-4 py-2 font-medium ${corTexto}`}>{r.trecho_nome}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.diametro_m.toFixed(3) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.declividade_m_m.toFixed(4) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>
-                        {trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
-                          ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms).toFixed(3)
-                          : '—'}
-                      </td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{trecho?.manning_n?.toFixed(4) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.ca_acumulado?.toFixed(2) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.intensidade_mm_h?.toFixed(2) ?? '—'}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.q_projeto_m3s?.toFixed(4)}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.lamina_m?.toFixed(3)}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.y_sobre_d_pct?.toFixed(0)}%</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.velocidade_ms?.toFixed(2)}</td>
-                      <td className={`px-4 py-2 ${corTexto}`}>{r.tc_sistema_min?.toFixed(1) ?? '—'}</td>
-                      <td className="max-w-[260px] whitespace-normal px-4 py-2 align-top">
-                        {r.conforme ? (
-                          <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
-                        ) : (
-                          <div>
-                            <span className="flex items-center gap-1 text-accent-red"><XCircle size={14} /> Não conforme</span>
-                            {r.motivo_nao_conformidade && (
-                              <div className="mt-0.5 text-[11px] leading-tight text-text-secondary">{r.motivo_nao_conformidade}</div>
-                            )}
-                            {(() => {
-                              const s = sugestoesPorTrecho.get(r.trecho_id)
-                              if (!s) return null
-                              if (s.diametroM == null && s.declividadeMM == null) {
-                                return (
-                                  <div className="mt-1 text-[11px] leading-tight text-accent-amber">
-                                    Nenhum diâmetro comercial nem inclinação na faixa configurada resolve sozinho.
-                                  </div>
-                                )
-                              }
-                              const partes: string[] = []
-                              if (s.diametroM != null) partes.push(`Ø ${s.diametroM.toFixed(3)} m`)
-                              if (s.declividadeMM != null) partes.push(`i ${s.declividadeMM.toFixed(4)} m/m`)
-                              return (
-                                <div className="mt-1 text-[11px] leading-tight text-brand">Sugestão: {partes.join(' ou ')}</div>
-                              )
-                            })()}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-text-secondary/40 group-hover:text-brand">
-                        <Eye size={15} />
+                      {COLUNAS.filter((c) => !colunasOcultas.has(c.key)).map((c) => {
+                        if (c.key === 'conformidade') {
+                          return (
+                            <td key={c.key} className={`max-w-[260px] whitespace-normal align-top ${tdBase}`}>
+                              {r.conforme ? (
+                                <span className="flex items-center gap-1 text-accent-green"><CheckCircle2 size={14} /> Conforme</span>
+                              ) : (
+                                <div>
+                                  <span className="flex items-center gap-1 text-accent-red"><XCircle size={14} /> Não conforme</span>
+                                  {r.motivo_nao_conformidade && (
+                                    <div className="mt-0.5 text-[11px] leading-tight text-text-secondary">{r.motivo_nao_conformidade}</div>
+                                  )}
+                                  {(() => {
+                                    const s = sugestoesPorTrecho.get(r.trecho_id)
+                                    if (!s) return null
+                                    if (s.diametroM == null && s.declividadeMM == null) {
+                                      return (
+                                        <div className="mt-1 text-[11px] leading-tight text-accent-amber">
+                                          Nenhum diâmetro comercial nem inclinação na faixa configurada resolve sozinho.
+                                        </div>
+                                      )
+                                    }
+                                    const partes: string[] = []
+                                    if (s.diametroM != null) partes.push(`Ø ${s.diametroM.toFixed(3)} m`)
+                                    if (s.declividadeMM != null) partes.push(`i ${s.declividadeMM.toFixed(4)} m/m`)
+                                    return (
+                                      <div className="mt-1 text-[11px] leading-tight text-brand">Sugestão: {partes.join(' ou ')}</div>
+                                    )
+                                  })()}
+                                </div>
+                              )}
+                            </td>
+                          )
+                        }
+                        return (
+                          <td key={c.key} className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}>
+                            {valores[c.key]}
+                          </td>
+                        )
+                      })}
+                      <td className={`text-text-secondary/40 group-hover:text-brand ${fonteCompacta ? 'px-2 py-1' : 'px-2 py-2'}`}>
+                        <Eye size={fonteCompacta ? 13 : 15} />
                       </td>
                     </tr>
                   )
