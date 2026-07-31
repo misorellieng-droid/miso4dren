@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Package, Plus, Trash2 } from 'lucide-react'
+import { Loader2, Package, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Modal } from '../components/ui/Modal'
 import { Field, fieldInputClass } from '../components/ui/Field'
-import { criarItemBiblioteca, excluirItemBiblioteca, listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
+import {
+  atualizarItemBiblioteca,
+  criarItemBiblioteca,
+  excluirItemBiblioteca,
+  listBibliotecaPecas,
+  type ItemBiblioteca,
+} from '../lib/bibliotecaStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -17,6 +23,7 @@ export function BibliotecaPecasPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
+  const [editando, setEditando] = useState<ItemBiblioteca | null>(null)
   const [material, setMaterial] = useState('')
   const [diametroM, setDiametroM] = useState('')
   const [espessuraM, setEspessuraM] = useState('')
@@ -45,12 +52,35 @@ export function BibliotecaPecasPage() {
     load()
   }, [])
 
+  const limparForm = () => {
+    setMaterial('')
+    setDiametroM('')
+    setEspessuraM('')
+    setNomePeca('')
+    setLarguraEscavacaoM('')
+    setTaludeEscavacaoHv('')
+    setAlturaBercoM('')
+  }
+
+  const abrirNovo = () => {
+    setEditando(null)
+    limparForm()
+    setFormOpen(true)
+  }
+
+  const abrirEditar = (item: ItemBiblioteca) => {
+    setEditando(item)
+    setMaterial(item.material)
+    setDiametroM(String(item.diametro_m))
+    setEspessuraM(item.espessura_parede_m != null ? String(item.espessura_parede_m) : '')
+    setNomePeca(item.nome_peca ?? '')
+    setLarguraEscavacaoM(item.largura_escavacao_m != null ? String(item.largura_escavacao_m) : '')
+    setTaludeEscavacaoHv(item.talude_escavacao_hv != null ? String(item.talude_escavacao_hv) : '')
+    setAlturaBercoM(item.altura_berco_m != null ? String(item.altura_berco_m) : '')
+    setFormOpen(true)
+  }
+
   const handleSave = async () => {
-    const diametro = Number(diametroM.replace(',', '.'))
-    if (!material.trim() || !Number.isFinite(diametro) || diametro <= 0) {
-      setError('Informe o material e um diâmetro válido.')
-      return
-    }
     const espessura = espessuraM.trim() ? Number(espessuraM.replace(',', '.')) : null
     const largura = larguraEscavacaoM.trim() ? Number(larguraEscavacaoM.replace(',', '.')) : null
     const talude = taludeEscavacaoHv.trim() ? Number(taludeEscavacaoHv.replace(',', '.')) : null
@@ -58,15 +88,26 @@ export function BibliotecaPecasPage() {
     setSaving(true)
     setError(null)
     try {
-      await criarItemBiblioteca(material.trim().toUpperCase(), diametro, espessura, nomePeca.trim() || null, largura, talude, berco)
+      if (editando) {
+        await atualizarItemBiblioteca(editando.id, {
+          espessura_parede_m: espessura,
+          nome_peca: nomePeca.trim() || null,
+          largura_escavacao_m: largura,
+          talude_escavacao_hv: talude,
+          altura_berco_m: berco,
+        })
+      } else {
+        const diametro = Number(diametroM.replace(',', '.'))
+        if (!material.trim() || !Number.isFinite(diametro) || diametro <= 0) {
+          setError('Informe o material e um diâmetro válido.')
+          setSaving(false)
+          return
+        }
+        await criarItemBiblioteca(material.trim().toUpperCase(), diametro, espessura, nomePeca.trim() || null, largura, talude, berco)
+      }
       setFormOpen(false)
-      setMaterial('')
-      setDiametroM('')
-      setEspessuraM('')
-      setNomePeca('')
-      setLarguraEscavacaoM('')
-      setTaludeEscavacaoHv('')
-      setAlturaBercoM('')
+      setEditando(null)
+      limparForm()
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar item — confira se esse material+diâmetro já não existe.')
@@ -101,7 +142,7 @@ export function BibliotecaPecasPage() {
             reaterro na tabela "Quantidade" da Rede Pluvial.
           </p>
         </div>
-        <button onClick={() => setFormOpen(true)} disabled={!supabase} className={PRIMARY_BTN}>
+        <button onClick={abrirNovo} disabled={!supabase} className={PRIMARY_BTN}>
           <Plus size={16} />
           Novo item
         </button>
@@ -134,7 +175,12 @@ export function BibliotecaPecasPage() {
             </thead>
             <tbody>
               {itens.map((i) => (
-                <tr key={i.id} className="border-b border-border/60 last:border-0">
+                <tr
+                  key={i.id}
+                  onClick={() => abrirEditar(i)}
+                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
+                  title="Editar item"
+                >
                   <td className="px-4 py-2 font-medium text-text-primary">{i.material}</td>
                   <td className="px-4 py-2 text-text-secondary">{i.diametro_m}</td>
                   <td className="px-4 py-2 text-text-secondary">{i.espessura_parede_m ?? '—'}</td>
@@ -143,13 +189,27 @@ export function BibliotecaPecasPage() {
                   <td className="px-4 py-2 text-text-secondary">{i.talude_escavacao_hv ?? '—'}</td>
                   <td className="px-4 py-2 text-text-secondary">{i.altura_berco_m ?? '—'}</td>
                   <td className="px-4 py-2 text-right">
-                    <button
-                      onClick={() => handleDelete(i.id)}
-                      disabled={busyId === i.id}
-                      className="rounded p-1 hover:bg-accent-red/10 hover:text-accent-red"
-                    >
-                      {busyId === i.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          abrirEditar(i)
+                        }}
+                        className="rounded p-1 hover:bg-brand/10 hover:text-brand"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(i.id)
+                        }}
+                        disabled={busyId === i.id}
+                        className="rounded p-1 hover:bg-accent-red/10 hover:text-accent-red"
+                      >
+                        {busyId === i.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -161,7 +221,7 @@ export function BibliotecaPecasPage() {
       <Modal
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        title="Novo item da biblioteca"
+        title={editando ? 'Editar item da biblioteca' : 'Novo item da biblioteca'}
         icon={<Package size={20} />}
         footer={
           <>
@@ -177,10 +237,22 @@ export function BibliotecaPecasPage() {
       >
         <div className="space-y-4">
           <Field label="Material" required hint="Deve bater com o texto do material no LandXML (ex.: CONCRETO, PVC)">
-            <input className={fieldInputClass} value={material} onChange={(e) => setMaterial(e.target.value)} />
+            <input
+              className={`${fieldInputClass} disabled:opacity-60`}
+              value={material}
+              disabled={!!editando}
+              onChange={(e) => setMaterial(e.target.value)}
+            />
           </Field>
-          <Field label="Diâmetro (m)" required>
-            <input type="number" step="any" className={fieldInputClass} value={diametroM} onChange={(e) => setDiametroM(e.target.value)} />
+          <Field label="Diâmetro (m)" required hint={editando ? 'Material e diâmetro são a chave do item — exclua e recrie pra mudar.' : undefined}>
+            <input
+              type="number"
+              step="any"
+              className={`${fieldInputClass} disabled:opacity-60`}
+              value={diametroM}
+              disabled={!!editando}
+              onChange={(e) => setDiametroM(e.target.value)}
+            />
           </Field>
           <Field label="Espessura de parede (m)" hint="Property 'Wall Thickness' do Civil 3D, convertida de mm pra m (ex.: 175mm = 0,175)">
             <input type="number" step="any" className={fieldInputClass} value={espessuraM} onChange={(e) => setEspessuraM(e.target.value)} />

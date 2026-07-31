@@ -83,32 +83,50 @@ const COLUNAS_MEMORIAL: { key: ColunaMemorialKey; label: string }[] = [
   { key: 'conformidade', label: 'Conformidade' },
 ]
 
-const COLUNAS_NOTA_SERVICO = [
-  'Trecho',
-  'Caixa montante',
-  'Caixa jusante',
-  'Diâm. (m)',
-  'Extensão (m)',
-  'Inclinação (m/m)',
-  'CT montante (m)',
-  'CT jusante (m)',
-  'FIT montante (m)',
-  'FIT jusante (m)',
-  'X montante',
-  'Y montante',
-  'X jusante',
-  'Y jusante',
+type ColunaNotaServicoKey =
+  | 'trecho'
+  | 'caixaMontante'
+  | 'caixaJusante'
+  | 'diametro'
+  | 'extensao'
+  | 'inclinacao'
+  | 'ctMontante'
+  | 'ctJusante'
+  | 'fitMontante'
+  | 'fitJusante'
+  | 'xMontante'
+  | 'yMontante'
+  | 'xJusante'
+  | 'yJusante'
+
+const COLUNAS_NOTA_SERVICO: { key: ColunaNotaServicoKey; label: string }[] = [
+  { key: 'trecho', label: 'Trecho' },
+  { key: 'caixaMontante', label: 'Caixa montante' },
+  { key: 'caixaJusante', label: 'Caixa jusante' },
+  { key: 'diametro', label: 'Diâm. (m)' },
+  { key: 'extensao', label: 'Extensão (m)' },
+  { key: 'inclinacao', label: 'Inclinação (m/m)' },
+  { key: 'ctMontante', label: 'CT montante (m)' },
+  { key: 'ctJusante', label: 'CT jusante (m)' },
+  { key: 'fitMontante', label: 'FIT montante (m)' },
+  { key: 'fitJusante', label: 'FIT jusante (m)' },
+  { key: 'xMontante', label: 'X montante' },
+  { key: 'yMontante', label: 'Y montante' },
+  { key: 'xJusante', label: 'X jusante' },
+  { key: 'yJusante', label: 'Y jusante' },
 ]
 
-const COLUNAS_QUANTIDADE = [
-  'Trecho',
-  'Caixa montante',
-  'Caixa jusante',
-  'Diâm. (m)',
-  'Extensão (m)',
-  'Vol. escavação (m³)',
-  'Vol. berço (m³)',
-  'Vol. reaterro (m³)',
+type ColunaQuantidadeKey = 'trecho' | 'caixaMontante' | 'caixaJusante' | 'diametro' | 'extensao' | 'volEscavacao' | 'volBerco' | 'volReaterro'
+
+const COLUNAS_QUANTIDADE: { key: ColunaQuantidadeKey; label: string }[] = [
+  { key: 'trecho', label: 'Trecho' },
+  { key: 'caixaMontante', label: 'Caixa montante' },
+  { key: 'caixaJusante', label: 'Caixa jusante' },
+  { key: 'diametro', label: 'Diâm. (m)' },
+  { key: 'extensao', label: 'Extensão (m)' },
+  { key: 'volEscavacao', label: 'Vol. escavação (m³)' },
+  { key: 'volBerco', label: 'Vol. berço (m³)' },
+  { key: 'volReaterro', label: 'Vol. reaterro (m³)' },
 ]
 
 const TOLERANCIA_DIAMETRO_BIBLIOTECA_M = 0.001
@@ -341,6 +359,8 @@ export function RedePluvialPage() {
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
   const [fonteCompacta, setFonteCompacta] = useState(false)
   const [colunasOcultas, setColunasOcultas] = useState<Set<ColunaMemorialKey>>(new Set())
+  const [colunasOcultasNotaServico, setColunasOcultasNotaServico] = useState<Set<ColunaNotaServicoKey>>(new Set())
+  const [colunasOcultasQuantidade, setColunasOcultasQuantidade] = useState<Set<ColunaQuantidadeKey>>(new Set())
   const [aba, setAba] = useState<'memorial' | 'notaServico' | 'quantidade'>('memorial')
 
   const load = async () => {
@@ -829,34 +849,43 @@ export function RedePluvialPage() {
         </div>
       )}
 
+      {trechos.length > 0 &&
+        (() => {
+          const restaurarInfo =
+            aba === 'memorial'
+              ? { size: colunasOcultas.size, limpar: () => setColunasOcultas(new Set()) }
+              : aba === 'notaServico'
+                ? { size: colunasOcultasNotaServico.size, limpar: () => setColunasOcultasNotaServico(new Set()) }
+                : { size: colunasOcultasQuantidade.size, limpar: () => setColunasOcultasQuantidade(new Set()) }
+          return (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <Eye size={13} />
+                Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={fonteCompacta}
+                    onChange={(e) => setFonteCompacta(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-border"
+                  />
+                  Fonte compacta (caber mais colunas na tela)
+                </label>
+                {restaurarInfo.size > 0 && (
+                  <button onClick={restaurarInfo.limpar} className="flex items-center gap-1 text-xs text-brand hover:underline">
+                    <RotateCcw size={12} />
+                    Restaurar {restaurarInfo.size} coluna(s) oculta(s)
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
       {aba === 'memorial' && resultados.length > 0 && (
         <>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary">
-              <Eye size={13} />
-              Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={fonteCompacta}
-                  onChange={(e) => setFonteCompacta(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border"
-                />
-                Fonte compacta (caber mais colunas na tela)
-              </label>
-              {colunasOcultas.size > 0 && (
-                <button
-                  onClick={() => setColunasOcultas(new Set())}
-                  className="flex items-center gap-1 text-xs text-brand hover:underline"
-                >
-                  <RotateCcw size={12} />
-                  Restaurar {colunasOcultas.size} coluna(s) oculta(s)
-                </button>
-              )}
-            </div>
-          </div>
           <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface">
             <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
               <thead>
@@ -998,9 +1027,21 @@ export function RedePluvialPage() {
             <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
               <thead>
                 <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
-                  {COLUNAS_NOTA_SERVICO.map((label) => (
-                    <th key={label} className={`sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}>
-                      <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{label}</span>
+                  {COLUNAS_NOTA_SERVICO.filter((c) => !colunasOcultasNotaServico.has(c.key)).map((c) => (
+                    <th
+                      key={c.key}
+                      className={`group/th sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{c.label}</span>
+                        <button
+                          onClick={() => setColunasOcultasNotaServico((prev) => new Set(prev).add(c.key))}
+                          className="shrink-0 text-text-secondary/50 opacity-0 transition hover:text-accent-red group-hover/th:opacity-100"
+                          title={`Ocultar coluna "${c.label}"`}
+                        >
+                          <EyeOff size={12} />
+                        </button>
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -1010,6 +1051,24 @@ export function RedePluvialPage() {
                   const caixaMontante = caixaPorId.get(t.caixa_montante_id)
                   const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
                   const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
+                  const conforme = conformidadePorTrecho.get(t.id)
+                  const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
+                  const valores: Record<ColunaNotaServicoKey, string> = {
+                    trecho: t.nome,
+                    caixaMontante: nomeCaixaPorId.get(t.caixa_montante_id) ?? '—',
+                    caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+                    diametro: t.diametro_m.toFixed(3),
+                    extensao: t.comprimento_m.toFixed(2),
+                    inclinacao: t.declividade_m_m.toFixed(4),
+                    ctMontante: caixaMontante?.cota_terreno?.toFixed(3) ?? '—',
+                    ctJusante: caixaJusante?.cota_terreno?.toFixed(3) ?? '—',
+                    fitMontante: t.cota_fundo_montante?.toFixed(3) ?? '—',
+                    fitJusante: t.cota_fundo_jusante?.toFixed(3) ?? '—',
+                    xMontante: caixaMontante?.x?.toFixed(3) ?? '—',
+                    yMontante: caixaMontante?.y?.toFixed(3) ?? '—',
+                    xJusante: caixaJusante?.x?.toFixed(3) ?? '—',
+                    yJusante: caixaJusante?.y?.toFixed(3) ?? '—',
+                  }
                   return (
                     <tr
                       key={t.id}
@@ -1017,20 +1076,11 @@ export function RedePluvialPage() {
                       className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
                       title="Ver memória de cálculo"
                     >
-                      <td className={`${tdBase} font-medium text-text-primary`}>{t.nome}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{t.diametro_m.toFixed(3)}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{t.comprimento_m.toFixed(2)}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{t.declividade_m_m.toFixed(4)}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.cota_terreno?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.cota_terreno?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{t.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{t.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.x?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.y?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.x?.toFixed(3) ?? '—'}</td>
-                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.y?.toFixed(3) ?? '—'}</td>
+                      {COLUNAS_NOTA_SERVICO.filter((c) => !colunasOcultasNotaServico.has(c.key)).map((c) => (
+                        <td key={c.key} className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}>
+                          {valores[c.key]}
+                        </td>
+                      ))}
                     </tr>
                   )
                 })}
@@ -1060,9 +1110,21 @@ export function RedePluvialPage() {
               <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
                 <thead>
                   <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
-                    {COLUNAS_QUANTIDADE.map((label) => (
-                      <th key={label} className={`sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}>
-                        <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{label}</span>
+                    {COLUNAS_QUANTIDADE.filter((c) => !colunasOcultasQuantidade.has(c.key)).map((c) => (
+                      <th
+                        key={c.key}
+                        className={`group/th sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}
+                      >
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{c.label}</span>
+                          <button
+                            onClick={() => setColunasOcultasQuantidade((prev) => new Set(prev).add(c.key))}
+                            className="shrink-0 text-text-secondary/50 opacity-0 transition hover:text-accent-red group-hover/th:opacity-100"
+                            title={`Ocultar coluna "${c.label}"`}
+                          >
+                            <EyeOff size={12} />
+                          </button>
+                        </div>
                       </th>
                     ))}
                   </tr>
@@ -1071,6 +1133,18 @@ export function RedePluvialPage() {
                   {trechosOrdenados.map((t) => {
                     const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
                     const volumes = volumesPorTrecho.get(t.id)
+                    const conforme = conformidadePorTrecho.get(t.id)
+                    const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
+                    const valores: Record<ColunaQuantidadeKey, string> = {
+                      trecho: t.nome,
+                      caixaMontante: nomeCaixaPorId.get(t.caixa_montante_id) ?? '—',
+                      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+                      diametro: t.diametro_m.toFixed(3),
+                      extensao: t.comprimento_m.toFixed(2),
+                      volEscavacao: volumes ? volumes.escavacao.toFixed(2) : '—',
+                      volBerco: volumes ? volumes.berco.toFixed(2) : '—',
+                      volReaterro: volumes ? volumes.reaterro.toFixed(2) : '—',
+                    }
                     return (
                       <tr
                         key={t.id}
@@ -1078,19 +1152,19 @@ export function RedePluvialPage() {
                         className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
                         title="Ver memória de cálculo"
                       >
-                        <td className={`${tdBase} font-medium text-text-primary`}>{t.nome}</td>
-                        <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'}</td>
-                        <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'}</td>
-                        <td className={`${tdBase} text-text-secondary`}>{t.diametro_m.toFixed(3)}</td>
-                        <td className={`${tdBase} text-text-secondary`}>{t.comprimento_m.toFixed(2)}</td>
-                        <td
-                          className={`${tdBase} text-text-secondary`}
-                          title={!volumes ? 'Cadastre largura de escavação, talude e altura de berço pra esse material+diâmetro na Biblioteca de Peças.' : undefined}
-                        >
-                          {volumes ? volumes.escavacao.toFixed(2) : '—'}
-                        </td>
-                        <td className={`${tdBase} text-text-secondary`}>{volumes ? volumes.berco.toFixed(2) : '—'}</td>
-                        <td className={`${tdBase} text-text-secondary`}>{volumes ? volumes.reaterro.toFixed(2) : '—'}</td>
+                        {COLUNAS_QUANTIDADE.filter((c) => !colunasOcultasQuantidade.has(c.key)).map((c) => (
+                          <td
+                            key={c.key}
+                            className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}
+                            title={
+                              c.key === 'volEscavacao' && !volumes
+                                ? 'Cadastre largura de escavação, talude e altura de berço pra esse material+diâmetro na Biblioteca de Peças.'
+                                : undefined
+                            }
+                          >
+                            {valores[c.key]}
+                          </td>
+                        ))}
                       </tr>
                     )
                   })}
