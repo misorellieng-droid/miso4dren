@@ -6,6 +6,9 @@ export interface ItemBiblioteca {
   diametro_m: number
   espessura_parede_m: number | null
   nome_peca: string | null
+  largura_escavacao_m: number | null
+  talude_escavacao_hv: number | null
+  altura_berco_m: number | null
   created_at: string
 }
 
@@ -24,17 +27,32 @@ export async function criarItemBiblioteca(
   material: string,
   diametroM: number,
   espessuraParedeM: number | null,
-  nomePeca: string | null
+  nomePeca: string | null,
+  larguraEscavacaoM: number | null = null,
+  taludeEscavacaoHv: number | null = null,
+  alturaBercoM: number | null = null
 ): Promise<void> {
-  const { error } = await requireSupabase()
-    .from('biblioteca_pecas')
-    .insert({ material, diametro_m: diametroM, espessura_parede_m: espessuraParedeM, nome_peca: nomePeca })
+  const { error } = await requireSupabase().from('biblioteca_pecas').insert({
+    material,
+    diametro_m: diametroM,
+    espessura_parede_m: espessuraParedeM,
+    nome_peca: nomePeca,
+    largura_escavacao_m: larguraEscavacaoM,
+    talude_escavacao_hv: taludeEscavacaoHv,
+    altura_berco_m: alturaBercoM,
+  })
   if (error) throw error
 }
 
 export async function atualizarItemBiblioteca(
   id: string,
-  patch: { espessura_parede_m?: number | null; nome_peca?: string | null }
+  patch: {
+    espessura_parede_m?: number | null
+    nome_peca?: string | null
+    largura_escavacao_m?: number | null
+    talude_escavacao_hv?: number | null
+    altura_berco_m?: number | null
+  }
 ): Promise<void> {
   const { error } = await requireSupabase().from('biblioteca_pecas').update(patch).eq('id', id)
   if (error) throw error

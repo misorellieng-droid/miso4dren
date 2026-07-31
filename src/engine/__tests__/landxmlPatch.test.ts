@@ -180,8 +180,28 @@ describe('patchXmlOriginal', () => {
       const c2 = caixa({ id: 'c2', nome: 'PVA-15' })
       const t1 = trecho({ nome: 'TRECHO-1', diametro_m: 0.8 }) // editado de 0.6 pra 0.8
       const biblioteca = [
-        { id: 'b1', material: 'CONCRETO', diametro_m: 0.6, espessura_parede_m: 0.125, nome_peca: 'BSTC DN 0,60 m', created_at: '' },
-        { id: 'b2', material: 'CONCRETO', diametro_m: 0.8, espessura_parede_m: 0.175, nome_peca: 'BSTC DN 0,80 m', created_at: '' },
+        {
+          id: 'b1',
+          material: 'CONCRETO',
+          diametro_m: 0.6,
+          espessura_parede_m: 0.125,
+          nome_peca: 'BSTC DN 0,60 m',
+          largura_escavacao_m: null,
+          talude_escavacao_hv: null,
+          altura_berco_m: null,
+          created_at: '',
+        },
+        {
+          id: 'b2',
+          material: 'CONCRETO',
+          diametro_m: 0.8,
+          espessura_parede_m: 0.175,
+          nome_peca: 'BSTC DN 0,80 m',
+          largura_escavacao_m: null,
+          talude_escavacao_hv: null,
+          altura_berco_m: null,
+          created_at: '',
+        },
       ]
       const xmlPatched = patchXmlOriginal(FIXTURE_COM_THICKNESS, [c1, c2], [t1], biblioteca)
 

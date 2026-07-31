@@ -21,6 +21,9 @@ export function BibliotecaPecasPage() {
   const [diametroM, setDiametroM] = useState('')
   const [espessuraM, setEspessuraM] = useState('')
   const [nomePeca, setNomePeca] = useState('')
+  const [larguraEscavacaoM, setLarguraEscavacaoM] = useState('')
+  const [taludeEscavacaoHv, setTaludeEscavacaoHv] = useState('')
+  const [alturaBercoM, setAlturaBercoM] = useState('')
   const [saving, setSaving] = useState(false)
 
   const load = async () => {
@@ -49,15 +52,21 @@ export function BibliotecaPecasPage() {
       return
     }
     const espessura = espessuraM.trim() ? Number(espessuraM.replace(',', '.')) : null
+    const largura = larguraEscavacaoM.trim() ? Number(larguraEscavacaoM.replace(',', '.')) : null
+    const talude = taludeEscavacaoHv.trim() ? Number(taludeEscavacaoHv.replace(',', '.')) : null
+    const berco = alturaBercoM.trim() ? Number(alturaBercoM.replace(',', '.')) : null
     setSaving(true)
     setError(null)
     try {
-      await criarItemBiblioteca(material.trim().toUpperCase(), diametro, espessura, nomePeca.trim() || null)
+      await criarItemBiblioteca(material.trim().toUpperCase(), diametro, espessura, nomePeca.trim() || null, largura, talude, berco)
       setFormOpen(false)
       setMaterial('')
       setDiametroM('')
       setEspessuraM('')
       setNomePeca('')
+      setLarguraEscavacaoM('')
+      setTaludeEscavacaoHv('')
+      setAlturaBercoM('')
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar item — confira se esse material+diâmetro já não existe.')
@@ -80,7 +89,7 @@ export function BibliotecaPecasPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-5xl">
       <Breadcrumb items={['Administração', 'Biblioteca de Peças']} />
 
       <div className="mb-6 flex items-center justify-between">
@@ -88,8 +97,8 @@ export function BibliotecaPecasPage() {
           <h1 className="font-sans text-xl font-bold text-text-primary">Biblioteca de Peças</h1>
           <p className="text-sm text-text-secondary">
             Catálogo material + diâmetro → espessura de parede, espelhando o Parts List do Civil 3D. Usado pra editar diâmetro só com
-            tamanhos reais (dropdown) e pra escrever a espessura certa no XML exportado — sem isso o Civil recusa a troca de diâmetro
-            na reimportação.
+            tamanhos reais (dropdown), pra escrever a espessura certa no XML exportado, e pra calcular os volumes de escavação/berço/
+            reaterro na tabela "Quantidade" da Rede Pluvial.
           </p>
         </div>
         <button onClick={() => setFormOpen(true)} disabled={!supabase} className={PRIMARY_BTN}>
@@ -109,14 +118,17 @@ export function BibliotecaPecasPage() {
           Nenhum item cadastrado ainda.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+          <table className="w-full whitespace-nowrap text-sm">
             <thead>
               <tr className="border-b border-border bg-elevated/50 text-left text-xs text-text-secondary">
                 <th className="px-4 py-2 font-medium">Material</th>
                 <th className="px-4 py-2 font-medium">Diâmetro (m)</th>
                 <th className="px-4 py-2 font-medium">Espessura de parede (m)</th>
                 <th className="px-4 py-2 font-medium">Nome da peça</th>
+                <th className="px-4 py-2 font-medium">Largura escavação (m)</th>
+                <th className="px-4 py-2 font-medium">Talude (H:V)</th>
+                <th className="px-4 py-2 font-medium">Altura berço (m)</th>
                 <th className="px-4 py-2 font-medium"></th>
               </tr>
             </thead>
@@ -127,6 +139,9 @@ export function BibliotecaPecasPage() {
                   <td className="px-4 py-2 text-text-secondary">{i.diametro_m}</td>
                   <td className="px-4 py-2 text-text-secondary">{i.espessura_parede_m ?? '—'}</td>
                   <td className="px-4 py-2 text-text-secondary">{i.nome_peca ?? '—'}</td>
+                  <td className="px-4 py-2 text-text-secondary">{i.largura_escavacao_m ?? '—'}</td>
+                  <td className="px-4 py-2 text-text-secondary">{i.talude_escavacao_hv ?? '—'}</td>
+                  <td className="px-4 py-2 text-text-secondary">{i.altura_berco_m ?? '—'}</td>
                   <td className="px-4 py-2 text-right">
                     <button
                       onClick={() => handleDelete(i.id)}
@@ -172,6 +187,27 @@ export function BibliotecaPecasPage() {
           </Field>
           <Field label="Nome da peça" hint="Property 'Part Size Name' do Civil 3D (ex.: BSTC DN 0,80 m) — só informativo">
             <input className={fieldInputClass} value={nomePeca} onChange={(e) => setNomePeca(e.target.value)} />
+          </Field>
+          <Field label="Largura de escavação (m)" hint="Largura da vala no FUNDO (nível do berço/tubo) — usada na tabela Quantidade">
+            <input
+              type="number"
+              step="any"
+              className={fieldInputClass}
+              value={larguraEscavacaoM}
+              onChange={(e) => setLarguraEscavacaoM(e.target.value)}
+            />
+          </Field>
+          <Field label="Talude de escavação (H:V)" hint="Razão H:V — ex.: 1,0 = 1:1 (alarga 1m de cada lado a cada 1m de profundidade)">
+            <input
+              type="number"
+              step="any"
+              className={fieldInputClass}
+              value={taludeEscavacaoHv}
+              onChange={(e) => setTaludeEscavacaoHv(e.target.value)}
+            />
+          </Field>
+          <Field label="Altura do berço (m)" hint="Camada de lastro abaixo do tubo">
+            <input type="number" step="any" className={fieldInputClass} value={alturaBercoM} onChange={(e) => setAlturaBercoM(e.target.value)} />
           </Field>
         </div>
       </Modal>

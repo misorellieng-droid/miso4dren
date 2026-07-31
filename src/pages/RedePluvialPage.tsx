@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Download, Droplets, Eye, EyeOff, FileSpreadsheet, Loader2, Network, RotateCcw, XCircle } from 'lucide-react'
+import {
+  Boxes,
+  CheckCircle2,
+  ClipboardList,
+  Download,
+  Droplets,
+  Eye,
+  EyeOff,
+  FileSpreadsheet,
+  Loader2,
+  Network,
+  NotebookText,
+  RotateCcw,
+  XCircle,
+} from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
@@ -7,7 +21,8 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
-import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia } from '../engine/energia'
+import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
+import { calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
@@ -29,44 +44,85 @@ import { supabase } from '../lib/supabase'
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
-type ColunaKey =
+type ColunaMemorialKey =
   | 'trecho'
   | 'caixaMontante'
   | 'caixaJusante'
-  | 'diametro'
-  | 'inclinacao'
-  | 'cotaFundoMontante'
-  | 'cotaFundoJusante'
-  | 'degrauEnergia'
-  | 'manning'
   | 'ca'
+  | 'tc'
   | 'intensidade'
   | 'qProjeto'
-  | 'lamina'
-  | 'yd'
+  | 'diametro'
+  | 'extensao'
+  | 'inclinacao'
   | 'velocidade'
-  | 'tc'
+  | 'yd'
+  | 'tcPercurso'
+  | 'tcProximo'
+  | 'cotaEnergiaMontante'
+  | 'cotaEnergiaJusante'
   | 'conformidade'
 
-const COLUNAS: { key: ColunaKey; label: string }[] = [
+const COLUNAS_MEMORIAL: { key: ColunaMemorialKey; label: string }[] = [
   { key: 'trecho', label: 'Trecho' },
   { key: 'caixaMontante', label: 'Caixa montante' },
   { key: 'caixaJusante', label: 'Caixa jusante' },
-  { key: 'diametro', label: 'Diâm. (m)' },
-  { key: 'inclinacao', label: 'Inclinação (m/m)' },
-  { key: 'cotaFundoMontante', label: 'Cota fundo montante (m)' },
-  { key: 'cotaFundoJusante', label: 'Cota fundo jusante (m)' },
-  { key: 'degrauEnergia', label: 'Degrau de energia (m)' },
-  { key: 'manning', label: 'Manning n' },
   { key: 'ca', label: 'ΣC×A (m²)' },
+  { key: 'tc', label: 'Tc (min)' },
   { key: 'intensidade', label: 'Intensidade (mm/h)' },
-  { key: 'qProjeto', label: 'Q projeto (m³/s)' },
-  { key: 'lamina', label: 'Lâmina (m)' },
-  { key: 'yd', label: 'y/D' },
+  { key: 'qProjeto', label: 'Vazão (m³/s)' },
+  { key: 'diametro', label: 'Diâm. (m)' },
+  { key: 'extensao', label: 'Extensão (m)' },
+  { key: 'inclinacao', label: 'Inclinação (m/m)' },
   { key: 'velocidade', label: 'Velocidade (m/s)' },
-  { key: 'tc', label: 'Tc sistema (min)' },
+  { key: 'yd', label: 'y/D' },
+  { key: 'tcPercurso', label: 'Tc percurso do trecho (min)' },
+  { key: 'tcProximo', label: 'Tc próximo trecho (min)' },
+  { key: 'cotaEnergiaMontante', label: 'Cota energia montante (m)' },
+  { key: 'cotaEnergiaJusante', label: 'Cota energia jusante (m)' },
   { key: 'conformidade', label: 'Conformidade' },
 ]
+
+const COLUNAS_NOTA_SERVICO = [
+  'Trecho',
+  'Caixa montante',
+  'Caixa jusante',
+  'Diâm. (m)',
+  'Extensão (m)',
+  'Inclinação (m/m)',
+  'CT montante (m)',
+  'CT jusante (m)',
+  'FIT montante (m)',
+  'FIT jusante (m)',
+  'X montante',
+  'Y montante',
+  'X jusante',
+  'Y jusante',
+]
+
+const COLUNAS_QUANTIDADE = [
+  'Trecho',
+  'Caixa montante',
+  'Caixa jusante',
+  'Diâm. (m)',
+  'Extensão (m)',
+  'Vol. escavação (m³)',
+  'Vol. berço (m³)',
+  'Vol. reaterro (m³)',
+]
+
+const TOLERANCIA_DIAMETRO_BIBLIOTECA_M = 0.001
+
+/** Mesmo critério de correspondência usado no export XML (landxmlPatch.ts) — material +
+ * diâmetro dentro de 1mm de tolerância, já que os dados vêm de conversões de unidade. */
+function acharItemBiblioteca(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): ItemBiblioteca | null {
+  if (!material) return null
+  return (
+    biblioteca.find(
+      (i) => i.material.toUpperCase() === material.toUpperCase() && Math.abs(i.diametro_m - diametroM) <= TOLERANCIA_DIAMETRO_BIBLIOTECA_M
+    ) ?? null
+  )
+}
 
 const DEFAULT_LIMITES = {
   limiteYD: 0.85,
@@ -284,7 +340,8 @@ export function RedePluvialPage() {
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
   const [fonteCompacta, setFonteCompacta] = useState(false)
-  const [colunasOcultas, setColunasOcultas] = useState<Set<ColunaKey>>(new Set())
+  const [colunasOcultas, setColunasOcultas] = useState<Set<ColunaMemorialKey>>(new Set())
+  const [aba, setAba] = useState<'memorial' | 'notaServico' | 'quantidade'>('memorial')
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -435,6 +492,14 @@ export function RedePluvialPage() {
     return [...base].sort((a, b) => posicao(a) - posicao(b))
   }, [resultados, ordemTrechos, troncoIds, visaoDiagrama])
 
+  // Mesma ordem/filtro de resultadosOrdenados, mas a partir de `trechos` direto (não depende
+  // de ter rodado o cálculo) — usado pelas abas Nota de Serviço e Quantidade.
+  const trechosOrdenados = useMemo(() => {
+    const base = visaoDiagrama === 'tronco' ? trechos.filter((t) => troncoIds.has(t.id)) : trechos
+    const posicao = (t: TrechoRecord) => ordemTrechos.get(t.id) ?? Number.MAX_SAFE_INTEGER
+    return [...base].sort((a, b) => posicao(a) - posicao(b))
+  }, [trechos, ordemTrechos, troncoIds, visaoDiagrama])
+
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
 
   const trechosDiagrama = useMemo(
@@ -449,6 +514,75 @@ export function RedePluvialPage() {
 
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
+  const caixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c])), [caixas])
+
+  // Tc na caixa JUSANTE de cada trecho (o que vira o Tc de entrada do PRÓXIMO trecho) —
+  // recalculado no cliente com as velocidades finais já persistidas, já que
+  // executarCalculoRede só guarda o Tc de MONTANTE por trecho (tc_sistema_min).
+  const tcPorCaixaFinal = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0 || resultados.length === 0) return new Map<string, number>()
+    const caixaIds = caixas.map((c) => c.id)
+    const trechosComComprimento = trechos.map((t) => ({
+      id: t.id,
+      montanteId: t.caixa_montante_id,
+      jusanteId: t.caixa_jusante_id,
+      comprimentoM: t.comprimento_m,
+      declividadeMM: t.declividade_m_m,
+    }))
+    const tcInicialPorCaixa = new Map<string, number>()
+    for (const cap of captacoes) {
+      const bacia = bacias.find((b) => b.id === cap.bacia_id)
+      if (!bacia) continue
+      const atual = tcInicialPorCaixa.get(cap.dispositivo_id) ?? 0
+      tcInicialPorCaixa.set(cap.dispositivo_id, Math.max(atual, bacia.tc_min ?? 10))
+    }
+    const velocidadePorTrecho = new Map(resultados.map((r) => [r.trecho_id, r.velocidade_ms ?? 1]))
+    return calcularTcSistema(caixaIds, trechosComComprimento, velocidadePorTrecho, tcInicialPorCaixa)
+  }, [caixas, trechos, resultados, captacoes, bacias])
+
+  // Volumes de escavação/berço/reaterro (aba Quantidade) — precisa de largura/talude/altura
+  // do berço cadastrados na Biblioteca de Peças pro material+diâmetro do trecho; sem isso o
+  // trecho fica de fora (null) e a tabela mostra '—' pra ele.
+  const volumesPorTrecho = useMemo(() => {
+    const mapa = new Map<string, { escavacao: number; berco: number; reaterro: number } | null>()
+    for (const t of trechos) {
+      const caixaMontante = caixaPorId.get(t.caixa_montante_id)
+      const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
+      const item = acharItemBiblioteca(biblioteca, t.material, t.diametro_m)
+      if (
+        !caixaMontante ||
+        !caixaJusante ||
+        caixaMontante.cota_terreno == null ||
+        caixaJusante.cota_terreno == null ||
+        t.cota_fundo_montante == null ||
+        t.cota_fundo_jusante == null ||
+        !item ||
+        item.largura_escavacao_m == null ||
+        item.talude_escavacao_hv == null ||
+        item.altura_berco_m == null
+      ) {
+        mapa.set(t.id, null)
+        continue
+      }
+      const params: ParametrosEscavacao = {
+        larguraFundoM: item.largura_escavacao_m,
+        taludeHv: item.talude_escavacao_hv,
+        alturaBercoM: item.altura_berco_m,
+      }
+      const diametroExternoM = t.diametro_m + 2 * (item.espessura_parede_m ?? 0)
+      const r = calcularVolumesTrecho(
+        t.comprimento_m,
+        caixaMontante.cota_terreno,
+        t.cota_fundo_montante,
+        caixaJusante.cota_terreno,
+        t.cota_fundo_jusante,
+        diametroExternoM,
+        params
+      )
+      mapa.set(t.id, { escavacao: r.volumeEscavacaoM3, berco: r.volumeBercoM3, reaterro: r.volumeReaterroM3 })
+    }
+    return mapa
+  }, [trechos, caixaPorId, biblioteca])
 
   // Degrau de energia (informativo, memória de cálculo) = o quanto a linha de energia PEDIRIA
   // mudar a cota de fundo montante em relação à continuação "ingênua" (menor cota de fundo
@@ -672,7 +806,30 @@ export function RedePluvialPage() {
         </div>
       )}
 
-      {resultados.length > 0 && (
+      {trechos.length > 0 && (
+        <div className="mb-4 inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
+          {(
+            [
+              { key: 'memorial', label: 'Memorial Justificativo', Icon: ClipboardList },
+              { key: 'notaServico', label: 'Nota de Serviço', Icon: NotebookText },
+              { key: 'quantidade', label: 'Quantidade', Icon: Boxes },
+            ] as const
+          ).map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              onClick={() => setAba(key)}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition ${
+                aba === key ? 'bg-brand text-white' : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {aba === 'memorial' && resultados.length > 0 && (
         <>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs text-text-secondary">
@@ -704,7 +861,7 @@ export function RedePluvialPage() {
             <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
               <thead>
                 <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
-                  {COLUNAS.filter((c) => !colunasOcultas.has(c.key)).map((c) => (
+                  {COLUNAS_MEMORIAL.filter((c) => !colunasOcultas.has(c.key)).map((c) => (
                     <th
                       key={c.key}
                       className={`group/th sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}
@@ -730,23 +887,33 @@ export function RedePluvialPage() {
                   const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
                   const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
                   const degrau = degrauEnergiaPorTrecho.get(r.trecho_id)
-                  const valores: Record<Exclude<ColunaKey, 'conformidade'>, string> = {
+                  const tcPercurso = trecho && r.velocidade_ms ? trecho.comprimento_m / r.velocidade_ms / 60 : null
+                  const tcProximo = trecho ? (tcPorCaixaFinal.get(trecho.caixa_jusante_id) ?? null) : null
+                  const cotaEnergiaMontante =
+                    trecho?.cota_fundo_montante != null && r.lamina_m != null && r.velocidade_ms != null
+                      ? calcularLinhaEnergia(trecho.cota_fundo_montante, r.lamina_m, r.velocidade_ms)
+                      : null
+                  const cotaEnergiaJusante =
+                    trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
+                      ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms)
+                      : null
+                  const valores: Record<Exclude<ColunaMemorialKey, 'conformidade'>, string> = {
                     trecho: r.trecho_nome,
                     caixaMontante: trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—',
                     caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
-                    diametro: trecho?.diametro_m.toFixed(3) ?? '—',
-                    inclinacao: trecho?.declividade_m_m.toFixed(4) ?? '—',
-                    cotaFundoMontante: trecho?.cota_fundo_montante?.toFixed(3) ?? '—',
-                    cotaFundoJusante: trecho?.cota_fundo_jusante?.toFixed(3) ?? '—',
-                    degrauEnergia: degrau != null ? `${degrau >= 0 ? '+' : ''}${degrau.toFixed(3)}` : '—',
-                    manning: trecho?.manning_n?.toFixed(4) ?? '—',
                     ca: r.ca_acumulado?.toFixed(2) ?? '—',
+                    tc: r.tc_sistema_min?.toFixed(1) ?? '—',
                     intensidade: r.intensidade_mm_h?.toFixed(2) ?? '—',
                     qProjeto: r.q_projeto_m3s?.toFixed(4) ?? '—',
-                    lamina: r.lamina_m?.toFixed(3) ?? '—',
-                    yd: r.y_sobre_d_pct != null ? `${r.y_sobre_d_pct.toFixed(0)}%` : '—',
+                    diametro: trecho?.diametro_m.toFixed(3) ?? '—',
+                    extensao: trecho?.comprimento_m.toFixed(2) ?? '—',
+                    inclinacao: trecho?.declividade_m_m.toFixed(4) ?? '—',
                     velocidade: r.velocidade_ms?.toFixed(2) ?? '—',
-                    tc: r.tc_sistema_min?.toFixed(1) ?? '—',
+                    yd: r.y_sobre_d_pct != null ? `${r.y_sobre_d_pct.toFixed(0)}%` : '—',
+                    tcPercurso: tcPercurso != null ? tcPercurso.toFixed(1) : '—',
+                    tcProximo: tcProximo != null ? tcProximo.toFixed(1) : '—',
+                    cotaEnergiaMontante: cotaEnergiaMontante != null ? cotaEnergiaMontante.toFixed(3) : '—',
+                    cotaEnergiaJusante: cotaEnergiaJusante != null ? cotaEnergiaJusante.toFixed(3) : '—',
                   }
                   return (
                     <tr
@@ -755,7 +922,7 @@ export function RedePluvialPage() {
                       className="group cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
                       title="Ver memória de cálculo"
                     >
-                      {COLUNAS.filter((c) => !colunasOcultas.has(c.key)).map((c) => {
+                      {COLUNAS_MEMORIAL.filter((c) => !colunasOcultas.has(c.key)).map((c) => {
                         if (c.key === 'conformidade') {
                           return (
                             <td key={c.key} className={`max-w-[260px] whitespace-normal align-top ${tdBase}`}>
@@ -794,8 +961,8 @@ export function RedePluvialPage() {
                             key={c.key}
                             className={`${tdBase} ${corTexto} ${c.key === 'trecho' ? 'font-medium' : ''}`}
                             title={
-                              c.key === 'degrauEnergia' && degrau != null && degrau < 0
-                                ? 'A linha de energia pediria subir a cota de fundo aqui, mas isso não foi aplicado (deixaria água represada na caixa) — valor só informativo.'
+                              c.key === 'cotaEnergiaMontante' && degrau != null && degrau < 0
+                                ? `A linha de energia pediria uma cota de fundo montante ${Math.abs(degrau).toFixed(3)}m mais alta aqui, mas isso não foi aplicado (deixaria água represada na caixa) — a cota mostrada já é a aplicada.`
                                 : undefined
                             }
                           >
@@ -812,6 +979,125 @@ export function RedePluvialPage() {
               </tbody>
             </table>
           </div>
+        </>
+      )}
+
+      {aba === 'memorial' && resultados.length === 0 && trechos.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
+          Rode o cálculo da rede pra ver o memorial justificativo.
+        </div>
+      )}
+
+      {aba === 'notaServico' &&
+        (trechosOrdenados.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
+            Nenhum trecho cadastrado ainda.
+          </div>
+        ) : (
+          <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface">
+            <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
+              <thead>
+                <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
+                  {COLUNAS_NOTA_SERVICO.map((label) => (
+                    <th key={label} className={`sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}>
+                      <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{label}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trechosOrdenados.map((t) => {
+                  const caixaMontante = caixaPorId.get(t.caixa_montante_id)
+                  const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
+                  const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
+                  return (
+                    <tr
+                      key={t.id}
+                      onClick={() => setTrechoModalId(t.id)}
+                      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
+                      title="Ver memória de cálculo"
+                    >
+                      <td className={`${tdBase} font-medium text-text-primary`}>{t.nome}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{t.diametro_m.toFixed(3)}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{t.comprimento_m.toFixed(2)}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{t.declividade_m_m.toFixed(4)}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.cota_terreno?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.cota_terreno?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{t.cota_fundo_montante?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{t.cota_fundo_jusante?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.x?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaMontante?.y?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.x?.toFixed(3) ?? '—'}</td>
+                      <td className={`${tdBase} text-text-secondary`}>{caixaJusante?.y?.toFixed(3) ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+
+      {aba === 'quantidade' && (
+        <>
+          {(() => {
+            const semDados = trechosOrdenados.filter((t) => volumesPorTrecho.get(t.id) == null).length
+            if (semDados === 0) return null
+            return (
+              <div className="mb-3 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3 text-sm text-accent-amber">
+                {semDados} trecho(s) sem largura/talude/altura de berço cadastrados na Biblioteca de Peças pro material+diâmetro — volume
+                não calculado pra eles.
+              </div>
+            )
+          })()}
+          {trechosOrdenados.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
+              Nenhum trecho cadastrado ainda.
+            </div>
+          ) : (
+            <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface">
+              <table className={`w-full whitespace-nowrap ${fonteCompacta ? 'text-xs' : 'text-sm'}`}>
+                <thead>
+                  <tr className="border-b border-border bg-elevated text-left text-xs text-text-secondary">
+                    {COLUNAS_QUANTIDADE.map((label) => (
+                      <th key={label} className={`sticky top-0 z-10 bg-elevated align-bottom font-medium ${fonteCompacta ? 'px-2 py-1' : 'px-3 py-2'}`}>
+                        <span className="block max-w-[90px] whitespace-normal break-words leading-tight">{label}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {trechosOrdenados.map((t) => {
+                    const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
+                    const volumes = volumesPorTrecho.get(t.id)
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => setTrechoModalId(t.id)}
+                        className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-elevated/40"
+                        title="Ver memória de cálculo"
+                      >
+                        <td className={`${tdBase} font-medium text-text-primary`}>{t.nome}</td>
+                        <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'}</td>
+                        <td className={`${tdBase} text-text-secondary`}>{nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'}</td>
+                        <td className={`${tdBase} text-text-secondary`}>{t.diametro_m.toFixed(3)}</td>
+                        <td className={`${tdBase} text-text-secondary`}>{t.comprimento_m.toFixed(2)}</td>
+                        <td
+                          className={`${tdBase} text-text-secondary`}
+                          title={!volumes ? 'Cadastre largura de escavação, talude e altura de berço pra esse material+diâmetro na Biblioteca de Peças.' : undefined}
+                        >
+                          {volumes ? volumes.escavacao.toFixed(2) : '—'}
+                        </td>
+                        <td className={`${tdBase} text-text-secondary`}>{volumes ? volumes.berco.toFixed(2) : '—'}</td>
+                        <td className={`${tdBase} text-text-secondary`}>{volumes ? volumes.reaterro.toFixed(2) : '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
