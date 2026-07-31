@@ -172,11 +172,33 @@ describe('identificarRedesPorPvCabeceira', () => {
     expect(redes.get('tX')).toBe(redeA)
   })
 
-  it('cabeceira que NÃO é PV (boca de lobo etc.) não gera rede própria', () => {
-    const caixas = [caixa('BL-01', 'boca_de_lobo'), caixa('X')]
+  it('cabeceira que NÃO é PV (boca de lobo etc.) não gera rede própria -- se nunca chega a um PV, fica sem rede', () => {
+    const caixas = [caixa('BL-01', 'boca_de_lobo'), caixa('X', 'caixa_passagem')]
     const trechos = [{ id: 't1', montanteId: 'BL-01', jusanteId: 'X', nome: 'T1', diametroM: 0.2 }]
     const redes = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('t1')).toBeUndefined()
+  })
+
+  it('PV que recebe DIRETO de boca de lobo/grelha ainda é considerado cabeceira e gera rede -- na prática todo PV recebe contribuição', () => {
+    const caixas = [caixa('BL-01', 'boca_de_lobo'), caixa('PV-A'), caixa('Saida')]
+    const trechos = [
+      { id: 'tBl', montanteId: 'BL-01', jusanteId: 'PV-A', nome: 'PVC-1', diametroM: 0.2 },
+      { id: 'tA', montanteId: 'PV-A', jusanteId: 'Saida', nome: 'BSTC-1', diametroM: 0.4 },
+    ]
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    expect(redes.get('tA')).toBeDefined() // PV-A gera rede mesmo recebendo direto do inlet
+    expect(redes.get('tBl')).toBe(redes.get('tA')) // e a boca de lobo que o alimenta entra na mesma rede
+  })
+
+  it('PV que recebe de OUTRO PV não é cabeceira -- é continuação da rede que já existe, não gera uma segunda', () => {
+    const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('Saida')]
+    const trechos = [
+      { id: 'tA', montanteId: 'PV-A', jusanteId: 'PV-B', nome: 'BSTC-A', diametroM: 0.4 },
+      { id: 'tB', montanteId: 'PV-B', jusanteId: 'Saida', nome: 'BSTC-B', diametroM: 0.4 },
+    ]
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    expect(redes.get('tA')).toBe(redes.get('tB')) // mesma rede -- PV-B não inicia uma nova
+    expect(new Set(redes.values()).size).toBe(1)
   })
 
   it('boca de lobo que deságua numa rede de PV passa a integrar aquela rede a partir dali', () => {

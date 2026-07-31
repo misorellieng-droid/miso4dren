@@ -191,19 +191,23 @@ export interface CaixaComTipo extends CaixaOrdenavel {
 }
 
 /**
- * Identifica as "redes" dentro da revisão a partir de cada PV de cabeceira (poço de visita sem
- * nenhum trecho de entrada) — cada PV de cabeceira gera uma rede nova e independente, numerada
- * em ordem alfabética do nome do PV (determinístico). A rede se propaga rio abaixo trecho a
- * trecho até desaguar numa caixa que já recebe outra rede (confluência): a partir daí, quem
+ * Identifica as "redes" dentro da revisão a partir de cada PV de cabeceira. "De cabeceira" aqui
+ * NÃO significa sem nenhum trecho de entrada — na prática todo PV recebe contribuição direta de
+ * boca de lobo/grelha, então essa condição quase nunca aconteceria. Significa: um PV cujas
+ * entradas (se houver) vêm todas de caixas que NÃO são PV — ou seja, é o PRIMEIRO PV da rede,
+ * mesmo recebendo água direto de inlets. Um PV só deixa de ser cabeceira quando pelo menos uma
+ * das entradas dele vem de OUTRO PV — nesse caso ele é continuação/junção de uma rede que já
+ * existe, não o início de uma nova.
+ *
+ * Cada PV de cabeceira gera uma rede nova e independente, numerada em ordem alfabética do nome
+ * (determinístico). A rede se propaga rio abaixo trecho a trecho até desaguar numa caixa que já
+ * recebe outra rede (confluência com outro PV de cabeceira mais a jusante): a partir daí, quem
  * continua é a entrada DOMINANTE (maior diâmetro — mesmo critério de tronco/ramal usado em
  * identificarTroncoRede/ordenarTrechosPorFluxo), como se a rede menor tivesse "desaguado" na
- * maior. Cabeceiras que NÃO são PV (boca de lobo, grelha, caixa de passagem etc.) não geram
- * rede própria — o próprio trecho delas fica "sem rede" (fora do Map) até desaguar numa caixa
- * que já resolve pra alguma rede com origem num PV, quando passam a integrar aquela rede a
- * partir dali (útil pra Nota de Serviço/Quantidade: a boca de lobo entra no filtro da rede que
- * ela alimenta). Se nunca desaguam em nenhuma rede com PV a montante, ficam sem rede do início
- * ao fim. Assume no máximo 1 trecho de saída por caixa, igual ao
- * resto do engine.
+ * maior. Caixas que não são PV (boca de lobo, grelha, caixa de passagem etc.) nunca geram rede
+ * própria — passam a integrar a rede do PV de cabeceira que alimentam (útil pra Nota de
+ * Serviço/Quantidade: a boca de lobo entra no filtro da rede que ela alimenta). Assume no
+ * máximo 1 trecho de saída por caixa, igual ao resto do engine.
  */
 export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: TrechoOrdenavel[]): Map<string, number> {
   const { resolve, entradasPorCaixa } = montarEstruturaFluxo(caixas, trechos)
@@ -220,10 +224,17 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
     if (!tipoPorCaixaResolvida.has(id)) tipoPorCaixaResolvida.set(id, c.tipo)
   }
 
+  const ehPv = (id: string) => tipoPorCaixaResolvida.get(id) === 'pv'
+  const ehPvCabeceira = (id: string) => {
+    if (!ehPv(id)) return false
+    const entradas = entradasPorCaixa.get(id) ?? []
+    return entradas.every((e) => !ehPv(resolve(e.montanteId)))
+  }
+
   // numera os PVs de cabeceira em ordem alfabética do nome -- numeração determinística,
   // independente da ordem de chegada dos dados do banco.
   const pvsCabeceira = idsResolvidos
-    .filter((id) => (entradasPorCaixa.get(id) ?? []).length === 0 && tipoPorCaixaResolvida.get(id) === 'pv')
+    .filter(ehPvCabeceira)
     .sort((a, b) => (nomePorCaixaResolvida.get(a) ?? '').localeCompare(nomePorCaixaResolvida.get(b) ?? ''))
   const numeroPorPvCabeceira = new Map(pvsCabeceira.map((id, i) => [id, i + 1]))
 
@@ -235,24 +246,28 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
   for (const caixaId of ordem) {
     const entradas = entradasPorCaixa.get(caixaId) ?? []
     let redeAtual: number | undefined
-    if (entradas.length === 0) {
+
+    if (numeroPorPvCabeceira.has(caixaId)) {
+      // PV de cabeceira -- gera (ou continua sendo) sua própria rede, mesmo já tendo entradas
+      // de inlets (boca de lobo/grelha).
       redeAtual = numeroPorPvCabeceira.get(caixaId)
-    } else {
+    } else if (entradas.length > 0) {
       // entradas já vem ordenado por diâmetro decrescente (a dominante primeiro); se ela não
-      // carrega rede (ramal sem PV a montante), tenta achar alguma outra entrada que carregue.
+      // carrega rede ainda, tenta achar alguma outra entrada que carregue.
       redeAtual = redePorTrecho.get(entradas[0].id)
       if (redeAtual == null) {
         const comRede = entradas.find((e) => redePorTrecho.get(e.id) != null)
         redeAtual = comRede ? redePorTrecho.get(comRede.id) : undefined
       }
-      // "adota" ramais órfãos (sem PV a montante, ex.: boca de lobo) que desaguam aqui --
-      // passam a integrar a rede resolvida desta caixa a partir deste ponto. Ramais que JÁ
-      // carregam sua própria rede (mesmo que não seja a dominante) não são sobrescritos: a
-      // rede deles continua existindo até aqui, só não segue rio abaixo (ela "desaguou").
-      if (redeAtual != null) {
-        for (const e of entradas) {
-          if (redePorTrecho.get(e.id) == null) redePorTrecho.set(e.id, redeAtual)
-        }
+    }
+
+    // "adota" ramais órfãos (boca de lobo/grelha sem rede própria, ou entradas de um PV de
+    // cabeceira) que desaguam aqui -- passam a integrar a rede resolvida desta caixa. Ramais
+    // que JÁ carregam sua própria rede (de outro PV de cabeceira) não são sobrescritos: a rede
+    // deles continua existindo até aqui, só não segue rio abaixo (ela "desaguou").
+    if (redeAtual != null) {
+      for (const e of entradas) {
+        if (redePorTrecho.get(e.id) == null) redePorTrecho.set(e.id, redeAtual)
       }
     }
 
