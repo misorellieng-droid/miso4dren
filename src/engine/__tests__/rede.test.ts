@@ -149,7 +149,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 't1', montanteId: 'PV-A', jusanteId: 'X', nome: 'T1', diametroM: 0.3 },
       { id: 't2', montanteId: 'PV-B', jusanteId: 'Y', nome: 'T2', diametroM: 0.3 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('t1')).not.toBe(redes.get('t2'))
     expect(redes.get('t1')).toBeDefined()
     expect(redes.get('t2')).toBeDefined()
@@ -164,7 +164,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 'tB', montanteId: 'PV-B', jusanteId: 'X', nome: 'BSTC-B', diametroM: 0.3 },
       { id: 'tX', montanteId: 'X', jusanteId: 'Saida', nome: 'BSTC-X', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     const redeA = redes.get('tA')!
     const redeB = redes.get('tB')!
     expect(redeA).not.toBe(redeB)
@@ -172,10 +172,25 @@ describe('identificarRedesPorPvCabeceira', () => {
     expect(redes.get('tX')).toBe(redeA)
   })
 
+  it('registra em redesQueDesaguamPorCaixa o ponto (e o número da rede) onde uma rede deságua em outra', () => {
+    const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('X'), caixa('Saida')]
+    const trechos = [
+      { id: 'tA', montanteId: 'PV-A', jusanteId: 'X', nome: 'BSTC-A', diametroM: 0.6 },
+      { id: 'tB', montanteId: 'PV-B', jusanteId: 'X', nome: 'BSTC-B', diametroM: 0.3 },
+      { id: 'tX', montanteId: 'X', jusanteId: 'Saida', nome: 'BSTC-X', diametroM: 0.6 },
+    ]
+    const { redePorTrecho: redes, redesQueDesaguamPorCaixa } = identificarRedesPorPvCabeceira(caixas, trechos)
+    const redeB = redes.get('tB')!
+    expect(redesQueDesaguamPorCaixa.get('X')).toEqual([redeB])
+    // caixas que não são ponto de confluência entre redes diferentes não aparecem no map
+    expect(redesQueDesaguamPorCaixa.has('PV-A')).toBe(false)
+    expect(redesQueDesaguamPorCaixa.has('PV-B')).toBe(false)
+  })
+
   it('cabeceira que NÃO é PV (boca de lobo etc.) não gera rede própria -- se nunca chega a um PV, fica sem rede', () => {
     const caixas = [caixa('BL-01', 'boca_de_lobo'), caixa('X', 'caixa_passagem')]
     const trechos = [{ id: 't1', montanteId: 'BL-01', jusanteId: 'X', nome: 'T1', diametroM: 0.2 }]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('t1')).toBeUndefined()
   })
 
@@ -185,7 +200,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 'tBl', montanteId: 'BL-01', jusanteId: 'PV-A', nome: 'PVC-1', diametroM: 0.2 },
       { id: 'tA', montanteId: 'PV-A', jusanteId: 'Saida', nome: 'BSTC-1', diametroM: 0.4 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('tA')).toBeDefined() // PV-A gera rede mesmo recebendo direto do inlet
     expect(redes.get('tBl')).toBe(redes.get('tA')) // e a boca de lobo que o alimenta entra na mesma rede
   })
@@ -196,7 +211,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 'tA', montanteId: 'PV-A', jusanteId: 'PV-B', nome: 'BSTC-A', diametroM: 0.4 },
       { id: 'tB', montanteId: 'PV-B', jusanteId: 'Saida', nome: 'BSTC-B', diametroM: 0.4 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('tA')).toBe(redes.get('tB')) // mesma rede -- PV-B não inicia uma nova
     expect(new Set(redes.values()).size).toBe(1)
   })
@@ -208,7 +223,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 'tBl', montanteId: 'BL-01', jusanteId: 'X', nome: 'PVC-BL', diametroM: 0.2 },
       { id: 'tX', montanteId: 'X', jusanteId: 'Saida', nome: 'BSTC-X', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     // a boca de lobo não GERA rede própria, mas passa a integrar a rede em que deságua
     expect(redes.get('tBl')).toBe(redes.get('tA'))
     expect(redes.get('tX')).toBe(redes.get('tA')) // e o trecho depois da confluência também segue a rede do PV
@@ -220,7 +235,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 't_002', montanteId: 'PV-002', jusanteId: 'Y', nome: 'T-002', diametroM: 0.3 },
       { id: 't_001', montanteId: 'PV-001', jusanteId: 'X', nome: 'T-001', diametroM: 0.3 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('t_001')).toBe(1) // PV-001 vem antes de PV-002 alfabeticamente
     expect(redes.get('t_002')).toBe(2)
   })
@@ -231,7 +246,7 @@ describe('identificarRedesPorPvCabeceira', () => {
       { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
       { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('bstc1')).toBe(redes.get('bstc1b'))
   })
 })

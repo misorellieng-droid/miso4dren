@@ -520,13 +520,27 @@ export function RedePluvialPage() {
   // (na confluência, quem continua é a entrada dominante — maior diâmetro). Cabeceiras que não
   // são PV (boca de lobo, grelha etc.) não geram rede própria. Não depende de rede_nome (nome
   // do PipeNetwork importado do Civil3D). Permite isolar cada rede pra análise (filtro abaixo).
-  const redePorTrecho = useMemo(() => {
-    if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
+  const redesPorPvCabeceira = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) {
+      return { redePorTrecho: new Map<string, number>(), redesQueDesaguamPorCaixa: new Map<string, number[]>() }
+    }
     return identificarRedesPorPvCabeceira(
       caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
       trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
   }, [caixas, trechos])
+  const redePorTrecho = redesPorPvCabeceira.redePorTrecho
+  const redesQueDesaguamPorCaixa = redesPorPvCabeceira.redesQueDesaguamPorCaixa
+
+  // Texto pra anexar no nome da caixa montante quando ela é ponto de confluência entre redes
+  // diferentes -- ex.: "PV - 04 (recebe Rede 02)". Só a rede que NÃO continua dali pra frente
+  // aparece marcada (a rede dominante já é óbvia pelo próprio filtro/coluna Trecho).
+  const sufixoRedesQueDesaguam = (caixaId: string): string => {
+    const outras = redesQueDesaguamPorCaixa.get(caixaId)
+    if (!outras || outras.length === 0) return ''
+    const nomes = outras.map((n) => `Rede ${String(n).padStart(2, '0')}`).join(', ')
+    return ` (recebe ${nomes})`
+  }
 
   const numerosRedeDisponiveis = useMemo(() => [...new Set(redePorTrecho.values())].sort((a, b) => a - b), [redePorTrecho])
 
@@ -987,7 +1001,9 @@ export function RedePluvialPage() {
                       : null
                   const valores: Record<Exclude<ColunaMemorialKey, 'conformidade'>, string> = {
                     trecho: r.trecho_nome,
-                    caixaMontante: trecho ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') : '—',
+                    caixaMontante: trecho
+                      ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
+                      : '—',
                     caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
                     ca: r.ca_acumulado?.toFixed(2) ?? '—',
                     tc: r.tc_sistema_min?.toFixed(1) ?? '—',
@@ -1114,7 +1130,7 @@ export function RedePluvialPage() {
                   const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
                   const valores: Record<ColunaNotaServicoKey, string> = {
                     trecho: t.nome,
-                    caixaMontante: nomeCaixaPorId.get(t.caixa_montante_id) ?? '—',
+                    caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
                     caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
                     diametro: t.diametro_m.toFixed(3),
                     extensao: t.comprimento_m.toFixed(2),
@@ -1196,7 +1212,7 @@ export function RedePluvialPage() {
                     const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
                     const valores: Record<ColunaQuantidadeKey, string> = {
                       trecho: t.nome,
-                      caixaMontante: nomeCaixaPorId.get(t.caixa_montante_id) ?? '—',
+                      caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
                       caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
                       diametro: t.diametro_m.toFixed(3),
                       extensao: t.comprimento_m.toFixed(2),

@@ -209,7 +209,16 @@ export interface CaixaComTipo extends CaixaOrdenavel {
  * Serviço/Quantidade: a boca de lobo entra no filtro da rede que ela alimenta). Assume no
  * máximo 1 trecho de saída por caixa, igual ao resto do engine.
  */
-export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: TrechoOrdenavel[]): Map<string, number> {
+export interface RedesPorPvCabeceira {
+  /** rede de cada trecho */
+  redePorTrecho: Map<string, number>
+  /** pra cada caixa de confluência, os números de rede (que não a que continua a partir dali)
+   * que desaguam ali -- ex.: Rede 02 desaguando na Rede 01 na caixa X aparece como
+   * redesQueDesaguamPorCaixa.get('X') === [2]. Útil pra sinalizar isso nas tabelas/diagrama. */
+  redesQueDesaguamPorCaixa: Map<string, number[]>
+}
+
+export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: TrechoOrdenavel[]): RedesPorPvCabeceira {
   const { resolve, entradasPorCaixa } = montarEstruturaFluxo(caixas, trechos)
 
   const idsResolvidos = [...new Set(caixas.map((c) => resolve(c.id)))]
@@ -242,6 +251,7 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
   for (const t of trechos) saidaPorCaixa.set(resolve(t.montanteId), t)
 
   const redePorTrecho = new Map<string, number>()
+  const redesQueDesaguamPorCaixa = new Map<string, number[]>()
 
   for (const caixaId of ordem) {
     const entradas = entradasPorCaixa.get(caixaId) ?? []
@@ -261,11 +271,20 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
       }
     }
 
-    // "adota" ramais órfãos (boca de lobo/grelha sem rede própria, ou entradas de um PV de
-    // cabeceira) que desaguam aqui -- passam a integrar a rede resolvida desta caixa. Ramais
-    // que JÁ carregam sua própria rede (de outro PV de cabeceira) não são sobrescritos: a rede
-    // deles continua existindo até aqui, só não segue rio abaixo (ela "desaguou").
     if (redeAtual != null) {
+      // registra qualquer entrada que já chegue com uma rede DIFERENTE da que continua daqui
+      // pra frente -- é o ponto onde aquela outra rede "deságua" nesta.
+      const outrasRedes = new Set<number>()
+      for (const e of entradas) {
+        const redeEntrada = redePorTrecho.get(e.id)
+        if (redeEntrada != null && redeEntrada !== redeAtual) outrasRedes.add(redeEntrada)
+      }
+      if (outrasRedes.size > 0) redesQueDesaguamPorCaixa.set(caixaId, [...outrasRedes].sort((a, b) => a - b))
+
+      // "adota" ramais órfãos (boca de lobo/grelha sem rede própria, ou entradas de um PV de
+      // cabeceira) que desaguam aqui -- passam a integrar a rede resolvida desta caixa. Ramais
+      // que JÁ carregam sua própria rede (de outro PV de cabeceira) não são sobrescritos: a
+      // rede deles continua existindo até aqui, só não segue rio abaixo (ela "desaguou").
       for (const e of entradas) {
         if (redePorTrecho.get(e.id) == null) redePorTrecho.set(e.id, redeAtual)
       }
@@ -277,7 +296,7 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
     }
   }
 
-  return redePorTrecho
+  return { redePorTrecho, redesQueDesaguamPorCaixa }
 }
 
 /**
