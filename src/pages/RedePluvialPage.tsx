@@ -20,7 +20,14 @@ import { RedeDiagrama } from '../components/RedeDiagrama'
 import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { calcularIntensidadeIdf } from '../engine/idf'
-import { acumularVazao, calcularQProjeto, calcularTcSistema, identificarTroncoRede, ordenarTrechosPorFluxo } from '../engine/rede'
+import {
+  acumularVazao,
+  calcularQProjeto,
+  calcularTcSistema,
+  identificarRedesPorTopologia,
+  identificarTroncoRede,
+  ordenarTrechosPorFluxo,
+} from '../engine/rede'
 import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
 import { calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
 import { resolverLamina } from '../engine/bissecao'
@@ -353,6 +360,7 @@ export function RedePluvialPage() {
   const [avisos, setAvisos] = useState<string[]>([])
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
   const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
+  const [redeSelecionada, setRedeSelecionada] = useState<number | 'todas'>('todas')
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
@@ -506,31 +514,51 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
+  // Rede = árvore física completa (todas as cabeceiras que convergem, até a saída final),
+  // numerada automaticamente pela conectividade dos trechos — não depende de rede_nome
+  // (nome do PipeNetwork importado do Civil3D, que pode não bater com a topologia real).
+  // Permite isolar cada sistema de drenagem independente pra análise (filtro abaixo).
+  const redePorTrecho = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
+    return identificarRedesPorTopologia(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+    )
+  }, [caixas, trechos])
+
+  const numerosRedeDisponiveis = useMemo(() => [...new Set(redePorTrecho.values())].sort((a, b) => a - b), [redePorTrecho])
+
+  const passaFiltros = (trechoId: string) =>
+    (visaoDiagrama !== 'tronco' || troncoIds.has(trechoId)) && (redeSelecionada === 'todas' || redePorTrecho.get(trechoId) === redeSelecionada)
+
   const resultadosOrdenados = useMemo(() => {
-    const base = visaoDiagrama === 'tronco' ? resultados.filter((r) => troncoIds.has(r.trecho_id)) : resultados
+    const base = resultados.filter((r) => passaFiltros(r.trecho_id))
     const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
     return [...base].sort((a, b) => posicao(a) - posicao(b))
-  }, [resultados, ordemTrechos, troncoIds, visaoDiagrama])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
 
   // Mesma ordem/filtro de resultadosOrdenados, mas a partir de `trechos` direto (não depende
   // de ter rodado o cálculo) — usado pelas abas Nota de Serviço e Quantidade.
   const trechosOrdenados = useMemo(() => {
-    const base = visaoDiagrama === 'tronco' ? trechos.filter((t) => troncoIds.has(t.id)) : trechos
+    const base = trechos.filter((t) => passaFiltros(t.id))
     const posicao = (t: TrechoRecord) => ordemTrechos.get(t.id) ?? Number.MAX_SAFE_INTEGER
     return [...base].sort((a, b) => posicao(a) - posicao(b))
-  }, [trechos, ordemTrechos, troncoIds, visaoDiagrama])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trechos, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
 
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
 
   const trechosDiagrama = useMemo(
-    () => (visaoDiagrama === 'tronco' ? trechos.filter((t) => troncoIds.has(t.id)) : trechos),
-    [trechos, troncoIds, visaoDiagrama]
+    () => trechos.filter((t) => passaFiltros(t.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [trechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada]
   )
   const caixasDiagrama = useMemo(() => {
-    if (visaoDiagrama !== 'tronco') return caixas
+    if (visaoDiagrama !== 'tronco' && redeSelecionada === 'todas') return caixas
     const idsUsados = new Set(trechosDiagrama.flatMap((t) => [t.caixa_montante_id, t.caixa_jusante_id]))
     return caixas.filter((c) => idsUsados.has(c.id))
-  }, [caixas, trechosDiagrama, visaoDiagrama])
+  }, [caixas, trechosDiagrama, visaoDiagrama, redeSelecionada])
 
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
@@ -788,7 +816,7 @@ export function RedePluvialPage() {
       </div>
 
       {caixas.length > 0 && trechos.length > 0 && (
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="inline-flex rounded-lg border border-border bg-surface p-0.5 text-xs">
             <button
               onClick={() => setVisaoDiagrama('completa')}
@@ -807,8 +835,25 @@ export function RedePluvialPage() {
               Só rede tronco
             </button>
           </div>
+          {numerosRedeDisponiveis.length > 1 && (
+            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+              Rede:
+              <select
+                value={redeSelecionada}
+                onChange={(e) => setRedeSelecionada(e.target.value === 'todas' ? 'todas' : Number(e.target.value))}
+                className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-text-primary"
+              >
+                <option value="todas">Todas ({numerosRedeDisponiveis.length})</option>
+                {numerosRedeDisponiveis.map((n) => (
+                  <option key={n} value={n}>
+                    Rede {String(n).padStart(2, '0')}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {visaoDiagrama === 'tronco' && (
-            <div className="mt-1 text-[11px] text-text-secondary">
+            <div className="text-[11px] text-text-secondary">
               Mostra só a cadeia principal (maior diâmetro em cada confluência) — os ramais menores ficam ocultos na tabela e no diagrama.
             </div>
           )}

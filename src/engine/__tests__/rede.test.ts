@@ -4,6 +4,7 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
+  identificarRedesPorTopologia,
   identificarTroncoRede,
   ordenarTopologicamente,
   ordenarTrechosPorFluxo,
@@ -136,6 +137,53 @@ describe('identificarTroncoRede', () => {
     ]
     const tronco = identificarTroncoRede(caixas, trechos)
     expect([...tronco].sort()).toEqual(['bstc1', 'bstc1b', 'bstc2', 'bstc3', 'bstc4', 'pvc5'].sort())
+  })
+})
+
+describe('identificarRedesPorTopologia', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
+  it('duas árvores totalmente desconectadas (2 saídas independentes) viram redes separadas', () => {
+    const caixas = ['A', 'B', 'X', 'Y'].map(caixa)
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'X', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'B', jusanteId: 'Y', nome: 'T2', diametroM: 0.3 },
+    ]
+    const redes = identificarRedesPorTopologia(caixas, trechos)
+    expect(redes.get('t1')).not.toBe(redes.get('t2'))
+  })
+
+  it('ramais que convergem pra mesma saída ficam todos na mesma rede, mesmo com confluência', () => {
+    const caixas = ['A', 'B', 'C', 'X'].map(caixa)
+    const trechos = [
+      { id: 'tronco', montanteId: 'A', jusanteId: 'X', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'ramal1', montanteId: 'B', jusanteId: 'X', nome: 'PVC-1', diametroM: 0.2 },
+      { id: 'ramal2', montanteId: 'C', jusanteId: 'X', nome: 'PVC-2', diametroM: 0.3 },
+    ]
+    const redes = identificarRedesPorTopologia(caixas, trechos)
+    expect(redes.get('tronco')).toBe(redes.get('ramal1'))
+    expect(redes.get('tronco')).toBe(redes.get('ramal2'))
+  })
+
+  it('numera as redes em ordem alfabética da caixa de saída (mesma ordem de ordenarTrechosPorFluxo)', () => {
+    const caixas = ['A', 'B', 'X-final', 'Y-final'].map(caixa)
+    const trechos = [
+      { id: 't_y', montanteId: 'B', jusanteId: 'Y-final', nome: 'T-Y', diametroM: 0.3 },
+      { id: 't_x', montanteId: 'A', jusanteId: 'X-final', nome: 'T-X', diametroM: 0.3 },
+    ]
+    const redes = identificarRedesPorTopologia(caixas, trechos)
+    expect(redes.get('t_x')).toBe(1) // X-final vem antes de Y-final alfabeticamente
+    expect(redes.get('t_y')).toBe(2)
+  })
+
+  it('funde pares Start/EndNullStruct pro mesmo lado da rede (mesmo critério de ordenarTrechosPorFluxo)', () => {
+    const caixas = ['PV-001', 'StartNullStruct0', 'EndNullStruct0', 'PV-002'].map(caixa)
+    const trechos = [
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+    ]
+    const redes = identificarRedesPorTopologia(caixas, trechos)
+    expect(redes.get('bstc1')).toBe(redes.get('bstc1b'))
   })
 })
 

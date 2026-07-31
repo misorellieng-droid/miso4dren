@@ -187,6 +187,37 @@ export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoO
 }
 
 /**
+ * Identifica as "redes" fisicamente independentes dentro da revisão — cada rede é uma árvore
+ * completa (todas as cabeceiras que convergem por confluências) até sua saída final, numerada
+ * na mesma ordem em que aparece na tabela (ordenarTrechosPorFluxo também itera outfalls nessa
+ * ordem alfabética pelo nome da caixa de saída — por isso a "Rede 01" é sempre a árvore cuja
+ * primeira linha impressa é a cabeceira mais a montante dela). Diferente de rede_nome (que vem
+ * do nome do PipeNetwork no Civil3D e pode não bater com a conectividade real): aqui a rede é
+ * 100% definida pela topologia dos trechos/caixas desta revisão — duas redes só podem existir
+ * separadas se REALMENTE não há nenhum trecho ligando uma à outra. Uma vez que dois ramais se
+ * conectam (mesma árvore, mesma saída final), eles sempre foram a mesma rede — não há "rede A
+ * desaguando na rede B" possível sob esse critério, viraria uma rede só desde o começo.
+ */
+export function identificarRedesPorTopologia(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
+  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+
+  const redePorTrecho = new Map<string, number>()
+  let numero = 0
+  for (const outfallId of outfalls) {
+    numero++
+    const visitar = (caixaId: string) => {
+      for (const t of entradasPorCaixa.get(caixaId) ?? []) {
+        if (redePorTrecho.has(t.id)) continue
+        redePorTrecho.set(t.id, numero)
+        visitar(resolve(t.montanteId))
+      }
+    }
+    visitar(outfallId)
+  }
+  return redePorTrecho
+}
+
+/**
  * Acumula uma grandeza aditiva ao longo do grafo, dos nós de cabeceira até
  * a saída — genérico o bastante pra somar tanto vazão pronta quanto C×A.
  * Para cada nó: total(nó) = soma dos totais de todos os trechos de entrada +
