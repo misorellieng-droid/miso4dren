@@ -4,7 +4,7 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
-  identificarRedesPorTopologia,
+  identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTopologicamente,
   ordenarTrechosPorFluxo,
@@ -140,49 +140,76 @@ describe('identificarTroncoRede', () => {
   })
 })
 
-describe('identificarRedesPorTopologia', () => {
-  const caixa = (id: string) => ({ id, nome: id })
+describe('identificarRedesPorPvCabeceira', () => {
+  const caixa = (id: string, tipo: string = 'pv') => ({ id, nome: id, tipo })
 
-  it('duas árvores totalmente desconectadas (2 saídas independentes) viram redes separadas', () => {
-    const caixas = ['A', 'B', 'X', 'Y'].map(caixa)
+  it('cada PV de cabeceira gera uma rede independente', () => {
+    const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('X'), caixa('Y')]
     const trechos = [
-      { id: 't1', montanteId: 'A', jusanteId: 'X', nome: 'T1', diametroM: 0.3 },
-      { id: 't2', montanteId: 'B', jusanteId: 'Y', nome: 'T2', diametroM: 0.3 },
+      { id: 't1', montanteId: 'PV-A', jusanteId: 'X', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'PV-B', jusanteId: 'Y', nome: 'T2', diametroM: 0.3 },
     ]
-    const redes = identificarRedesPorTopologia(caixas, trechos)
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('t1')).not.toBe(redes.get('t2'))
+    expect(redes.get('t1')).toBeDefined()
+    expect(redes.get('t2')).toBeDefined()
   })
 
-  it('ramais que convergem pra mesma saída ficam todos na mesma rede, mesmo com confluência', () => {
-    const caixas = ['A', 'B', 'C', 'X'].map(caixa)
+  it('quando uma rede deságua em outra (confluência), a rede dominante (maior diâmetro) continua rio abaixo', () => {
+    // PV-A (rede 1, tronco maior) e PV-B (rede 2, ramal menor) convergem em X; dali em diante
+    // segue como a rede de PV-A (dominante) -- a rede de PV-B "termina" ali, desaguada na de A.
+    const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('X'), caixa('Saida')]
     const trechos = [
-      { id: 'tronco', montanteId: 'A', jusanteId: 'X', nome: 'BSTC-1', diametroM: 0.6 },
-      { id: 'ramal1', montanteId: 'B', jusanteId: 'X', nome: 'PVC-1', diametroM: 0.2 },
-      { id: 'ramal2', montanteId: 'C', jusanteId: 'X', nome: 'PVC-2', diametroM: 0.3 },
+      { id: 'tA', montanteId: 'PV-A', jusanteId: 'X', nome: 'BSTC-A', diametroM: 0.6 },
+      { id: 'tB', montanteId: 'PV-B', jusanteId: 'X', nome: 'BSTC-B', diametroM: 0.3 },
+      { id: 'tX', montanteId: 'X', jusanteId: 'Saida', nome: 'BSTC-X', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorTopologia(caixas, trechos)
-    expect(redes.get('tronco')).toBe(redes.get('ramal1'))
-    expect(redes.get('tronco')).toBe(redes.get('ramal2'))
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    const redeA = redes.get('tA')!
+    const redeB = redes.get('tB')!
+    expect(redeA).not.toBe(redeB)
+    // rio abaixo da confluência, segue a rede da entrada dominante (PV-A, maior diâmetro)
+    expect(redes.get('tX')).toBe(redeA)
   })
 
-  it('numera as redes em ordem alfabética da caixa de saída (mesma ordem de ordenarTrechosPorFluxo)', () => {
-    const caixas = ['A', 'B', 'X-final', 'Y-final'].map(caixa)
+  it('cabeceira que NÃO é PV (boca de lobo etc.) não gera rede própria', () => {
+    const caixas = [caixa('BL-01', 'boca_de_lobo'), caixa('X')]
+    const trechos = [{ id: 't1', montanteId: 'BL-01', jusanteId: 'X', nome: 'T1', diametroM: 0.2 }]
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    expect(redes.get('t1')).toBeUndefined()
+  })
+
+  it('boca de lobo que deságua numa rede de PV passa a integrar aquela rede a partir dali', () => {
+    const caixas = [caixa('PV-A'), caixa('BL-01', 'boca_de_lobo'), caixa('X'), caixa('Saida')]
     const trechos = [
-      { id: 't_y', montanteId: 'B', jusanteId: 'Y-final', nome: 'T-Y', diametroM: 0.3 },
-      { id: 't_x', montanteId: 'A', jusanteId: 'X-final', nome: 'T-X', diametroM: 0.3 },
+      { id: 'tA', montanteId: 'PV-A', jusanteId: 'X', nome: 'BSTC-A', diametroM: 0.6 },
+      { id: 'tBl', montanteId: 'BL-01', jusanteId: 'X', nome: 'PVC-BL', diametroM: 0.2 },
+      { id: 'tX', montanteId: 'X', jusanteId: 'Saida', nome: 'BSTC-X', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorTopologia(caixas, trechos)
-    expect(redes.get('t_x')).toBe(1) // X-final vem antes de Y-final alfabeticamente
-    expect(redes.get('t_y')).toBe(2)
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    // a boca de lobo não GERA rede própria, mas passa a integrar a rede em que deságua
+    expect(redes.get('tBl')).toBe(redes.get('tA'))
+    expect(redes.get('tX')).toBe(redes.get('tA')) // e o trecho depois da confluência também segue a rede do PV
+  })
+
+  it('numera os PVs de cabeceira em ordem alfabética do nome', () => {
+    const caixas = [caixa('PV-002'), caixa('PV-001'), caixa('X'), caixa('Y')]
+    const trechos = [
+      { id: 't_002', montanteId: 'PV-002', jusanteId: 'Y', nome: 'T-002', diametroM: 0.3 },
+      { id: 't_001', montanteId: 'PV-001', jusanteId: 'X', nome: 'T-001', diametroM: 0.3 },
+    ]
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
+    expect(redes.get('t_001')).toBe(1) // PV-001 vem antes de PV-002 alfabeticamente
+    expect(redes.get('t_002')).toBe(2)
   })
 
   it('funde pares Start/EndNullStruct pro mesmo lado da rede (mesmo critério de ordenarTrechosPorFluxo)', () => {
-    const caixas = ['PV-001', 'StartNullStruct0', 'EndNullStruct0', 'PV-002'].map(caixa)
+    const caixas = [caixa('PV-001'), caixa('StartNullStruct0'), caixa('EndNullStruct0'), caixa('PV-002')]
     const trechos = [
       { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
       { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
     ]
-    const redes = identificarRedesPorTopologia(caixas, trechos)
+    const redes = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('bstc1')).toBe(redes.get('bstc1b'))
   })
 })

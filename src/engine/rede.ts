@@ -186,34 +186,82 @@ export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoO
   return tronco
 }
 
+export interface CaixaComTipo extends CaixaOrdenavel {
+  tipo: string
+}
+
 /**
- * Identifica as "redes" fisicamente independentes dentro da revisão — cada rede é uma árvore
- * completa (todas as cabeceiras que convergem por confluências) até sua saída final, numerada
- * na mesma ordem em que aparece na tabela (ordenarTrechosPorFluxo também itera outfalls nessa
- * ordem alfabética pelo nome da caixa de saída — por isso a "Rede 01" é sempre a árvore cuja
- * primeira linha impressa é a cabeceira mais a montante dela). Diferente de rede_nome (que vem
- * do nome do PipeNetwork no Civil3D e pode não bater com a conectividade real): aqui a rede é
- * 100% definida pela topologia dos trechos/caixas desta revisão — duas redes só podem existir
- * separadas se REALMENTE não há nenhum trecho ligando uma à outra. Uma vez que dois ramais se
- * conectam (mesma árvore, mesma saída final), eles sempre foram a mesma rede — não há "rede A
- * desaguando na rede B" possível sob esse critério, viraria uma rede só desde o começo.
+ * Identifica as "redes" dentro da revisão a partir de cada PV de cabeceira (poço de visita sem
+ * nenhum trecho de entrada) — cada PV de cabeceira gera uma rede nova e independente, numerada
+ * em ordem alfabética do nome do PV (determinístico). A rede se propaga rio abaixo trecho a
+ * trecho até desaguar numa caixa que já recebe outra rede (confluência): a partir daí, quem
+ * continua é a entrada DOMINANTE (maior diâmetro — mesmo critério de tronco/ramal usado em
+ * identificarTroncoRede/ordenarTrechosPorFluxo), como se a rede menor tivesse "desaguado" na
+ * maior. Cabeceiras que NÃO são PV (boca de lobo, grelha, caixa de passagem etc.) não geram
+ * rede própria — o próprio trecho delas fica "sem rede" (fora do Map) até desaguar numa caixa
+ * que já resolve pra alguma rede com origem num PV, quando passam a integrar aquela rede a
+ * partir dali (útil pra Nota de Serviço/Quantidade: a boca de lobo entra no filtro da rede que
+ * ela alimenta). Se nunca desaguam em nenhuma rede com PV a montante, ficam sem rede do início
+ * ao fim. Assume no máximo 1 trecho de saída por caixa, igual ao
+ * resto do engine.
  */
-export function identificarRedesPorTopologia(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
-  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: TrechoOrdenavel[]): Map<string, number> {
+  const { resolve, entradasPorCaixa } = montarEstruturaFluxo(caixas, trechos)
+
+  const idsResolvidos = [...new Set(caixas.map((c) => resolve(c.id)))]
+  const trechosResolvidos = trechos.map((t) => ({ id: t.id, montanteId: resolve(t.montanteId), jusanteId: resolve(t.jusanteId) }))
+  const ordem = ordenarTopologicamente(idsResolvidos, trechosResolvidos)
+
+  const nomePorCaixaResolvida = new Map<string, string>()
+  const tipoPorCaixaResolvida = new Map<string, string>()
+  for (const c of caixas) {
+    const id = resolve(c.id)
+    if (!nomePorCaixaResolvida.has(id)) nomePorCaixaResolvida.set(id, c.nome)
+    if (!tipoPorCaixaResolvida.has(id)) tipoPorCaixaResolvida.set(id, c.tipo)
+  }
+
+  // numera os PVs de cabeceira em ordem alfabética do nome -- numeração determinística,
+  // independente da ordem de chegada dos dados do banco.
+  const pvsCabeceira = idsResolvidos
+    .filter((id) => (entradasPorCaixa.get(id) ?? []).length === 0 && tipoPorCaixaResolvida.get(id) === 'pv')
+    .sort((a, b) => (nomePorCaixaResolvida.get(a) ?? '').localeCompare(nomePorCaixaResolvida.get(b) ?? ''))
+  const numeroPorPvCabeceira = new Map(pvsCabeceira.map((id, i) => [id, i + 1]))
+
+  const saidaPorCaixa = new Map<string, TrechoOrdenavel>()
+  for (const t of trechos) saidaPorCaixa.set(resolve(t.montanteId), t)
 
   const redePorTrecho = new Map<string, number>()
-  let numero = 0
-  for (const outfallId of outfalls) {
-    numero++
-    const visitar = (caixaId: string) => {
-      for (const t of entradasPorCaixa.get(caixaId) ?? []) {
-        if (redePorTrecho.has(t.id)) continue
-        redePorTrecho.set(t.id, numero)
-        visitar(resolve(t.montanteId))
+
+  for (const caixaId of ordem) {
+    const entradas = entradasPorCaixa.get(caixaId) ?? []
+    let redeAtual: number | undefined
+    if (entradas.length === 0) {
+      redeAtual = numeroPorPvCabeceira.get(caixaId)
+    } else {
+      // entradas já vem ordenado por diâmetro decrescente (a dominante primeiro); se ela não
+      // carrega rede (ramal sem PV a montante), tenta achar alguma outra entrada que carregue.
+      redeAtual = redePorTrecho.get(entradas[0].id)
+      if (redeAtual == null) {
+        const comRede = entradas.find((e) => redePorTrecho.get(e.id) != null)
+        redeAtual = comRede ? redePorTrecho.get(comRede.id) : undefined
+      }
+      // "adota" ramais órfãos (sem PV a montante, ex.: boca de lobo) que desaguam aqui --
+      // passam a integrar a rede resolvida desta caixa a partir deste ponto. Ramais que JÁ
+      // carregam sua própria rede (mesmo que não seja a dominante) não são sobrescritos: a
+      // rede deles continua existindo até aqui, só não segue rio abaixo (ela "desaguou").
+      if (redeAtual != null) {
+        for (const e of entradas) {
+          if (redePorTrecho.get(e.id) == null) redePorTrecho.set(e.id, redeAtual)
+        }
       }
     }
-    visitar(outfallId)
+
+    const saida = saidaPorCaixa.get(caixaId)
+    if (saida && redeAtual != null) {
+      redePorTrecho.set(saida.id, redeAtual)
+    }
   }
+
   return redePorTrecho
 }
 

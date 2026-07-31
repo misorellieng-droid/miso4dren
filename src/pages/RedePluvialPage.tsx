@@ -24,7 +24,7 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
-  identificarRedesPorTopologia,
+  identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTrechosPorFluxo,
 } from '../engine/rede'
@@ -515,14 +515,15 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
-  // Rede = árvore física completa (todas as cabeceiras que convergem, até a saída final),
-  // numerada automaticamente pela conectividade dos trechos — não depende de rede_nome
-  // (nome do PipeNetwork importado do Civil3D, que pode não bater com a topologia real).
-  // Permite isolar cada sistema de drenagem independente pra análise (filtro abaixo).
+  // Rede = a partir de cada PV de cabeceira (poço de visita sem trecho de entrada), gera uma
+  // rede independente que se propaga rio abaixo até desaguar em outra rede já estabelecida
+  // (na confluência, quem continua é a entrada dominante — maior diâmetro). Cabeceiras que não
+  // são PV (boca de lobo, grelha etc.) não geram rede própria. Não depende de rede_nome (nome
+  // do PipeNetwork importado do Civil3D). Permite isolar cada rede pra análise (filtro abaixo).
   const redePorTrecho = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
-    return identificarRedesPorTopologia(
-      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+    return identificarRedesPorPvCabeceira(
+      caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
       trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
   }, [caixas, trechos])
