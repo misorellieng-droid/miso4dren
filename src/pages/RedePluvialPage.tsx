@@ -198,6 +198,7 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     jusanteId: t.caixa_jusante_id,
     comprimentoM: t.comprimento_m,
     declividadeMM: t.declividade_m_m,
+    diametroM: t.diametro_m,
   }))
 
   const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
@@ -632,15 +633,16 @@ export function RedePluvialPage() {
     return mapa
   }, [trechos, caixaPorId, biblioteca])
 
-  // Degrau de energia (informativo, memória de cálculo) = o quanto a linha de energia PEDIRIA
-  // mudar a cota de fundo montante em relação à continuação "ingênua" (menor cota de fundo
-  // jusante entre os trechos que chegam na caixa montante), calculado pela fórmula bruta —
-  // SEM o limite anti-represamento aplicado no cálculo que é persistido (ver
-  // calcularCotasPorEnergia em engine/energia.ts, que nunca deixa a cota subir acima da
-  // continuação pra não represar água na caixa). Aqui é só pra mostrar na tabela/memória o que
-  // a energia "pediria": positivo = degrau pra baixo (energia sobrando, aplicado normalmente);
+  // Degrau de energia (informativo, memória de cálculo) — só faz sentido quando há mudança de
+  // diâmetro entre a(s) entrada(s) e a saída (mesmo critério do cálculo persistido, ver
+  // calcularCotasPorEnergia em engine/energia.ts); sem mudança de diâmetro a cota é só
+  // continuação simples, não há "degrau de energia" a mostrar. Quando há mudança, usa a
+  // entrada de MENOR ENERGIA (EGL) como referência — não necessariamente a de menor cota —
+  // calculado pela fórmula bruta, SEM o limite anti-represamento aplicado no cálculo
+  // persistido (que nunca deixa a cota subir pra não represar água na caixa). Aqui é só pra
+  // mostrar o que a energia "pediria": positivo = degrau pra baixo (aplicado normalmente);
   // negativo = a energia pediria SUBIR a cota (não é aplicado — fica só como registro).
-  // Cabeceira (nenhum trecho chega na caixa montante) não tem continuação pra comparar: '—'.
+  const TOLERANCIA_DIAMETRO_ENERGIA_M = 0.001
   const entradasPorCaixa = useMemo(() => {
     const mapa = new Map<string, TrechoRecord[]>()
     for (const t of trechos) {
@@ -664,25 +666,36 @@ export function RedePluvialPage() {
         continue
       }
       const entradas = (entradasPorCaixa.get(t.caixa_montante_id) ?? []).filter((e) => e.cota_fundo_jusante != null)
-      if (entradas.length === 0) {
+      const houveMudancaDiametro = entradas.some((e) => Math.abs(e.diametro_m - t.diametro_m) > TOLERANCIA_DIAMETRO_ENERGIA_M)
+      if (entradas.length === 0 || !houveMudancaDiametro) {
         mapa.set(t.id, null)
         continue
       }
-      const candidatos: number[] = []
-      let continuacaoNaive = Infinity
+      let entradaMenorEnergia: TrechoRecord | null = null
+      let menorEgl = Infinity
       for (const e of entradas) {
         const laminaEntrada = laminaPorTrechoResultado.get(e.id)
         const velocidadeEntrada = velocidadePorTrechoResultado.get(e.id)
         if (laminaEntrada == null || velocidadeEntrada == null) continue
-        const cotaEntrada = e.cota_fundo_jusante as number
-        continuacaoNaive = Math.min(continuacaoNaive, cotaEntrada)
-        candidatos.push(calcularCotaMontantePorEnergia(cotaEntrada, laminaEntrada, velocidadeEntrada, laminaSaida, velocidadeSaida))
+        const egl = calcularLinhaEnergia(e.cota_fundo_jusante as number, laminaEntrada, velocidadeEntrada)
+        if (egl < menorEgl) {
+          menorEgl = egl
+          entradaMenorEnergia = e
+        }
       }
-      if (candidatos.length === 0) {
+      if (!entradaMenorEnergia) {
         mapa.set(t.id, null)
         continue
       }
-      mapa.set(t.id, continuacaoNaive - Math.min(...candidatos))
+      const cotaEscolhida = entradaMenorEnergia.cota_fundo_jusante as number
+      const candidato = calcularCotaMontantePorEnergia(
+        cotaEscolhida,
+        laminaPorTrechoResultado.get(entradaMenorEnergia.id) as number,
+        velocidadePorTrechoResultado.get(entradaMenorEnergia.id) as number,
+        laminaSaida,
+        velocidadeSaida
+      )
+      mapa.set(t.id, cotaEscolhida - candidato)
     }
     return mapa
   }, [trechos, entradasPorCaixa, laminaPorTrechoResultado, velocidadePorTrechoResultado])

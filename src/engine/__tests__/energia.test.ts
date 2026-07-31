@@ -38,7 +38,7 @@ describe('calcularCotaMontantePorEnergia', () => {
 
 describe('calcularCotasPorEnergia', () => {
   it('preserva a cota de fundo montante da cabeceira (âncora) sem alterar', () => {
-    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01 }]
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01, diametroM: 0.4 }]
     const cotaAtual = new Map([['t1', 850]])
     const lamina = new Map([['t1', 0.3]])
     const velocidade = new Map([['t1', 1.2]])
@@ -47,11 +47,35 @@ describe('calcularCotasPorEnergia', () => {
     expect(resultado.get('t1')!.cotaFundoJusante).toBeCloseTo(850 - 0.01 * 20)
   })
 
-  it('propaga o degrau de energia pra rede linear com mudança de diâmetro', () => {
+  it('sem mudança de diâmetro, ignora o cálculo de energia -- continuação simples (degrau zero), mesmo com lâmina/velocidade bem diferentes', () => {
+    // T1 e T2 têm o MESMO diâmetro -- mesmo com lâmina/velocidade bem diferentes (o que geraria
+    // um degrau e tanto se a energia fosse aplicada sempre), a cota de T2 deve só continuar
+    // direto a cota de fundo jusante de T1, sem nenhum ajuste.
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005, diametroM: 0.4 },
+    ]
+    const cotaAtual = new Map([['t1', 100]])
+    const lamina = new Map([
+      ['t1', 0.1],
+      ['t2', 0.6],
+    ])
+    const velocidade = new Map([
+      ['t1', 3.0],
+      ['t2', 0.2],
+    ])
+    const resultado = calcularCotasPorEnergia(['A', 'B', 'C'], trechos, cotaAtual, lamina, velocidade)
+
+    const t1 = resultado.get('t1')!
+    const t2 = resultado.get('t2')!
+    expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante, 6) // degrau zero -- sem ajuste por energia
+  })
+
+  it('propaga o degrau de energia pra rede linear COM mudança de diâmetro', () => {
     // T1 (cabeceira, pequeno/rápido) -> T2 (maior/mais lento) numa rede linear
     const trechos = [
-      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01 },
-      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005 },
+      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005, diametroM: 0.6 },
     ]
     const cotaAtual = new Map([['t1', 100]])
     const lamina = new Map([
@@ -74,40 +98,73 @@ describe('calcularCotasPorEnergia', () => {
     expect(t2.cotaFundoJusante).toBeCloseTo(t2.cotaFundoMontante - 0.005 * 30)
   })
 
-  it('numa confluência, usa a cota mais restritiva (menor) entre os ramos que chegam', () => {
+  it('numa confluência SEM mudança de diâmetro, usa a cota mais restritiva (menor) entre as entradas -- sem cálculo de energia', () => {
     const trechos = [
-      { id: 't1', montanteId: 'A', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01 },
-      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01 },
-      { id: 't3', montanteId: 'C', jusanteId: 'D', comprimentoM: 20, declividadeMM: 0.005 },
+      { id: 't1', montanteId: 'A', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't3', montanteId: 'C', jusanteId: 'D', comprimentoM: 20, declividadeMM: 0.005, diametroM: 0.4 },
     ]
     const cotaAtual = new Map([
       ['t1', 100],
-      ['t2', 100.5], // ramo B chega "mais alto"
+      ['t2', 100.5],
     ])
     const lamina = new Map([
       ['t1', 0.3],
-      ['t2', 0.3],
+      ['t2', 0.1], // lâmina/velocidade bem diferentes -- não deve importar, mesmo diâmetro em tudo
       ['t3', 0.3],
     ])
     const velocidade = new Map([
       ['t1', 1.5],
-      ['t2', 1.0], // ramo B mais lento -> menos energia cinética -> exige cota de C mais baixa
+      ['t2', 5.0],
       ['t3', 1.5],
     ])
     const resultado = calcularCotasPorEnergia(['A', 'B', 'C', 'D'], trechos, cotaAtual, lamina, velocidade)
 
-    // cota de fundo jusante de cada ramo de entrada
     const t1JusanteCota = 100 - 0.01 * 10 // 99.9
     const t2JusanteCota = 100.5 - 0.01 * 10 // 100.4
+    const t3 = resultado.get('t3')!
+    expect(t3.cotaFundoMontante).toBeCloseTo(Math.min(t1JusanteCota, t2JusanteCota), 6) // 99.9, a mais restritiva
+  })
+
+  it('numa confluência COM mudança de diâmetro, usa a entrada de MENOR ENERGIA (EGL) como referência -- não necessariamente a de menor cota', () => {
+    // t1: cota de fundo mais baixa (mais restritiva), mas velocidade alta -> energia (EGL) MAIOR.
+    // t2: cota de fundo mais alta, mas velocidade baixa -> energia (EGL) MENOR, apesar de "menos restritiva" em cota.
+    // A referência pro cálculo da saída deve ser t2 (menor energia), não t1 (menor cota).
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.4 },
+      { id: 't3', montanteId: 'C', jusanteId: 'D', comprimentoM: 20, declividadeMM: 0.005, diametroM: 0.6 },
+    ]
+    const cotaAtual = new Map([
+      ['t1', 100],
+      ['t2', 100.3],
+    ])
+    const lamina = new Map([
+      ['t1', 0.2],
+      ['t2', 0.2],
+      ['t3', 0.25],
+    ])
+    const velocidade = new Map([
+      ['t1', 4.0], // alta velocidade -> muita carga cinética -> EGL alta apesar da cota mais baixa
+      ['t2', 0.5], // baixa velocidade -> pouca carga cinética -> EGL baixa apesar da cota mais alta
+      ['t3', 1.0],
+    ])
+    const resultado = calcularCotasPorEnergia(['A', 'B', 'C', 'D'], trechos, cotaAtual, lamina, velocidade)
 
     const g = 9.81
-    const eglT1 = t1JusanteCota + 0.3 + (1.5 * 1.5) / (2 * g)
-    const eglT2 = t2JusanteCota + 0.3 + (1.0 * 1.0) / (2 * g)
-    const candidatoT1 = eglT1 - 0.3 - (1.5 * 1.5) / (2 * g)
-    const candidatoT2 = eglT2 - 0.3 - (1.5 * 1.5) / (2 * g)
+    const t1JusanteCota = 100 - 0.01 * 10 // 99.9
+    const t2JusanteCota = 100.3 - 0.01 * 10 // 100.2
+    const eglT1 = t1JusanteCota + 0.2 + (4.0 * 4.0) / (2 * g)
+    const eglT2 = t2JusanteCota + 0.2 + (0.5 * 0.5) / (2 * g)
+    expect(eglT1).toBeGreaterThan(eglT2) // confirma que t1 tem MAIS energia, mesmo com cota mais baixa
 
+    // referência = t2 (menor energia): candidato = EGL(t2) - laminaSaida - carga cinética da saída
+    const candidatoEsperado = eglT2 - 0.25 - (1.0 * 1.0) / (2 * g)
     const t3 = resultado.get('t3')!
-    expect(t3.cotaFundoMontante).toBeCloseTo(Math.min(candidatoT1, candidatoT2), 6)
+    expect(t3.cotaFundoMontante).toBeCloseTo(candidatoEsperado, 6)
+    // e NÃO é o que se obteria usando t1 (a de menor cota) como referência
+    const candidatoSeFosseT1 = eglT1 - 0.25 - (1.0 * 1.0) / (2 * g)
+    expect(t3.cotaFundoMontante).not.toBeCloseTo(candidatoSeFosseT1, 3)
   })
 
   it('nunca deixa a cota subir acima da cota de fundo jusante de quem está entrando (evita água represada na caixa)', () => {
@@ -117,8 +174,8 @@ describe('calcularCotasPorEnergia', () => {
     // vira cota), o que deixaria água represada na caixa em vez de escoar. Deve ser limitado
     // à cota de fundo jusante de t1 (degrau zero), não à cota "ideal" pela energia.
     const trechos = [
-      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 10, declividadeMM: 0.01 },
-      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.005 },
+      { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.3 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 10, declividadeMM: 0.005, diametroM: 0.8 },
     ]
     const cotaAtual = new Map([['t1', 100]])
     const lamina = new Map([
