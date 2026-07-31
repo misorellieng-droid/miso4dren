@@ -42,9 +42,17 @@ describe('calcularVolumeEscavacaoM3', () => {
 })
 
 describe('calcularVolumeBercoM3', () => {
-  it('prisma retangular: largura × altura do berço × comprimento', () => {
-    const params = { larguraFundoM: 1.2, taludeHv: 0.5, alturaBercoM: 0.15 }
+  it('sem talude (0), é o prisma retangular simples: largura × altura do berço × comprimento', () => {
+    const params = { larguraFundoM: 1.2, taludeHv: 0, alturaBercoM: 0.15 }
     expect(calcularVolumeBercoM3(20, params)).toBeCloseTo(1.2 * 0.15 * 20, 6)
+  })
+
+  it('com talude, considera o alargamento da vala na faixa de altura do berço (mesma fórmula trapezoidal da escavação)', () => {
+    // largura 1.2, altura berço 0.15, talude 0.5 -> área = 1.2*0.15 + 0.5*0.15² = 0.18 + 0.01125 = 0.19125
+    const params = { larguraFundoM: 1.2, taludeHv: 0.5, alturaBercoM: 0.15 }
+    const volume = calcularVolumeBercoM3(20, params)
+    expect(volume).toBeCloseTo(areaSecaoValaM2(0.15, 1.2, 0.5) * 20, 6)
+    expect(volume).toBeGreaterThan(1.2 * 0.15 * 20) // maior que o retângulo simples, por causa do talude
   })
 })
 

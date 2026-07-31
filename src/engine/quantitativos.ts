@@ -41,9 +41,15 @@ export function calcularVolumeEscavacaoM3(
   return ((areaMontante + areaJusante) / 2) * comprimentoM
 }
 
-/** Volume da camada de berço (lastro) abaixo do tubo — prisma retangular na largura do fundo da vala. */
+/**
+ * Volume da camada de berço (lastro) abaixo do tubo — também é vala escavada com talude, então
+ * a seção nessa faixa de altura já alarga em relação à largura do fundo (mesma fórmula
+ * trapezoidal da escavação, só que com H = altura do berço em vez da profundidade total).
+ * Como a altura do berço é constante ao longo do trecho, a seção não varia entre as pontas —
+ * não precisa de área média.
+ */
 export function calcularVolumeBercoM3(comprimentoM: number, params: ParametrosEscavacao): number {
-  return params.larguraFundoM * params.alturaBercoM * comprimentoM
+  return areaSecaoValaM2(params.alturaBercoM, params.larguraFundoM, params.taludeHv) * comprimentoM
 }
 
 /** Volume ocupado pelo tubo (diâmetro externo = interno + 2× espessura de parede), pra descontar do reaterro. */
