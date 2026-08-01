@@ -532,13 +532,15 @@ export function RedePluvialPage() {
   const redePorTrecho = redesPorPvCabeceira.redePorTrecho
   const redesQueDesaguamPorCaixa = redesPorPvCabeceira.redesQueDesaguamPorCaixa
 
-  // Texto pra anexar no nome da caixa montante quando ela é ponto de confluência entre redes
-  // diferentes -- ex.: "PV - 04 (recebe Rede 02)". Só a rede que NÃO continua dali pra frente
-  // aparece marcada (a rede dominante já é óbvia pelo próprio filtro/coluna Trecho).
+  // Texto pra anexar no nome da caixa montante quando ela é ponto de confluência entre sistemas
+  // diferentes -- ex.: "PV - 04 (recebe Sistema 02)". "Sistema" aqui é a numeração topológica
+  // do app (a partir de cada PV de cabeceira) -- não confundir com texto tipo "(REDE - 01)"
+  // que às vezes já vem no nome das estruturas do Civil3D. Só o sistema que NÃO continua dali
+  // pra frente aparece marcado (o dominante já é óbvio pelo próprio filtro/coluna Trecho).
   const sufixoRedesQueDesaguam = (caixaId: string): string => {
     const outras = redesQueDesaguamPorCaixa.get(caixaId)
     if (!outras || outras.length === 0) return ''
-    const nomes = outras.map((n) => `Rede ${String(n).padStart(2, '0')}`).join(', ')
+    const nomes = outras.map((n) => `Sistema ${String(n).padStart(2, '0')}`).join(', ')
     return ` (recebe ${nomes})`
   }
 
@@ -864,17 +866,20 @@ export function RedePluvialPage() {
             </button>
           </div>
           {numerosRedeDisponiveis.length > 1 && (
-            <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-              Rede:
+            <label
+              className="flex items-center gap-1.5 text-xs text-text-secondary"
+              title="Sistema físico independente (a partir de cada PV de cabeceira), calculado pela topologia -- não confundir com texto tipo &quot;(REDE - 01)&quot; que às vezes já vem no nome das estruturas do Civil3D."
+            >
+              Sistema:
               <select
                 value={redeSelecionada}
                 onChange={(e) => setRedeSelecionada(e.target.value === 'todas' ? 'todas' : Number(e.target.value))}
                 className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-text-primary"
               >
-                <option value="todas">Todas ({numerosRedeDisponiveis.length})</option>
+                <option value="todas">Todos ({numerosRedeDisponiveis.length})</option>
                 {numerosRedeDisponiveis.map((n) => (
                   <option key={n} value={n}>
-                    Rede {String(n).padStart(2, '0')}
+                    Sistema {String(n).padStart(2, '0')}
                   </option>
                 ))}
               </select>
