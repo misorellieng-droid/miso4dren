@@ -29,6 +29,37 @@ export async function deleteMaterialManning(id: string): Promise<void> {
   if (error) throw error
 }
 
+export async function updateMaterialManning(
+  id: string,
+  patch: Partial<Omit<MaterialManningRecord, 'id'>>
+): Promise<MaterialManningRecord> {
+  const { data, error } = await requireSupabase().from('materiais_manning').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as MaterialManningRecord
+}
+
+/**
+ * Propaga um novo Manning n para todo trecho (de qualquer projeto/revisão)
+ * que usa esse material E cujo manning_n ainda vem do fallback dessa
+ * tabela ('tabela_interna') — trechos com manning_n explícito no LandXML
+ * ou já editados manualmente pelo engenheiro não são tocados. Casamento
+ * por `material` é case-insensitive, igual ao usado na importação
+ * (ver parseLandXml / toMateriaisManningMap).
+ *
+ * Retorna a quantidade de trechos atualizados. Não recalcula
+ * `resultados_rede` — é preciso rodar o cálculo de novo na revisão.
+ */
+export async function propagarManningParaTrechos(materialNome: string, manningN: number): Promise<number> {
+  const { data, error } = await requireSupabase()
+    .from('trechos')
+    .update({ manning_n: manningN })
+    .ilike('material', materialNome)
+    .eq('manning_n_origem', 'tabela_interna')
+    .select('id')
+  if (error) throw error
+  return (data ?? []).length
+}
+
 /** Mapa MATERIAL (maiúsculo) -> manning_n, no formato esperado por parseLandXml. */
 export function toMateriaisManningMap(registros: MaterialManningRecord[]): Map<string, number> {
   return new Map(registros.map((r) => [r.material.toUpperCase(), r.manning_n]))

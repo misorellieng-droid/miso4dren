@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Beaker, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Beaker, CheckCircle2, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { Modal } from '../components/ui/Modal'
 import { Field, fieldInputClass } from '../components/ui/Field'
-import { createMaterialManning, deleteMaterialManning, listMateriaisManning, type MaterialManningRecord } from '../lib/materiaisStorage'
+import {
+  createMaterialManning,
+  deleteMaterialManning,
+  listMateriaisManning,
+  propagarManningParaTrechos,
+  updateMaterialManning,
+  type MaterialManningRecord,
+} from '../lib/materiaisStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -14,6 +21,7 @@ export function MateriaisPage() {
   const [materiais, setMateriais] = useState<MaterialManningRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -75,6 +83,64 @@ export function MateriaisPage() {
     }
   }
 
+  const handleEditManningN = async (m: MaterialManningRecord, valor: string) => {
+    const n = Number(valor.replace(',', '.'))
+    if (!Number.isFinite(n) || n <= 0 || n === m.manning_n) return
+    setBusyId(m.id)
+    setError(null)
+    setMessage(null)
+    try {
+      await updateMaterialManning(m.id, { manning_n: n })
+      const afetados = await propagarManningParaTrechos(m.material, n)
+      await load()
+      setMessage(
+        `Manning n de ${m.material} atualizado para ${n}` +
+          (afetados > 0
+            ? ` — ${afetados} trecho(s) da rede (em todos os projetos) recalculado(s). Rode o cálculo de novo em Rede Pluvial pra atualizar os resultados.`
+            : ' — nenhum trecho cadastrado usa esse material com origem "tabela interna" no momento.')
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar Manning n.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Renomear só afeta a tabela de materiais — trechos já importados guardam o
+  // texto original do LandXML em `material` e não são reescritos aqui. Depois
+  // de renomear, editar o Manning n só propaga pra trechos que ainda casem
+  // com o nome novo (os já importados sob o nome antigo ficam com o valor
+  // atual, mas param de receber futuras atualizações automáticas).
+  const handleEditMaterial = async (m: MaterialManningRecord, valor: string) => {
+    const material = valor.trim().toUpperCase()
+    if (!material || material === m.material) return
+    setBusyId(m.id)
+    setError(null)
+    try {
+      await updateMaterialManning(m.id, { material })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao renomear material.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleEditObservacao = async (m: MaterialManningRecord, valor: string) => {
+    const observacao = valor.trim() || null
+    if (observacao === m.observacao) return
+    setBusyId(m.id)
+    setError(null)
+    try {
+      await updateMaterialManning(m.id, { observacao })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar observação.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl">
       <Breadcrumb items={['Administração', 'Materiais e rugosidade']} />
@@ -91,6 +157,11 @@ export function MateriaisPage() {
       </div>
 
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
+      {message && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-accent-green/40 bg-accent-green/10 p-3 text-sm text-accent-green">
+          <CheckCircle2 size={16} /> {message}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-text-secondary">
@@ -110,9 +181,37 @@ export function MateriaisPage() {
             <tbody>
               {materiais.map((m) => (
                 <tr key={m.id} className="border-b border-border/60 last:border-0">
-                  <td className="px-4 py-2 font-medium text-text-primary">{m.material}</td>
-                  <td className="px-4 py-2 text-text-secondary">{m.manning_n}</td>
-                  <td className="px-4 py-2 text-text-secondary">{m.observacao ?? '—'}</td>
+                  <td className="px-4 py-2 font-medium text-text-primary">
+                    <input
+                      key={`${m.id}-material`}
+                      type="text"
+                      defaultValue={m.material}
+                      disabled={busyId === m.id}
+                      onBlur={(e) => handleEditMaterial(m, e.target.value)}
+                      className={`${fieldInputClass} w-36 py-1`}
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-text-secondary">
+                    <input
+                      key={`${m.id}-manning`}
+                      type="number"
+                      step="any"
+                      defaultValue={m.manning_n}
+                      disabled={busyId === m.id}
+                      onBlur={(e) => handleEditManningN(m, e.target.value)}
+                      className={`${fieldInputClass} w-24 py-1`}
+                    />
+                  </td>
+                  <td className="px-4 py-2 text-text-secondary">
+                    <input
+                      key={`${m.id}-obs`}
+                      type="text"
+                      defaultValue={m.observacao ?? ''}
+                      disabled={busyId === m.id}
+                      onBlur={(e) => handleEditObservacao(m, e.target.value)}
+                      className={`${fieldInputClass} w-full py-1`}
+                    />
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <button onClick={() => handleDelete(m.id)} disabled={busyId === m.id} className="rounded p-1 hover:bg-accent-red/10 hover:text-accent-red">
                       {busyId === m.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
