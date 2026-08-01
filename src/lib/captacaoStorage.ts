@@ -59,3 +59,30 @@ export async function deleteCaptacao(id: string): Promise<void> {
   const { error } = await requireSupabase().from('bacia_dispositivo').delete().eq('id', id)
   if (error) throw error
 }
+
+/**
+ * Substitui TODOS os vínculos de uma bacia pelo conjunto informado — usado
+ * pela reimportação da planilha ajustada, onde a planilha é a fonte da
+ * verdade completa (célula vazia = vínculo removido). Apaga primeiro e
+ * insere depois: como a soma parte de zero, nunca esbarra em
+ * `trg_check_percentual_bacia` mesmo que o conjunto final feche em 100%.
+ */
+export async function replaceCaptacoesDaBacia(
+  baciaId: string,
+  entradas: { dispositivoId: string; percentual: number }[]
+): Promise<void> {
+  const client = requireSupabase()
+  const { error: errDel } = await client.from('bacia_dispositivo').delete().eq('bacia_id', baciaId)
+  if (errDel) throw errDel
+  if (entradas.length === 0) return
+  const { error: errIns } = await client.from('bacia_dispositivo').insert(
+    entradas.map((e) => ({
+      bacia_id: baciaId,
+      dispositivo_id: e.dispositivoId,
+      percentual: e.percentual,
+      origem: 'manual' as OrigemPercentual,
+      atualizado_em: new Date().toISOString(),
+    }))
+  )
+  if (errIns) throw errIns
+}

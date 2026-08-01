@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-export type TipoImportacao = 'rede_landxml' | 'bacias_parcel_landxml' | 'bacias_csv'
+export type TipoImportacao = 'rede_landxml' | 'bacias_parcel_landxml' | 'bacias_csv' | 'bacia_dispositivo_planilha'
 
 export interface ImportacaoRecord {
   id: string

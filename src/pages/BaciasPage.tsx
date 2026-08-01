@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, FolderOpen, Lock, Loader2, Pencil, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Download, FolderOpen, Lock, Loader2, Pencil, Trash2, Upload } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
@@ -7,6 +7,7 @@ import { parseLandXml, parseLandXmlParcels, type ResultadoImportLandXml } from '
 import { parseBaciasCsv } from '../engine/csvBacias'
 import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
+import { gerarPlanilhaCaptacao, parsePlanilhaCaptacao } from '../engine/xlsxCaptacao'
 import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
 import {
   aplicarReimportacao,
@@ -28,8 +29,14 @@ import {
   updateDestinoRestante,
   type BaciaRecord,
 } from '../lib/baciasStorage'
-import { listCaptacoesPorRevisao, upsertCaptacao, deleteCaptacao, type CaptacaoRecord } from '../lib/captacaoStorage'
-import { excluirImportacao, listImportacoes, type ImportacaoRecord } from '../lib/importacoesStorage'
+import {
+  listCaptacoesPorRevisao,
+  upsertCaptacao,
+  deleteCaptacao,
+  replaceCaptacoesDaBacia,
+  type CaptacaoRecord,
+} from '../lib/captacaoStorage'
+import { criarImportacao, excluirImportacao, listImportacoes, type ImportacaoRecord } from '../lib/importacoesStorage'
 import { listMateriaisManning, toMateriaisManningMap } from '../lib/materiaisStorage'
 import { supabase } from '../lib/supabase'
 
@@ -60,6 +67,7 @@ export function BaciasPage() {
   const landXmlInputRef = useRef<HTMLInputElement>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const parcelXmlInputRef = useRef<HTMLInputElement>(null)
+  const planilhaCaptacaoInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -250,6 +258,80 @@ export function BaciasPage() {
     }
   }
 
+  const handleExportarPlanilhaCaptacao = () => {
+    if (!revisaoAtiva) return
+    if (bacias.length === 0) {
+      setError('Nenhuma bacia cadastrada ainda — importe as bacias antes de exportar a tabela de captação.')
+      return
+    }
+    const dispositivos = caixas.filter((c) => c.recebe_vazao)
+    gerarPlanilhaCaptacao(bacias, dispositivos, captacoes, revisaoAtiva.nome)
+    setMessage('Planilha de captação baixada — edite e reimporte pelo card "3. Importação da tabela ajustada".')
+    setError(null)
+  }
+
+  const handleImportPlanilhaCaptacao = async (file: File) => {
+    if (!revisaoAtiva) return
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const buffer = await file.arrayBuffer()
+      const { entradas, baciasNaPlanilha, avisos } = parsePlanilhaCaptacao(buffer)
+
+      const baciasNaoEncontradas = baciasNaPlanilha.filter((nome) => !bacias.some((b) => b.nome === nome))
+      if (baciasNaoEncontradas.length > 0) {
+        throw new Error(`Bacia(s) da planilha não encontrada(s) no cadastro: ${baciasNaoEncontradas.join(', ')}.`)
+      }
+      const dispositivosHabilitados = caixas.filter((c) => c.recebe_vazao)
+      const nomesDispositivo = [...new Set(entradas.map((e) => e.dispositivoNome))]
+      const dispositivosNaoEncontrados = nomesDispositivo.filter((nome) => !dispositivosHabilitados.some((c) => c.nome === nome))
+      if (dispositivosNaoEncontrados.length > 0) {
+        throw new Error(
+          `Dispositivo(s) da planilha não encontrado(s) entre as caixas habilitadas a receber vazão: ${dispositivosNaoEncontrados.join(', ')}.`
+        )
+      }
+
+      const somaPorBacia = new Map<string, number>()
+      for (const e of entradas) somaPorBacia.set(e.baciaNome, (somaPorBacia.get(e.baciaNome) ?? 0) + e.percentual)
+      const baciasExcedidas = [...somaPorBacia.entries()].filter(([, soma]) => soma > 100)
+      if (baciasExcedidas.length > 0) {
+        throw new Error(`Bacia(s) com soma acima de 100% na planilha: ${baciasExcedidas.map(([n, s]) => `${n} (${s.toFixed(1)}%)`).join(', ')}.`)
+      }
+
+      // planilha é a fonte da verdade completa: toda bacia presente nela tem
+      // seus vínculos substituídos por inteiro, mesmo as que ficam sem nenhuma entrada
+      for (const baciaNome of baciasNaPlanilha) {
+        const bacia = bacias.find((b) => b.nome === baciaNome)!
+        const entradasDaBacia = entradas
+          .filter((e) => e.baciaNome === baciaNome)
+          .map((e) => ({ dispositivoId: dispositivosHabilitados.find((c) => c.nome === e.dispositivoNome)!.id, percentual: e.percentual }))
+        await replaceCaptacoesDaBacia(bacia.id, entradasDaBacia)
+      }
+
+      try {
+        await criarImportacao(
+          revisaoAtiva.id,
+          'bacia_dispositivo_planilha',
+          file.name,
+          `${entradas.length} vínculo(s) aplicado(s) em ${baciasNaPlanilha.length} bacia(s).`
+        )
+      } catch {
+        // não bloqueia a importação se isso falhar (ex.: migração 020 ainda não aplicada)
+      }
+
+      const partes = [`${baciasNaPlanilha.length} bacia(s) atualizada(s)`, `${entradas.length} vínculo(s) aplicado(s)`]
+      if (avisos.length > 0) partes.push(`${avisos.length} aviso(s): ${avisos.join(' ')}`)
+      setMessage(partes.join(', ') + '.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao importar a tabela ajustada.')
+    } finally {
+      setBusy(false)
+      if (planilhaCaptacaoInputRef.current) planilhaCaptacaoInputRef.current.value = ''
+    }
+  }
+
   const handleExcluirImportacao = async (importacaoId: string) => {
     if (!confirm('Excluir essa importação inteira? Remove todas as caixas/trechos/bacias que vieram dela (e os resultados calculados a partir delas).')) {
       return
@@ -345,7 +427,7 @@ export function BaciasPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-4">
           <div className="mb-2 font-sans text-sm font-semibold text-text-primary">1. Importar rede (LandXML)</div>
           <p className="mb-3 text-xs text-text-secondary">Exportado do Pipe Network do Civil 3D — caixas e trechos.</p>
@@ -384,6 +466,31 @@ export function BaciasPage() {
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Selecionar arquivo .csv
           </button>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 font-sans text-sm font-semibold text-text-primary">3. Importação da tabela ajustada</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            Exporte a tabela bacia × dispositivo, ajuste no Excel (inclua dispositivos fora do polígono) e reimporte — substitui os vínculos das
+            bacias presentes na planilha.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={handleExportarPlanilhaCaptacao} disabled={busy || bacias.length === 0} className={SMALL_BTN}>
+              <Download size={14} />
+              Exportar planilha
+            </button>
+            <input
+              ref={planilhaCaptacaoInputRef}
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleImportPlanilhaCaptacao(e.target.files[0])}
+            />
+            <button onClick={() => planilhaCaptacaoInputRef.current?.click()} disabled={busy || bacias.length === 0} className={SMALL_BTN}>
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              Reimportar planilha
+            </button>
+          </div>
         </div>
       </div>
 
@@ -602,7 +709,13 @@ export function BaciasPage() {
                 <tr key={imp.id} className="border-b border-border/60 last:border-0">
                   <td className="py-2 text-text-secondary">{new Date(imp.criado_em).toLocaleString('pt-BR')}</td>
                   <td className="py-2 text-text-secondary">
-                    {imp.tipo === 'rede_landxml' ? 'Rede (LandXML)' : imp.tipo === 'bacias_parcel_landxml' ? 'Bacias (Parcel)' : 'Bacias (CSV)'}
+                    {imp.tipo === 'rede_landxml'
+                      ? 'Rede (LandXML)'
+                      : imp.tipo === 'bacias_parcel_landxml'
+                        ? 'Bacias (Parcel)'
+                        : imp.tipo === 'bacias_csv'
+                          ? 'Bacias (CSV)'
+                          : 'Tabela ajustada (captação)'}
                   </td>
                   <td className="py-2 text-text-secondary">{imp.nome_arquivo ?? '—'}</td>
                   <td className="py-2 text-text-secondary">{imp.resumo}</td>
