@@ -7,6 +7,7 @@ import {
   Droplets,
   Eye,
   EyeOff,
+  FileDown,
   FileSpreadsheet,
   Loader2,
   Network,
@@ -33,6 +34,7 @@ import { calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quant
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
+import { exportarTabelaRedePluvialPdf } from '../lib/exportRedePluvialPdf'
 import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
@@ -733,6 +735,131 @@ export function RedePluvialPage() {
     return mapa
   }, [resultados, trechoPorId, limites])
 
+  // Monta os valores de cada linha das tabelas em tela — extraído pra função
+  // (em vez de inline no JSX) pra poder ser reaproveitado 1:1 pelo export em
+  // PDF (exportarTabelaRedePluvialPdf), sem duplicar a lógica de cálculo.
+  const montarValoresMemorial = (r: LinhaResultado): Record<Exclude<ColunaMemorialKey, 'conformidade'>, string> => {
+    const trecho = trechoPorId.get(r.trecho_id)
+    const tcPercurso = trecho && r.velocidade_ms ? trecho.comprimento_m / r.velocidade_ms / 60 : null
+    const tcProximo = trecho ? (tcPorCaixaFinal.get(trecho.caixa_jusante_id) ?? null) : null
+    const cotaEnergiaMontante =
+      trecho?.cota_fundo_montante != null && r.lamina_m != null && r.velocidade_ms != null
+        ? calcularLinhaEnergia(trecho.cota_fundo_montante, r.lamina_m, r.velocidade_ms)
+        : null
+    const cotaEnergiaJusante =
+      trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
+        ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms)
+        : null
+    return {
+      trecho: r.trecho_nome,
+      caixaMontante: trecho
+        ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
+        : '—',
+      caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
+      ca: r.ca_acumulado?.toFixed(2) ?? '—',
+      tc: r.tc_sistema_min?.toFixed(1) ?? '—',
+      intensidade: r.intensidade_mm_h?.toFixed(2) ?? '—',
+      qProjeto: r.q_projeto_m3s?.toFixed(4) ?? '—',
+      diametro: trecho?.diametro_m.toFixed(3) ?? '—',
+      extensao: trecho?.comprimento_m.toFixed(2) ?? '—',
+      inclinacao: trecho?.declividade_m_m.toFixed(4) ?? '—',
+      velocidade: r.velocidade_ms?.toFixed(2) ?? '—',
+      yd: r.y_sobre_d_pct != null ? `${r.y_sobre_d_pct.toFixed(0)}%` : '—',
+      tcPercurso: tcPercurso != null ? tcPercurso.toFixed(1) : '—',
+      tcProximo: tcProximo != null ? tcProximo.toFixed(1) : '—',
+      cotaEnergiaMontante: cotaEnergiaMontante != null ? cotaEnergiaMontante.toFixed(3) : '—',
+      cotaEnergiaJusante: cotaEnergiaJusante != null ? cotaEnergiaJusante.toFixed(3) : '—',
+    }
+  }
+
+  /** Texto puro da conformidade (com motivo e sugestão) — em tela isso vira ícone + parágrafos; no PDF é uma célula de texto. */
+  const montarConformidadeTexto = (r: LinhaResultado): string => {
+    if (r.conforme) return 'Conforme'
+    const partes = [`Não conforme${r.motivo_nao_conformidade ? ' — ' + r.motivo_nao_conformidade : ''}`]
+    const s = sugestoesPorTrecho.get(r.trecho_id)
+    if (s && (s.diametroM != null || s.declividadeMM != null)) {
+      const sugestaoPartes: string[] = []
+      if (s.diametroM != null) sugestaoPartes.push(`Ø ${s.diametroM.toFixed(3)} m`)
+      if (s.declividadeMM != null) sugestaoPartes.push(`i ${s.declividadeMM.toFixed(4)} m/m`)
+      partes.push(`Sugestão: ${sugestaoPartes.join(' ou ')}`)
+    }
+    return partes.join(' · ')
+  }
+
+  const montarValoresNotaServico = (t: TrechoRecord): Record<ColunaNotaServicoKey, string> => {
+    const caixaMontante = caixaPorId.get(t.caixa_montante_id)
+    const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
+    return {
+      trecho: t.nome,
+      caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
+      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+      diametro: t.diametro_m.toFixed(3),
+      extensao: t.comprimento_m.toFixed(2),
+      inclinacao: t.declividade_m_m.toFixed(4),
+      ctMontante: caixaMontante?.cota_terreno?.toFixed(3) ?? '—',
+      ctJusante: caixaJusante?.cota_terreno?.toFixed(3) ?? '—',
+      fitMontante: t.cota_fundo_montante?.toFixed(3) ?? '—',
+      fitJusante: t.cota_fundo_jusante?.toFixed(3) ?? '—',
+      xMontante: caixaMontante?.x?.toFixed(3) ?? '—',
+      yMontante: caixaMontante?.y?.toFixed(3) ?? '—',
+      xJusante: caixaJusante?.x?.toFixed(3) ?? '—',
+      yJusante: caixaJusante?.y?.toFixed(3) ?? '—',
+    }
+  }
+
+  const montarValoresQuantidade = (t: TrechoRecord): Record<ColunaQuantidadeKey, string> => {
+    const volumes = volumesPorTrecho.get(t.id)
+    return {
+      trecho: t.nome,
+      caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
+      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+      diametro: t.diametro_m.toFixed(3),
+      extensao: t.comprimento_m.toFixed(2),
+      volEscavacao: volumes ? volumes.escavacao.toFixed(2) : '—',
+      volBerco: volumes ? volumes.berco.toFixed(2) : '—',
+      volReaterro: volumes ? volumes.reaterro.toFixed(2) : '—',
+    }
+  }
+
+  const sistemaLabel =
+    redeSelecionada === 'todas' ? `Todos os sistemas (${numerosRedeDisponiveis.length})` : `Sistema ${String(redeSelecionada).padStart(2, '0')}`
+
+  const handleExportarPdf = () => {
+    if (!revisaoAtiva) return
+    const nomeBase = `${revisaoAtiva.projeto_nome ?? 'projeto'}-${revisaoAtiva.nome}`
+    if (aba === 'memorial') {
+      exportarTabelaRedePluvialPdf({
+        projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+        revisaoNome: revisaoAtiva.nome,
+        sistemaLabel,
+        tituloTabela: 'Memorial Justificativo',
+        colunas: COLUNAS_MEMORIAL.filter((c) => !colunasOcultas.has(c.key)),
+        linhas: resultadosOrdenados.map((r) => ({ ...montarValoresMemorial(r), conformidade: montarConformidadeTexto(r) })),
+        nomeArquivo: `memorial-justificativo-${nomeBase}`,
+      })
+    } else if (aba === 'notaServico') {
+      exportarTabelaRedePluvialPdf({
+        projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+        revisaoNome: revisaoAtiva.nome,
+        sistemaLabel,
+        tituloTabela: 'Nota de Serviço',
+        colunas: COLUNAS_NOTA_SERVICO.filter((c) => !colunasOcultasNotaServico.has(c.key)),
+        linhas: trechosOrdenados.map((t) => montarValoresNotaServico(t)),
+        nomeArquivo: `nota-de-servico-${nomeBase}`,
+      })
+    } else {
+      exportarTabelaRedePluvialPdf({
+        projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+        revisaoNome: revisaoAtiva.nome,
+        sistemaLabel,
+        tituloTabela: 'Quantitativo de materiais',
+        colunas: COLUNAS_QUANTIDADE.filter((c) => !colunasOcultasQuantidade.has(c.key)),
+        linhas: trechosOrdenados.map((t) => montarValoresQuantidade(t)),
+        nomeArquivo: `quantitativo-${nomeBase}`,
+      })
+    }
+  }
+
   const resultadoModal = trechoModalId ? (resultados.find((r) => r.trecho_id === trechoModalId) ?? null) : null
   const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
   const sugestaoModal = trechoModalId ? (sugestoesPorTrecho.get(trechoModalId) ?? null) : null
@@ -957,6 +1084,15 @@ export function RedePluvialPage() {
                     Restaurar {restaurarInfo.size} coluna(s) oculta(s)
                   </button>
                 )}
+                <button
+                  onClick={handleExportarPdf}
+                  disabled={aba === 'memorial' ? resultadosOrdenados.length === 0 : trechosOrdenados.length === 0}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+                  title="Exporta em PDF a tabela desta aba, com as colunas visíveis e o filtro de sistema atuais."
+                >
+                  <FileDown size={13} />
+                  Exportar PDF
+                </button>
               </div>
             </div>
           )
@@ -990,40 +1126,10 @@ export function RedePluvialPage() {
               </thead>
               <tbody>
                 {resultadosOrdenados.map((r) => {
-                  const trecho = trechoPorId.get(r.trecho_id)
                   const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
                   const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
                   const degrau = degrauEnergiaPorTrecho.get(r.trecho_id)
-                  const tcPercurso = trecho && r.velocidade_ms ? trecho.comprimento_m / r.velocidade_ms / 60 : null
-                  const tcProximo = trecho ? (tcPorCaixaFinal.get(trecho.caixa_jusante_id) ?? null) : null
-                  const cotaEnergiaMontante =
-                    trecho?.cota_fundo_montante != null && r.lamina_m != null && r.velocidade_ms != null
-                      ? calcularLinhaEnergia(trecho.cota_fundo_montante, r.lamina_m, r.velocidade_ms)
-                      : null
-                  const cotaEnergiaJusante =
-                    trecho?.cota_fundo_jusante != null && r.lamina_m != null && r.velocidade_ms != null
-                      ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms)
-                      : null
-                  const valores: Record<Exclude<ColunaMemorialKey, 'conformidade'>, string> = {
-                    trecho: r.trecho_nome,
-                    caixaMontante: trecho
-                      ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
-                      : '—',
-                    caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
-                    ca: r.ca_acumulado?.toFixed(2) ?? '—',
-                    tc: r.tc_sistema_min?.toFixed(1) ?? '—',
-                    intensidade: r.intensidade_mm_h?.toFixed(2) ?? '—',
-                    qProjeto: r.q_projeto_m3s?.toFixed(4) ?? '—',
-                    diametro: trecho?.diametro_m.toFixed(3) ?? '—',
-                    extensao: trecho?.comprimento_m.toFixed(2) ?? '—',
-                    inclinacao: trecho?.declividade_m_m.toFixed(4) ?? '—',
-                    velocidade: r.velocidade_ms?.toFixed(2) ?? '—',
-                    yd: r.y_sobre_d_pct != null ? `${r.y_sobre_d_pct.toFixed(0)}%` : '—',
-                    tcPercurso: tcPercurso != null ? tcPercurso.toFixed(1) : '—',
-                    tcProximo: tcProximo != null ? tcProximo.toFixed(1) : '—',
-                    cotaEnergiaMontante: cotaEnergiaMontante != null ? cotaEnergiaMontante.toFixed(3) : '—',
-                    cotaEnergiaJusante: cotaEnergiaJusante != null ? cotaEnergiaJusante.toFixed(3) : '—',
-                  }
+                  const valores = montarValoresMemorial(r)
                   return (
                     <tr
                       key={r.id}
@@ -1128,27 +1234,10 @@ export function RedePluvialPage() {
               </thead>
               <tbody>
                 {trechosOrdenados.map((t) => {
-                  const caixaMontante = caixaPorId.get(t.caixa_montante_id)
-                  const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
                   const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
                   const conforme = conformidadePorTrecho.get(t.id)
                   const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
-                  const valores: Record<ColunaNotaServicoKey, string> = {
-                    trecho: t.nome,
-                    caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
-                    caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
-                    diametro: t.diametro_m.toFixed(3),
-                    extensao: t.comprimento_m.toFixed(2),
-                    inclinacao: t.declividade_m_m.toFixed(4),
-                    ctMontante: caixaMontante?.cota_terreno?.toFixed(3) ?? '—',
-                    ctJusante: caixaJusante?.cota_terreno?.toFixed(3) ?? '—',
-                    fitMontante: t.cota_fundo_montante?.toFixed(3) ?? '—',
-                    fitJusante: t.cota_fundo_jusante?.toFixed(3) ?? '—',
-                    xMontante: caixaMontante?.x?.toFixed(3) ?? '—',
-                    yMontante: caixaMontante?.y?.toFixed(3) ?? '—',
-                    xJusante: caixaJusante?.x?.toFixed(3) ?? '—',
-                    yJusante: caixaJusante?.y?.toFixed(3) ?? '—',
-                  }
+                  const valores = montarValoresNotaServico(t)
                   return (
                     <tr
                       key={t.id}
@@ -1215,16 +1304,7 @@ export function RedePluvialPage() {
                     const volumes = volumesPorTrecho.get(t.id)
                     const conforme = conformidadePorTrecho.get(t.id)
                     const corTexto = conforme === true ? 'text-accent-green' : conforme === false ? 'text-accent-red' : 'text-text-secondary'
-                    const valores: Record<ColunaQuantidadeKey, string> = {
-                      trecho: t.nome,
-                      caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
-                      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
-                      diametro: t.diametro_m.toFixed(3),
-                      extensao: t.comprimento_m.toFixed(2),
-                      volEscavacao: volumes ? volumes.escavacao.toFixed(2) : '—',
-                      volBerco: volumes ? volumes.berco.toFixed(2) : '—',
-                      volReaterro: volumes ? volumes.reaterro.toFixed(2) : '—',
-                    }
+                    const valores = montarValoresQuantidade(t)
                     return (
                       <tr
                         key={t.id}
