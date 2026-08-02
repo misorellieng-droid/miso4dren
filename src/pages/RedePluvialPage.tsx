@@ -55,6 +55,7 @@ const PRIMARY_BTN =
 
 type ColunaMemorialKey =
   | 'trecho'
+  | 'sistema'
   | 'caixaMontante'
   | 'caixaJusante'
   | 'ca'
@@ -74,6 +75,7 @@ type ColunaMemorialKey =
 
 const COLUNAS_MEMORIAL: { key: ColunaMemorialKey; label: string }[] = [
   { key: 'trecho', label: 'Trecho' },
+  { key: 'sistema', label: 'Sistema' },
   { key: 'caixaMontante', label: 'Caixa montante' },
   { key: 'caixaJusante', label: 'Caixa jusante' },
   { key: 'ca', label: 'ΣC×A (m²)' },
@@ -94,6 +96,7 @@ const COLUNAS_MEMORIAL: { key: ColunaMemorialKey; label: string }[] = [
 
 type ColunaNotaServicoKey =
   | 'trecho'
+  | 'sistema'
   | 'caixaMontante'
   | 'caixaJusante'
   | 'diametro'
@@ -110,6 +113,7 @@ type ColunaNotaServicoKey =
 
 const COLUNAS_NOTA_SERVICO: { key: ColunaNotaServicoKey; label: string }[] = [
   { key: 'trecho', label: 'Trecho' },
+  { key: 'sistema', label: 'Sistema' },
   { key: 'caixaMontante', label: 'Caixa montante' },
   { key: 'caixaJusante', label: 'Caixa jusante' },
   { key: 'diametro', label: 'Diâm. (m)' },
@@ -125,10 +129,20 @@ const COLUNAS_NOTA_SERVICO: { key: ColunaNotaServicoKey; label: string }[] = [
   { key: 'yJusante', label: 'Y jusante' },
 ]
 
-type ColunaQuantidadeKey = 'trecho' | 'caixaMontante' | 'caixaJusante' | 'diametro' | 'extensao' | 'volEscavacao' | 'volBerco' | 'volReaterro'
+type ColunaQuantidadeKey =
+  | 'trecho'
+  | 'sistema'
+  | 'caixaMontante'
+  | 'caixaJusante'
+  | 'diametro'
+  | 'extensao'
+  | 'volEscavacao'
+  | 'volBerco'
+  | 'volReaterro'
 
 const COLUNAS_QUANTIDADE: { key: ColunaQuantidadeKey; label: string }[] = [
   { key: 'trecho', label: 'Trecho' },
+  { key: 'sistema', label: 'Sistema' },
   { key: 'caixaMontante', label: 'Caixa montante' },
   { key: 'caixaJusante', label: 'Caixa jusante' },
   { key: 'diametro', label: 'Diâm. (m)' },
@@ -546,6 +560,30 @@ export function RedePluvialPage() {
     return ` (recebe ${nomes})`
   }
 
+  const formatSistema = (n: number | undefined): string => (n != null ? `Sistema ${String(n).padStart(2, '0')}` : '—')
+
+  // ΣC×A e vazão que cada sistema entrega em cada caixa onde ele deságua noutro sistema —
+  // usado pra montar a linha sintética de interligação quando a tabela está filtrada por um
+  // único sistema (ver linhasExibicaoMemorial): o trecho real que carrega essa água fica de
+  // fora do filtro (é de OUTRO sistema), então sem isso a vazão "aparece do nada" no sistema
+  // filtrado sem nenhuma linha explicando de onde veio.
+  const contribuicaoPorCaixaSistema = useMemo(() => {
+    const mapa = new Map<string, Map<number, { ca: number; q: number }>>()
+    for (const t of trechos) {
+      const sistema = redePorTrecho.get(t.id)
+      if (sistema == null) continue
+      const resultado = resultados.find((r) => r.trecho_id === t.id)
+      if (!resultado) continue
+      const porSistema = mapa.get(t.caixa_jusante_id) ?? new Map<number, { ca: number; q: number }>()
+      const atual = porSistema.get(sistema) ?? { ca: 0, q: 0 }
+      atual.ca += resultado.ca_acumulado ?? 0
+      atual.q += resultado.q_projeto_m3s ?? 0
+      porSistema.set(sistema, atual)
+      mapa.set(t.caixa_jusante_id, porSistema)
+    }
+    return mapa
+  }, [trechos, redePorTrecho, resultados])
+
   const numerosRedeDisponiveis = useMemo(() => [...new Set(redePorTrecho.values())].sort((a, b) => a - b), [redePorTrecho])
 
   const passaFiltros = (trechoId: string) =>
@@ -752,6 +790,7 @@ export function RedePluvialPage() {
         : null
     return {
       trecho: r.trecho_nome,
+      sistema: formatSistema(redePorTrecho.get(r.trecho_id)),
       caixaMontante: trecho
         ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
         : '—',
@@ -786,11 +825,76 @@ export function RedePluvialPage() {
     return partes.join(' · ')
   }
 
+  interface LinhaInterligacao {
+    tipo: 'interligacao'
+    id: string
+    caixaId: string
+    sistemaOrigem: number
+    ca: number
+    q: number
+  }
+  type LinhaExibicaoMemorial = { tipo: 'trecho'; resultado: LinhaResultado } | LinhaInterligacao
+
+  // Quando a tabela está filtrada por um único sistema, o trecho que traz água de OUTRO
+  // sistema fica de fora do filtro — sem isso, o ΣC×A/vazão dá um salto na confluência sem
+  // nenhuma linha explicando de onde veio. Insere uma linha sintética ali, com "Caixa
+  // montante" = o nome do sistema de origem, só quando "Todos os sistemas" não está selecionado
+  // (nesse caso o trecho real já aparece normalmente, a interligação ficaria redundante).
+  const linhasExibicaoMemorial = useMemo((): LinhaExibicaoMemorial[] => {
+    if (redeSelecionada === 'todas') return resultadosOrdenados.map((r) => ({ tipo: 'trecho' as const, resultado: r }))
+    const linhas: LinhaExibicaoMemorial[] = []
+    const jaInserido = new Set<string>()
+    for (const r of resultadosOrdenados) {
+      const trecho = trechoPorId.get(r.trecho_id)
+      if (trecho) {
+        const caixaM = trecho.caixa_montante_id
+        const outras = redesQueDesaguamPorCaixa.get(caixaM)
+        if (outras && outras.length > 0 && !jaInserido.has(caixaM)) {
+          jaInserido.add(caixaM)
+          for (const sistemaOrigem of outras) {
+            const contrib = contribuicaoPorCaixaSistema.get(caixaM)?.get(sistemaOrigem)
+            linhas.push({
+              tipo: 'interligacao',
+              id: `interligacao-${caixaM}-${sistemaOrigem}`,
+              caixaId: caixaM,
+              sistemaOrigem,
+              ca: contrib?.ca ?? 0,
+              q: contrib?.q ?? 0,
+            })
+          }
+        }
+      }
+      linhas.push({ tipo: 'trecho', resultado: r })
+    }
+    return linhas
+  }, [resultadosOrdenados, redeSelecionada, trechoPorId, redesQueDesaguamPorCaixa, contribuicaoPorCaixaSistema])
+
+  const montarValoresInterligacao = (linha: LinhaInterligacao): Record<Exclude<ColunaMemorialKey, 'conformidade'>, string> => ({
+    trecho: '— (interligação)',
+    sistema: '—',
+    caixaMontante: formatSistema(linha.sistemaOrigem),
+    caixaJusante: nomeCaixaPorId.get(linha.caixaId) ?? '—',
+    ca: linha.ca.toFixed(2),
+    tc: '—',
+    intensidade: '—',
+    qProjeto: linha.q.toFixed(4),
+    diametro: '—',
+    extensao: '—',
+    inclinacao: '—',
+    velocidade: '—',
+    yd: '—',
+    tcPercurso: '—',
+    tcProximo: '—',
+    cotaEnergiaMontante: '—',
+    cotaEnergiaJusante: '—',
+  })
+
   const montarValoresNotaServico = (t: TrechoRecord): Record<ColunaNotaServicoKey, string> => {
     const caixaMontante = caixaPorId.get(t.caixa_montante_id)
     const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
     return {
       trecho: t.nome,
+      sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
       caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
       diametro: t.diametro_m.toFixed(3),
@@ -811,6 +915,7 @@ export function RedePluvialPage() {
     const volumes = volumesPorTrecho.get(t.id)
     return {
       trecho: t.nome,
+      sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
       caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
       diametro: t.diametro_m.toFixed(3),
@@ -834,7 +939,11 @@ export function RedePluvialPage() {
         sistemaLabel,
         tituloTabela: 'Memorial Justificativo',
         colunas: COLUNAS_MEMORIAL.filter((c) => !colunasOcultas.has(c.key)),
-        linhas: resultadosOrdenados.map((r) => ({ ...montarValoresMemorial(r), conformidade: montarConformidadeTexto(r) })),
+        linhas: linhasExibicaoMemorial.map((linha) =>
+          linha.tipo === 'trecho'
+            ? { ...montarValoresMemorial(linha.resultado), conformidade: montarConformidadeTexto(linha.resultado) }
+            : { ...montarValoresInterligacao(linha), conformidade: '—' }
+        ),
         nomeArquivo: `memorial-justificativo-${nomeBase}`,
       })
     } else if (aba === 'notaServico') {
@@ -1125,9 +1234,25 @@ export function RedePluvialPage() {
                 </tr>
               </thead>
               <tbody>
-                {resultadosOrdenados.map((r) => {
-                  const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
+                {linhasExibicaoMemorial.map((linha) => {
                   const tdBase = fonteCompacta ? 'px-2 py-1' : 'px-4 py-2'
+
+                  if (linha.tipo === 'interligacao') {
+                    const valoresInterligacao = montarValoresInterligacao(linha)
+                    return (
+                      <tr key={linha.id} className="border-b border-border/60 bg-elevated/50 italic last:border-0" title="Vazão recebida de outro sistema, cujo trecho fica fora deste filtro">
+                        {COLUNAS_MEMORIAL.filter((c) => !colunasOcultas.has(c.key)).map((c) => (
+                          <td key={c.key} className={`${tdBase} text-text-secondary ${c.key === 'trecho' ? 'font-medium' : ''}`}>
+                            {c.key === 'conformidade' ? '—' : valoresInterligacao[c.key]}
+                          </td>
+                        ))}
+                        <td className={fonteCompacta ? 'px-2 py-1' : 'px-2 py-2'}></td>
+                      </tr>
+                    )
+                  }
+
+                  const r = linha.resultado
+                  const corTexto = r.conforme ? 'text-accent-green' : 'text-accent-red'
                   const degrau = degrauEnergiaPorTrecho.get(r.trecho_id)
                   const valores = montarValoresMemorial(r)
                   return (
