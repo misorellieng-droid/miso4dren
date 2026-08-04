@@ -562,6 +562,26 @@ export function RedePluvialPage() {
 
   const formatSistema = (n: number | undefined): string => (n != null ? `Sistema ${String(n).padStart(2, '0')}` : '—')
 
+  // Sistema de quem CONTINUA a partir de cada caixa (o trecho de saída dali) -- permite marcar
+  // o lado inverso da confluência: "sufixoRedesQueDesaguam" avisa na caixa montante quem chega
+  // de fora, isso aqui avisa na caixa jusante de um trecho que ELE MESMO é quem deságua noutro
+  // sistema (útil olhando o sistema de origem isolado, onde o trecho receptor fica fora do filtro).
+  const sistemaContinuidadePorCaixa = useMemo(() => {
+    const mapa = new Map<string, number>()
+    for (const t of trechos) {
+      const sistema = redePorTrecho.get(t.id)
+      if (sistema != null) mapa.set(t.caixa_montante_id, sistema)
+    }
+    return mapa
+  }, [trechos, redePorTrecho])
+
+  const sufixoDesaguaEmOutroSistema = (sistemaDoTrecho: number | undefined, caixaJusanteId: string): string => {
+    if (sistemaDoTrecho == null) return ''
+    const continuidade = sistemaContinuidadePorCaixa.get(caixaJusanteId)
+    if (continuidade == null || continuidade === sistemaDoTrecho) return ''
+    return ` (deságua em Sistema ${String(continuidade).padStart(2, '0')})`
+  }
+
   // ΣC×A e vazão que cada sistema entrega em cada caixa onde ele deságua noutro sistema —
   // usado pra montar a linha sintética de interligação quando a tabela está filtrada por um
   // único sistema (ver linhasExibicaoMemorial): o trecho real que carrega essa água fica de
@@ -794,7 +814,10 @@ export function RedePluvialPage() {
       caixaMontante: trecho
         ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
         : '—',
-      caixaJusante: trecho ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') : '—',
+      caixaJusante: trecho
+        ? (nomeCaixaPorId.get(trecho.caixa_jusante_id) ?? '—') +
+          sufixoDesaguaEmOutroSistema(redePorTrecho.get(r.trecho_id), trecho.caixa_jusante_id)
+        : '—',
       ca: r.ca_acumulado?.toFixed(2) ?? '—',
       tc: r.tc_sistema_min?.toFixed(1) ?? '—',
       intensidade: r.intensidade_mm_h?.toFixed(2) ?? '—',
@@ -896,7 +919,8 @@ export function RedePluvialPage() {
       trecho: t.nome,
       sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
-      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+      caixaJusante:
+        (nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—') + sufixoDesaguaEmOutroSistema(redePorTrecho.get(t.id), t.caixa_jusante_id),
       diametro: t.diametro_m.toFixed(3),
       extensao: t.comprimento_m.toFixed(2),
       inclinacao: t.declividade_m_m.toFixed(4),
@@ -917,7 +941,8 @@ export function RedePluvialPage() {
       trecho: t.nome,
       sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
-      caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+      caixaJusante:
+        (nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—') + sufixoDesaguaEmOutroSistema(redePorTrecho.get(t.id), t.caixa_jusante_id),
       diametro: t.diametro_m.toFixed(3),
       extensao: t.comprimento_m.toFixed(2),
       volEscavacao: volumes ? volumes.escavacao.toFixed(2) : '—',
