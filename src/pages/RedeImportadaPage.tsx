@@ -5,6 +5,7 @@ import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
+import { nomeSemRede } from '../lib/nomeRede'
 import {
   excluirCaixa,
   listCaixas,
@@ -29,7 +30,8 @@ const SMALL_BTN =
   'flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
 export function RedeImportadaPage() {
-  const { revisaoAtiva } = useRevisaoContext()
+  const { revisaoAtiva, ocultarNomeRede } = useRevisaoContext()
+  const nomeExibido = (nome: string, redeNome: string | null) => (ocultarNomeRede ? nomeSemRede(nome, redeNome) : nome)
   const [aba, setAba] = useState<'estruturas' | 'tubos'>('estruturas')
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
@@ -469,7 +471,7 @@ export function RedeImportadaPage() {
                         {selecionadosCaixas.has(c.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                       </button>
                     </td>
-                    <td className="px-3 py-1.5 text-text-primary">{c.nome}</td>
+                    <td className="px-3 py-1.5 text-text-primary">{nomeExibido(c.nome, c.rede_nome)}</td>
                     {redesDisponiveis.length > 1 && <td className="px-3 py-1.5 text-text-secondary">{c.rede_nome ?? '—'}</td>}
                     <td className="px-3 py-1.5">
                       <select
@@ -561,11 +563,13 @@ export function RedeImportadaPage() {
                   <tbody>
                     {cascataPendente.patches.map((p) => {
                       const trecho = trechos.find((t) => t.id === p.id)
-                      const nomeMontante = caixas.find((c) => c.id === trecho?.caixa_montante_id)?.nome ?? '—'
-                      const nomeJusante = caixas.find((c) => c.id === trecho?.caixa_jusante_id)?.nome ?? '—'
+                      const caixaMontante = caixas.find((c) => c.id === trecho?.caixa_montante_id)
+                      const caixaJusante = caixas.find((c) => c.id === trecho?.caixa_jusante_id)
+                      const nomeMontante = caixaMontante ? nomeExibido(caixaMontante.nome, caixaMontante.rede_nome) : '—'
+                      const nomeJusante = caixaJusante ? nomeExibido(caixaJusante.nome, caixaJusante.rede_nome) : '—'
                       return (
                         <tr key={p.id} className="border-b border-border/40 last:border-0">
-                          <td className="px-2 py-1 text-text-primary">{trecho?.nome ?? p.id}</td>
+                          <td className="px-2 py-1 text-text-primary">{trecho ? nomeExibido(trecho.nome, trecho.rede_nome) : p.id}</td>
                           <td className="px-2 py-1 text-text-secondary">{nomeMontante}</td>
                           <td className="px-2 py-1 text-text-secondary">{nomeJusante}</td>
                           <td className="px-2 py-1 text-text-secondary">{p.diametroM.toFixed(3)}</td>
@@ -647,8 +651,10 @@ export function RedeImportadaPage() {
               </thead>
               <tbody>
                 {trechosFiltrados.map((t) => {
-                  const nomeMontante = caixas.find((c) => c.id === t.caixa_montante_id)?.nome ?? '—'
-                  const nomeJusante = caixas.find((c) => c.id === t.caixa_jusante_id)?.nome ?? '—'
+                  const caixaMontante = caixas.find((c) => c.id === t.caixa_montante_id)
+                  const caixaJusante = caixas.find((c) => c.id === t.caixa_jusante_id)
+                  const nomeMontante = caixaMontante ? nomeExibido(caixaMontante.nome, caixaMontante.rede_nome) : '—'
+                  const nomeJusante = caixaJusante ? nomeExibido(caixaJusante.nome, caixaJusante.rede_nome) : '—'
                   const isConexao = idsConexaoEntreRedes.has(t.id)
                   return (
                     <tr key={t.id} className={`border-b border-border/60 last:border-0 ${isConexao ? 'bg-accent-blue/5' : ''}`}>
@@ -659,7 +665,7 @@ export function RedeImportadaPage() {
                       </td>
                       <td className="px-3 py-1.5 text-text-primary">
                         <span className="flex items-center gap-1.5">
-                          {t.nome}
+                          {nomeExibido(t.nome, t.rede_nome)}
                           {isConexao && (
                             <span
                               className="rounded-full bg-accent-blue/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-blue"

@@ -1,8 +1,8 @@
-import { Bell, ChevronDown, Search, Settings, UserCircle } from 'lucide-react'
+import { Bell, ChevronDown, EyeOff, Search, Settings, UserCircle } from 'lucide-react'
 import { useRevisaoContext } from '../../lib/RevisaoContext'
 
 export function Header() {
-  const { revisoes, revisaoAtivaId, setRevisaoAtivaId } = useRevisaoContext()
+  const { revisoes, revisaoAtivaId, setRevisaoAtivaId, ocultarNomeRede, setOcultarNomeRede } = useRevisaoContext()
 
   const projetos = Array.from(new Set(revisoes.map((r) => r.projeto_nome ?? 'Sem projeto')))
 
@@ -44,6 +44,16 @@ export function Header() {
       )}
 
       <div className="ml-auto flex items-center gap-4 text-text-secondary">
+        <button
+          onClick={() => setOcultarNomeRede(!ocultarNomeRede)}
+          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+            ocultarNomeRede ? 'bg-brand/10 text-brand' : 'hover:text-brand'
+          }`}
+          title='Oculta o sufixo "(nome da rede)" no nome das caixas/trechos nas tabelas e no diagrama'
+        >
+          <EyeOff size={16} />
+          Ocultar rede no nome
+        </button>
         <button aria-label="Notificações" className="hover:text-brand">
           <Bell size={20} />
         </button>

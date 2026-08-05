@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Lightbulb, Load
 import { fieldInputClass } from './ui/Field'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
+import { nomeSemRede } from '../lib/nomeRede'
+import { useRevisaoContext } from '../lib/RevisaoContext'
 import { updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import type { ResultadoRedeRecord } from '../lib/resultadosStorage'
 
@@ -60,10 +62,13 @@ export function MemoriaCalculoModal({
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [cascataPendente, setCascataPendente] = useState<{ patches: PatchCascata[] } | null>(null)
+  const { ocultarNomeRede } = useRevisaoContext()
 
-  const nomePorId = new Map(caixas.map((c) => [c.id, c.nome]))
+  const nomeExibido = (nome: string, redeNome: string | null) => (ocultarNomeRede ? nomeSemRede(nome, redeNome) : nome)
+  const nomePorId = new Map(caixas.map((c) => [c.id, nomeExibido(c.nome, c.rede_nome)]))
   const nomeMontante = nomePorId.get(trecho.caixa_montante_id) ?? '—'
   const nomeJusante = nomePorId.get(trecho.caixa_jusante_id) ?? '—'
+  const nomeTrecho = nomeExibido(resultado?.trecho_nome ?? trecho.nome, trecho.rede_nome)
 
   const aplicarPatches = async (patches: PatchCascata[]) => {
     setBusy(true)
@@ -164,7 +169,7 @@ export function MemoriaCalculoModal({
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <div className="font-sans text-sm font-semibold text-text-primary">Memória de cálculo</div>
-            <div className="text-xs text-text-secondary">{resultado?.trecho_nome ?? trecho.nome}</div>
+            <div className="text-xs text-text-secondary">{nomeTrecho}</div>
           </div>
           <div className="flex items-center gap-1">
             <button

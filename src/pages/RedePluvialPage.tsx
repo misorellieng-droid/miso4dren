@@ -20,6 +20,7 @@ import { Field, fieldInputClass } from '../components/ui/Field'
 import { RedeDiagrama } from '../components/RedeDiagrama'
 import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
+import { nomeSemRede } from '../lib/nomeRede'
 import { calcularIntensidadeIdf } from '../engine/idf'
 import {
   acumularVazao,
@@ -364,7 +365,7 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
 }
 
 export function RedePluvialPage() {
-  const { revisaoAtiva } = useRevisaoContext()
+  const { revisaoAtiva, ocultarNomeRede } = useRevisaoContext()
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
@@ -638,19 +639,26 @@ export function RedePluvialPage() {
 
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
 
-  const trechosDiagrama = useMemo(
-    () => trechos.filter((t) => passaFiltros(t.id)),
+  const trechosDiagrama = useMemo(() => {
+    const filtrados = trechos.filter((t) => passaFiltros(t.id))
+    return ocultarNomeRede ? filtrados.map((t) => ({ ...t, nome: nomeSemRede(t.nome, t.rede_nome) })) : filtrados
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada]
-  )
+  }, [trechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada, ocultarNomeRede])
   const caixasDiagrama = useMemo(() => {
-    if (visaoDiagrama !== 'tronco' && redeSelecionada === 'todas') return caixas
     const idsUsados = new Set(trechosDiagrama.flatMap((t) => [t.caixa_montante_id, t.caixa_jusante_id]))
-    return caixas.filter((c) => idsUsados.has(c.id))
-  }, [caixas, trechosDiagrama, visaoDiagrama, redeSelecionada])
+    const base = visaoDiagrama !== 'tronco' && redeSelecionada === 'todas' ? caixas : caixas.filter((c) => idsUsados.has(c.id))
+    return ocultarNomeRede ? base.map((c) => ({ ...c, nome: nomeSemRede(c.nome, c.rede_nome) })) : base
+  }, [caixas, trechosDiagrama, visaoDiagrama, redeSelecionada, ocultarNomeRede])
 
   const trechoPorId = useMemo(() => new Map(trechos.map((t) => [t.id, t])), [trechos])
-  const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
+  const nomeCaixaPorId = useMemo(
+    () => new Map(caixas.map((c) => [c.id, ocultarNomeRede ? nomeSemRede(c.nome, c.rede_nome) : c.nome])),
+    [caixas, ocultarNomeRede]
+  )
+  const nomeTrechoPorId = useMemo(
+    () => new Map(trechos.map((t) => [t.id, ocultarNomeRede ? nomeSemRede(t.nome, t.rede_nome) : t.nome])),
+    [trechos, ocultarNomeRede]
+  )
   const caixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c])), [caixas])
 
   // Tc na caixa JUSANTE de cada trecho (o que vira o Tc de entrada do PRÓXIMO trecho) —
@@ -820,7 +828,7 @@ export function RedePluvialPage() {
         ? calcularLinhaEnergia(trecho.cota_fundo_jusante, r.lamina_m, r.velocidade_ms)
         : null
     return {
-      trecho: r.trecho_nome,
+      trecho: nomeTrechoPorId.get(r.trecho_id) ?? r.trecho_nome,
       sistema: formatSistema(redePorTrecho.get(r.trecho_id)),
       caixaMontante: trecho
         ? (nomeCaixaPorId.get(trecho.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(trecho.caixa_montante_id)
@@ -927,7 +935,7 @@ export function RedePluvialPage() {
     const caixaMontante = caixaPorId.get(t.caixa_montante_id)
     const caixaJusante = caixaPorId.get(t.caixa_jusante_id)
     return {
-      trecho: t.nome,
+      trecho: nomeTrechoPorId.get(t.id) ?? t.nome,
       sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
       caixaJusante:
@@ -949,7 +957,7 @@ export function RedePluvialPage() {
   const montarValoresQuantidade = (t: TrechoRecord): Record<ColunaQuantidadeKey, string> => {
     const volumes = volumesPorTrecho.get(t.id)
     return {
-      trecho: t.nome,
+      trecho: nomeTrechoPorId.get(t.id) ?? t.nome,
       sistema: formatSistema(redePorTrecho.get(t.id)),
       caixaMontante: (nomeCaixaPorId.get(t.caixa_montante_id) ?? '—') + sufixoRedesQueDesaguam(t.caixa_montante_id),
       caixaJusante:
