@@ -127,6 +127,34 @@ export async function updateTrecho(id: string, patch: TrechoPatch): Promise<void
   if (error) throw error
 }
 
+/**
+ * Exclui uma caixa (estrutura). Caixa_montante_id/caixa_jusante_id em `trechos` são
+ * NOT NULL, então qualquer trecho ligado nela (montante ou jusante) tem que ser excluído
+ * junto -- não dá pra "desligar" o trecho e manter só a caixa órfã. Útil pra limpar
+ * estruturas fantasma do Civil3D (ex.: EndNullStructN sem par StartNullStructN
+ * correspondente, sem coordenada, que acabam gerando ciclo na topologia da rede).
+ */
+export async function excluirCaixa(caixaId: string): Promise<void> {
+  const client = requireSupabase()
+
+  const { data: trechosLigados, error: errTrechos } = await client
+    .from('trechos')
+    .select('id')
+    .or(`caixa_montante_id.eq.${caixaId},caixa_jusante_id.eq.${caixaId}`)
+  if (errTrechos) throw errTrechos
+  const trechoIds = (trechosLigados ?? []).map((t: { id: string }) => t.id)
+
+  if (trechoIds.length > 0) {
+    const { error: errResultados } = await client.from('resultados_rede').delete().in('trecho_id', trechoIds)
+    if (errResultados) throw errResultados
+    const { error: errDelTrechos } = await client.from('trechos').delete().in('id', trechoIds)
+    if (errDelTrechos) throw errDelTrechos
+  }
+
+  const { error: errDelCaixa } = await client.from('caixas').delete().eq('id', caixaId)
+  if (errDelCaixa) throw errDelCaixa
+}
+
 export async function updateTrechosManningEmLote(ids: string[], manningN: number): Promise<void> {
   if (ids.length === 0) return
   const { error } = await requireSupabase()

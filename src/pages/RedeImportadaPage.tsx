@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckSquare, Download, Droplets, Loader2, Square } from 'lucide-react'
+import { AlertTriangle, CheckSquare, Download, Droplets, Loader2, Square, Trash2 } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import {
+  excluirCaixa,
   listCaixas,
   listTrechos,
   updateCaixa,
@@ -221,6 +222,23 @@ export function RedeImportadaPage() {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao editar caixa.')
+    }
+  }
+
+  const handleExcluirCaixa = async (c: CaixaRecord) => {
+    const trechosLigados = trechos.filter((t) => t.caixa_montante_id === c.id || t.caixa_jusante_id === c.id)
+    const aviso =
+      trechosLigados.length > 0
+        ? `Excluir a estrutura "${c.nome}"? Ela tem ${trechosLigados.length} tubo(s) ligado(s) (${trechosLigados
+            .map((t) => t.nome)
+            .join(', ')}) que também serão excluídos junto. Não pode ser desfeito.`
+        : `Excluir a estrutura "${c.nome}"? Não pode ser desfeito.`
+    if (!window.confirm(aviso)) return
+    try {
+      await excluirCaixa(c.id)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir estrutura.')
     }
   }
 
@@ -440,6 +458,7 @@ export function RedeImportadaPage() {
                   <th className="px-3 py-2 font-medium">Cota terreno</th>
                   <th className="px-3 py-2 font-medium">Cota fundo</th>
                   <th className="px-3 py-2 font-medium">Origem</th>
+                  <th className="w-10 px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -496,11 +515,20 @@ export function RedeImportadaPage() {
                       />
                     </td>
                     <td className="px-3 py-1.5 text-text-secondary">{c.origem}</td>
+                    <td className="px-3 py-1.5">
+                      <button
+                        onClick={() => handleExcluirCaixa(c)}
+                        className="flex items-center text-text-secondary hover:text-accent-red"
+                        title="Excluir estrutura"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {caixasFiltradas.length === 0 && (
                   <tr>
-                    <td colSpan={redesDisponiveis.length > 1 ? 8 : 7} className="px-3 py-6 text-center text-text-secondary">
+                    <td colSpan={redesDisponiveis.length > 1 ? 9 : 8} className="px-3 py-6 text-center text-text-secondary">
                       Nenhuma estrutura encontrada.
                     </td>
                   </tr>
