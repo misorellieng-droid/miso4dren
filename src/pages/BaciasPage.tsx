@@ -8,6 +8,7 @@ import { parseBaciasCsv } from '../engine/csvBacias'
 import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
 import { gerarPlanilhaCaptacao, parsePlanilhaCaptacao } from '../engine/xlsxCaptacao'
+import { nomeSemRede } from '../lib/nomeRede'
 import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
 import {
   aplicarReimportacao,
@@ -46,7 +47,8 @@ const SMALL_BTN =
   'flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
 export function BaciasPage() {
-  const { revisaoAtiva } = useRevisaoContext()
+  const { revisaoAtiva, ocultarNomeRede } = useRevisaoContext()
+  const nomeExibido = (nome: string, redeNome: string | null) => (ocultarNomeRede ? nomeSemRede(nome, redeNome) : nome)
   const [caixas, setCaixas] = useState<CaixaRecord[]>([])
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
@@ -294,7 +296,9 @@ export function BaciasPage() {
 
       const somaPorBacia = new Map<string, number>()
       for (const e of entradas) somaPorBacia.set(e.baciaNome, (somaPorBacia.get(e.baciaNome) ?? 0) + e.percentual)
-      const baciasExcedidas = [...somaPorBacia.entries()].filter(([, soma]) => soma > 100)
+      // soma > 100.01 (não > 100): soma de percentuais em ponto flutuante frequentemente fecha em
+      // algo como 100.00000000000004 mesmo quando os valores digitados somam exatamente 100.
+      const baciasExcedidas = [...somaPorBacia.entries()].filter(([, soma]) => soma > 100.01)
       if (baciasExcedidas.length > 0) {
         throw new Error(`Bacia(s) com soma acima de 100% na planilha: ${baciasExcedidas.map(([n, s]) => `${n} (${s.toFixed(1)}%)`).join(', ')}.`)
       }
@@ -519,7 +523,7 @@ export function BaciasPage() {
             <tbody>
               {trechosParaRevisao.map((t) => (
                 <tr key={t.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-2">{t.nome}</td>
+                  <td className="py-2">{nomeExibido(t.nome, t.rede_nome)}</td>
                   <td className="py-2 text-text-secondary">{t.material ?? '—'}</td>
                   <td className="py-2 text-text-secondary">
                     {t.manning_n_origem === 'tabela_interna' ? 'Tabela interna' : t.manning_n == null ? 'Pendente' : 'Manual'}
