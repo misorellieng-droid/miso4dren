@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import * as XLSXStyle from 'xlsx-js-style'
 import type { BaciaRecord } from '../lib/baciasStorage'
 import type { CaixaRecord } from '../lib/redeStorage'
 import type { CaptacaoRecord } from '../lib/captacaoStorage'
@@ -6,15 +7,20 @@ import type { CaptacaoRecord } from '../lib/captacaoStorage'
 const ABA_CAPTACAO = 'Captação'
 const COL_DISPOSITIVO = 0
 const LINHA_CABECALHO = 0 // nomes das bacias
-const LINHA_SOMA = 1 // soma % por bacia (fórmula)
-const LINHA_PRIMEIRO_DISPOSITIVO = 2
+const LINHA_COEF_C = 1 // C de cada bacia (editável, aplicado na reimportação)
+const LINHA_SOMA = 2 // soma % por bacia (fórmula)
+const LINHA_PRIMEIRO_DISPOSITIVO = 3
 
 /**
  * Gera e baixa a planilha bacia x dispositivo: linhas = dispositivos,
- * colunas = bacias, linha 2 = soma de % por bacia (deve fechar em 100).
- * O engenheiro edita manualmente para vincular dispositivos que ficam FORA
- * do polígono da bacia mas ainda captam água dela, e reimporta pelo card
- * "3. Importação da tabela ajustada".
+ * colunas = bacias, linha 2 = coeficiente C de cada bacia (editável), linha 3 =
+ * soma de % por bacia (deve fechar em 100). O engenheiro edita manualmente para
+ * vincular dispositivos que ficam FORA do polígono da bacia mas ainda captam
+ * água dela, e reimporta pelo card "3. Importação da tabela ajustada". Escrita
+ * com xlsx-js-style (em vez do `xlsx` puro usado no resto do app) porque é o
+ * único dos dois que realmente grava estilo de célula (rotação de texto) no
+ * arquivo -- o `xlsx` community aceita a propriedade `s` sem erro mas descarta
+ * silenciosamente na hora de escrever.
  */
 export function gerarPlanilhaCaptacao(
   bacias: BaciaRecord[],
@@ -30,27 +36,37 @@ export function gerarPlanilhaCaptacao(
 
   const linhas: (string | number)[][] = []
   linhas.push(['Dispositivo', ...baciasOrdenadas.map((b) => b.nome)])
+  linhas.push(['C da bacia (0 a 1)', ...baciasOrdenadas.map((b) => b.coef_c ?? '')])
   linhas.push(['SOMA % (deve fechar em 100)', ...baciasOrdenadas.map(() => 0)])
   for (const d of dispositivosOrdenados) {
     linhas.push([d.nome, ...baciasOrdenadas.map((b) => percentualPorPar.get(`${b.id}|${d.id}`) ?? '')])
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(linhas)
-  ws['!cols'] = [{ wch: 28 }, ...baciasOrdenadas.map(() => ({ wch: 16 }))]
+  const ws = XLSXStyle.utils.aoa_to_sheet(linhas)
+  // colunas de bacia estreitas (nome vai girado 90° no cabeçalho); a primeira coluna
+  // (nome do dispositivo/rótulo de linha) fica larga e horizontal como antes.
+  ws['!cols'] = [{ wch: 28 }, ...baciasOrdenadas.map(() => ({ wch: 6 }))]
+  ws['!rows'] = [{ hpt: 110 }]
+
+  baciasOrdenadas.forEach((_, i) => {
+    const ref = XLSXStyle.utils.encode_cell({ r: LINHA_CABECALHO, c: i + 1 })
+    ws[ref].s = { alignment: { textRotation: 90, vertical: 'bottom', horizontal: 'center' }, font: { bold: true } }
+  })
 
   const ultimaLinhaExcel = LINHA_PRIMEIRO_DISPOSITIVO + dispositivosOrdenados.length // 1-based
   const primeiraLinhaDadosExcel = LINHA_PRIMEIRO_DISPOSITIVO + 1
   baciasOrdenadas.forEach((_, i) => {
-    const col = XLSX.utils.encode_col(i + 1)
-    const ref = XLSX.utils.encode_cell({ r: LINHA_SOMA, c: i + 1 })
+    const col = XLSXStyle.utils.encode_col(i + 1)
+    const ref = XLSXStyle.utils.encode_cell({ r: LINHA_SOMA, c: i + 1 })
     ws[ref] = { t: 'n', f: `SUM(${col}${primeiraLinhaDadosExcel}:${col}${ultimaLinhaExcel})` }
   })
 
-  const wsInstrucoes = XLSX.utils.aoa_to_sheet([
+  const wsInstrucoes = XLSXStyle.utils.aoa_to_sheet([
     ['Tabela de captação — dispositivos x bacias — miso4dren'],
     [''],
     ['Como preencher'],
-    ['Cada célula é o % da vazão da bacia (coluna) captado por aquele dispositivo (linha).'],
+    ['Linha "C da bacia": o coeficiente de escoamento (0 a 1) daquela bacia — na reimportação, substitui o C já cadastrado. Deixe em branco para não mexer no C atual.'],
+    ['Cada célula sob um dispositivo é o % da vazão da bacia (coluna) captado por aquele dispositivo (linha).'],
     ['A soma de cada coluna (linha "SOMA %") precisa fechar em 100% — o sistema rejeita a reimportação se alguma bacia passar de 100%.'],
     [
       'Use isso principalmente para vincular dispositivos que ficam FORA do polígono da bacia mas ainda captam água dela (ex.: telhado sem caixa dentro do prédio, escoamento até uma sarjeta vizinha).',
@@ -64,12 +80,12 @@ export function gerarPlanilhaCaptacao(
   ])
   wsInstrucoes['!cols'] = [{ wch: 100 }]
 
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, ABA_CAPTACAO)
-  XLSX.utils.book_append_sheet(wb, wsInstrucoes, 'Instruções')
+  const wb = XLSXStyle.utils.book_new()
+  XLSXStyle.utils.book_append_sheet(wb, ws, ABA_CAPTACAO)
+  XLSXStyle.utils.book_append_sheet(wb, wsInstrucoes, 'Instruções')
 
   const slug = nomeRevisao.replace(/[^a-z0-9]+/gi, '_').toLowerCase()
-  XLSX.writeFile(wb, `captacao_bacias_${slug}.xlsx`)
+  XLSXStyle.writeFile(wb, `captacao_bacias_${slug}.xlsx`)
 }
 
 export interface EntradaCaptacaoPlanilha {
@@ -78,16 +94,23 @@ export interface EntradaCaptacaoPlanilha {
   percentual: number
 }
 
+export interface EntradaCoefCPlanilha {
+  baciaNome: string
+  coefC: number
+}
+
 export interface ResultadoParsePlanilhaCaptacao {
   entradas: EntradaCaptacaoPlanilha[]
+  coefCs: EntradaCoefCPlanilha[]
   baciasNaPlanilha: string[]
   avisos: string[]
 }
 
 /**
  * Lê a planilha ajustada pelo usuário. Espera a mesma estrutura gerada por
- * `gerarPlanilhaCaptacao`: linha 1 = nomes de bacias, linha 2 = soma
- * (ignorada, é fórmula), linhas seguintes = dispositivo + percentuais.
+ * `gerarPlanilhaCaptacao`: linha 1 = nomes de bacias, linha 2 = C de cada
+ * bacia (opcional), linha 3 = soma (ignorada, é fórmula), linhas seguintes =
+ * dispositivo + percentuais.
  */
 export function parsePlanilhaCaptacao(arrayBuffer: ArrayBuffer): ResultadoParsePlanilhaCaptacao {
   const wb = XLSX.read(arrayBuffer, { type: 'array' })
@@ -105,8 +128,22 @@ export function parsePlanilhaCaptacao(arrayBuffer: ArrayBuffer): ResultadoParseP
     throw new Error('Existe uma coluna de bacia sem nome no cabeçalho (linha 1) — confira se não sobrou/faltou coluna.')
   }
 
-  const entradas: EntradaCaptacaoPlanilha[] = []
   const avisos: string[] = []
+
+  const coefCs: EntradaCoefCPlanilha[] = []
+  const linhaCoefC = linhas[LINHA_COEF_C]
+  baciasNaPlanilha.forEach((baciaNome, i) => {
+    const bruto = linhaCoefC?.[i + 1]
+    if (bruto === '' || bruto == null) return // em branco = não mexe no C atual
+    const coefC = typeof bruto === 'number' ? bruto : Number(String(bruto).replace(',', '.'))
+    if (!Number.isFinite(coefC) || coefC < 0 || coefC > 1) {
+      avisos.push(`C inválido para "${baciaNome}": "${bruto}" (precisa estar entre 0 e 1) — ignorado.`)
+      return
+    }
+    coefCs.push({ baciaNome, coefC })
+  })
+
+  const entradas: EntradaCaptacaoPlanilha[] = []
 
   for (let r = LINHA_PRIMEIRO_DISPOSITIVO; r < linhas.length; r++) {
     const linha = linhas[r]
@@ -126,5 +163,5 @@ export function parsePlanilhaCaptacao(arrayBuffer: ArrayBuffer): ResultadoParseP
     })
   }
 
-  return { entradas, baciasNaPlanilha, avisos }
+  return { entradas, coefCs, baciasNaPlanilha, avisos }
 }

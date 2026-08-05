@@ -277,7 +277,7 @@ export function BaciasPage() {
     setMessage(null)
     try {
       const buffer = await file.arrayBuffer()
-      const { entradas, baciasNaPlanilha, avisos } = parsePlanilhaCaptacao(buffer)
+      const { entradas, coefCs, baciasNaPlanilha, avisos } = parsePlanilhaCaptacao(buffer)
 
       const baciasNaoEncontradas = baciasNaPlanilha.filter((nome) => !bacias.some((b) => b.nome === nome))
       if (baciasNaoEncontradas.length > 0) {
@@ -309,6 +309,11 @@ export function BaciasPage() {
         await replaceCaptacoesDaBacia(bacia.id, entradasDaBacia)
       }
 
+      for (const { baciaNome, coefC } of coefCs) {
+        const bacia = bacias.find((b) => b.nome === baciaNome)
+        if (bacia) await updateBaciaCoefC(bacia.id, coefC)
+      }
+
       try {
         await criarImportacao(
           revisaoAtiva.id,
@@ -321,6 +326,7 @@ export function BaciasPage() {
       }
 
       const partes = [`${baciasNaPlanilha.length} bacia(s) atualizada(s)`, `${entradas.length} vínculo(s) aplicado(s)`]
+      if (coefCs.length > 0) partes.push(`${coefCs.length} coeficiente(s) C atualizado(s)`)
       if (avisos.length > 0) partes.push(`${avisos.length} aviso(s): ${avisos.join(' ')}`)
       setMessage(partes.join(', ') + '.')
       await load()
