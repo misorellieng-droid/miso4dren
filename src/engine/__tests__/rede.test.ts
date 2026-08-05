@@ -4,6 +4,7 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
+  GrafoCicloError,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTopologicamente,
@@ -23,12 +24,18 @@ describe('ordenarTopologicamente', () => {
     expect(ordem.indexOf('C')).toBeLessThan(ordem.indexOf('D'))
   })
 
-  it('lança erro para grafo com ciclo', () => {
+  it('lança GrafoCicloError com os ids presos no ciclo', () => {
     const arestas = [
       { id: 't1', montanteId: 'A', jusanteId: 'B' },
       { id: 't2', montanteId: 'B', jusanteId: 'A' },
     ]
-    expect(() => ordenarTopologicamente(['A', 'B'], arestas)).toThrow()
+    expect(() => ordenarTopologicamente(['A', 'B'], arestas)).toThrow(GrafoCicloError)
+    try {
+      ordenarTopologicamente(['A', 'B'], arestas)
+    } catch (e) {
+      expect(e).toBeInstanceOf(GrafoCicloError)
+      expect((e as GrafoCicloError).idsNoCiclo.sort()).toEqual(['A', 'B'])
+    }
   })
 })
 
@@ -142,6 +149,19 @@ describe('identificarTroncoRede', () => {
 
 describe('identificarRedesPorPvCabeceira', () => {
   const caixa = (id: string, tipo: string = 'pv') => ({ id, nome: id, tipo })
+
+  it('grafo com ciclo: mensagem cita os nomes das caixas presas, não os ids internos', () => {
+    const caixas = [
+      { id: 'id-1', nome: 'PV-01', tipo: 'pv' },
+      { id: 'id-2', nome: 'PV-02', tipo: 'pv' },
+    ]
+    const trechos = [
+      { id: 't1', montanteId: 'id-1', jusanteId: 'id-2', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'id-2', jusanteId: 'id-1', nome: 'T2', diametroM: 0.3 },
+    ]
+    expect(() => identificarRedesPorPvCabeceira(caixas, trechos)).toThrow('PV-01')
+    expect(() => identificarRedesPorPvCabeceira(caixas, trechos)).toThrow('PV-02')
+  })
 
   it('cada PV de cabeceira gera uma rede independente', () => {
     const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('X'), caixa('Y')]

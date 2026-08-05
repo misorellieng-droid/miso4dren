@@ -538,15 +538,26 @@ export function RedePluvialPage() {
   // do PipeNetwork importado do Civil3D). Permite isolar cada rede pra análise (filtro abaixo).
   const redesPorPvCabeceira = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) {
-      return { redePorTrecho: new Map<string, number>(), redesQueDesaguamPorCaixa: new Map<string, number[]>() }
+      return { redePorTrecho: new Map<string, number>(), redesQueDesaguamPorCaixa: new Map<string, number[]>(), erro: null as string | null }
     }
-    return identificarRedesPorPvCabeceira(
-      caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
-      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
-    )
+    try {
+      return { ...identificarRedesPorPvCabeceira(
+        caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
+        trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+      ), erro: null as string | null }
+    } catch (e) {
+      // grafo com ciclo (dado de import inconsistente) -- não deixa a página inteira quebrar
+      // (useMemo roda durante o render, um throw aqui vira erro não capturado)
+      return { redePorTrecho: new Map<string, number>(), redesQueDesaguamPorCaixa: new Map<string, number[]>(), erro: e instanceof Error ? e.message : 'Erro ao identificar as redes.' }
+    }
   }, [caixas, trechos])
   const redePorTrecho = redesPorPvCabeceira.redePorTrecho
   const redesQueDesaguamPorCaixa = redesPorPvCabeceira.redesQueDesaguamPorCaixa
+
+  useEffect(() => {
+    if (redesPorPvCabeceira.erro) setError(redesPorPvCabeceira.erro)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [redesPorPvCabeceira.erro])
 
   // Texto pra anexar no nome da caixa montante quando ela é ponto de confluência entre sistemas
   // diferentes -- ex.: "PV - 04 (recebe Sistema 02)". "Sistema" aqui é a numeração topológica

@@ -6,8 +6,18 @@ export interface ArestaGrafo {
   jusanteId: string
 }
 
+/** Lançado por ordenarTopologicamente quando o grafo tem ciclo. Carrega os ids das caixas que
+ * ficaram presas (o próprio ciclo mais tudo que só recebe água a partir dele), pra quem chamar
+ * poder traduzir em nomes e mostrar uma mensagem acionável em vez de só "tem ciclo em algum lugar". */
+export class GrafoCicloError extends Error {
+  constructor(public readonly idsNoCiclo: string[]) {
+    super('Grafo da rede possui ciclo — verifique os vínculos montante/jusante dos trechos.')
+    this.name = 'GrafoCicloError'
+  }
+}
+
 /**
- * Ordena os nós das cabeceiras até a saída (Kahn). Lança erro se o grafo
+ * Ordena os nós das cabeceiras até a saída (Kahn). Lança GrafoCicloError se o grafo
  * tiver ciclo — uma rede de drenagem é sempre um DAG (tipicamente uma árvore).
  */
 export function ordenarTopologicamente(noIds: string[], arestas: ArestaGrafo[]): string[] {
@@ -33,7 +43,8 @@ export function ordenarTopologicamente(noIds: string[], arestas: ArestaGrafo[]):
   }
 
   if (ordem.length !== noIds.length) {
-    throw new Error('Grafo da rede possui ciclo — verifique os vínculos montante/jusante dos trechos.')
+    const idsNoCiclo = noIds.filter((id) => (grauEntrada.get(id) ?? 0) > 0)
+    throw new GrafoCicloError(idsNoCiclo)
   }
 
   return ordem
@@ -223,7 +234,6 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
 
   const idsResolvidos = [...new Set(caixas.map((c) => resolve(c.id)))]
   const trechosResolvidos = trechos.map((t) => ({ id: t.id, montanteId: resolve(t.montanteId), jusanteId: resolve(t.jusanteId) }))
-  const ordem = ordenarTopologicamente(idsResolvidos, trechosResolvidos)
 
   const nomePorCaixaResolvida = new Map<string, string>()
   const tipoPorCaixaResolvida = new Map<string, string>()
@@ -231,6 +241,19 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
     const id = resolve(c.id)
     if (!nomePorCaixaResolvida.has(id)) nomePorCaixaResolvida.set(id, c.nome)
     if (!tipoPorCaixaResolvida.has(id)) tipoPorCaixaResolvida.set(id, c.tipo)
+  }
+
+  let ordem: string[]
+  try {
+    ordem = ordenarTopologicamente(idsResolvidos, trechosResolvidos)
+  } catch (e) {
+    if (e instanceof GrafoCicloError) {
+      const nomes = e.idsNoCiclo.map((id) => nomePorCaixaResolvida.get(id) ?? id).sort()
+      const erroComNomes = new GrafoCicloError(e.idsNoCiclo)
+      erroComNomes.message = `Grafo da rede possui ciclo — verifique os vínculos montante/jusante das caixas: ${nomes.join(', ')}.`
+      throw erroComNomes
+    }
+    throw e
   }
 
   const ehPv = (id: string) => tipoPorCaixaResolvida.get(id) === 'pv'
