@@ -628,6 +628,7 @@ export function BaciasPage() {
                       <td className="py-2 text-text-secondary">{b.area_m2.toFixed(1)}</td>
                       <td className="py-2">
                         <input
+                          key={`coefc-${b.id}-${b.coef_c ?? 'vazio'}`}
                           type="number"
                           step="0.01"
                           min={0}
