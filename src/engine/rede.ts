@@ -171,15 +171,32 @@ export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: Trecho
   return new Map(ordem.map((id, i) => [id, i]))
 }
 
+/** Um ramal entra na rede tronco junto com o principal quando carrega pelo menos essa fração
+ * do peso do principal na mesma confluência (ex.: 0.2 = pelo menos 20% do ΣC×A do principal).
+ * Só vale quando `pesoPorTrecho` é passado pra identificarTroncoRede -- sem peso (antes do
+ * cálculo rodar), o critério continua sendo só o de maior diâmetro, como sempre foi. */
+export const FRACAO_MINIMA_RAMAL_TRONCO = 0.2
+
 /**
- * Identifica os trechos que formam a "rede tronco": partindo de cada saída da rede,
- * segue só o trecho de MAIOR diâmetro em cada confluência (em vez de todos, como
- * ordenarTrechosPorFluxo) — define a cadeia principal de cada saída, deixando de fora
- * os ramais menores que desaguam nela. Usa o mesmo critério de diâmetro e a mesma fusão
- * de pares Start/EndNullStruct que a ordenação, então o resultado é sempre consistente
- * com o que aparece primeiro entre os trechos concorrentes na tabela.
+ * Identifica os trechos que formam a "rede tronco": partindo de cada saída da rede, segue rio
+ * acima os ramais relevantes de cada confluência (não só um). O critério de relevância:
+ * - sem `pesoPorTrecho` (antes do cálculo rodar): só o trecho de MAIOR diâmetro em cada
+ *   confluência -- não dá pra saber ainda quanto cada ramal carrega de fato.
+ * - com `pesoPorTrecho` (ex.: ΣC×A acumulado, já calculado): o de maior diâmetro continua
+ *   entrando sempre, e junto dele qualquer outro ramal cujo peso seja pelo menos
+ *   FRACAO_MINIMA_RAMAL_TRONCO do peso do principal -- uma confluência real de dois sistemas
+ *   grandes (ex.: dois PVs de cabeceira desaguando na mesma caixa) deixa os DOIS no tronco, só
+ *   ramais de fato secundários (bocas de lobo isoladas etc.) ficam de fora. Isso NÃO afeta o
+ *   cálculo hidráulico -- ΣC×A/vazão sempre soma TODAS as entradas de toda caixa, inclusive as
+ *   que ficam fora da rede tronco; esse filtro só decide o que aparece na tabela/diagrama/Nota
+ *   de Serviço/Quantidade quando "Só rede tronco" está ativo.
+ * Usa a mesma fusão de pares Start/EndNullStruct que ordenarTrechosPorFluxo.
  */
-export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Set<string> {
+export function identificarTroncoRede(
+  caixas: CaixaOrdenavel[],
+  trechos: TrechoOrdenavel[],
+  pesoPorTrecho?: Map<string, number>
+): Set<string> {
   const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
 
   const tronco = new Set<string>()
@@ -190,8 +207,15 @@ export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoO
     const entradas = entradasPorCaixa.get(caixaId)
     if (!entradas || entradas.length === 0) return
     const principal = entradas[0] // já ordenado por diâmetro desc (empate: nome)
-    tronco.add(principal.id)
-    seguir(resolve(principal.montanteId))
+    const pesoPrincipal = pesoPorTrecho?.get(principal.id)
+    for (const e of entradas) {
+      const relevante =
+        e === principal ||
+        (pesoPrincipal != null && pesoPrincipal > 0 && (pesoPorTrecho!.get(e.id) ?? 0) >= pesoPrincipal * FRACAO_MINIMA_RAMAL_TRONCO)
+      if (!relevante) continue
+      tronco.add(e.id)
+      seguir(resolve(e.montanteId))
+    }
   }
   for (const outfallId of outfalls) seguir(outfallId)
   return tronco
@@ -287,6 +311,15 @@ export interface CaixaComTipo extends CaixaOrdenavel {
  * das entradas dele vem de OUTRO PV — nesse caso ele é continuação/junção de uma rede que já
  * existe, não o início de uma nova.
  *
+ * IMPORTANTE: o critério de candidato a cabeceira (tipo === 'pv') é só o primeiro filtro. O
+ * critério que REALMENTE decide se um PV vira cabeceira nova é a ORDEM DE CHECAGEM no loop
+ * abaixo -- tenta herdar a rede de uma entrada que já carregue uma (mesmo vindo indiretamente
+ * de outro PV, através de uma cadeia de caixas não-PV no meio do caminho, tipo boca de lobo
+ * funcionando como relé de uma tubulação principal) ANTES de decidir que é cabeceira nova. Isso
+ * evita o caso real de um PV que só recebe de bocas de lobo/caixas de passagem, mas uma dessas
+ * bocas de lobo já carrega uma sub-rede enorme atrás dela (vinda de outro PV, mais a montante) --
+ * sem essa ordem, esse PV "cortaria" a rede que já vinha, criando uma segunda do zero.
+ *
  * Cada PV de cabeceira gera uma rede nova e independente, numerada em ordem alfabética do nome
  * (determinístico). A rede se propaga rio abaixo trecho a trecho até desaguar numa caixa que já
  * recebe outra rede (confluência com outro PV de cabeceira mais a jusante): a partir daí, quem
@@ -357,18 +390,23 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
     const entradas = entradasPorCaixa.get(caixaId) ?? []
     let redeAtual: number | undefined
 
-    if (numeroPorPvCabeceira.has(caixaId)) {
-      // PV de cabeceira -- gera (ou continua sendo) sua própria rede, mesmo já tendo entradas
-      // de inlets (boca de lobo/grelha).
-      redeAtual = numeroPorPvCabeceira.get(caixaId)
-    } else if (entradas.length > 0) {
-      // entradas já vem ordenado por diâmetro decrescente (a dominante primeiro); se ela não
-      // carrega rede ainda, tenta achar alguma outra entrada que carregue.
+    // tenta herdar PRIMEIRO -- mesmo um PV "candidato a cabeceira" (tipo pv, só entradas
+    // não-pv diretas) pode já estar recebendo, através de uma dessas entradas não-pv, uma rede
+    // que veio de outro PV mais a montante (ex.: uma boca de lobo no meio do caminho de uma
+    // tubulação principal). Só vira cabeceira NOVA quando ninguém a montante já carrega rede.
+    if (entradas.length > 0) {
       redeAtual = redePorTrecho.get(entradas[0].id)
       if (redeAtual == null) {
         const comRede = entradas.find((e) => redePorTrecho.get(e.id) != null)
         redeAtual = comRede ? redePorTrecho.get(comRede.id) : undefined
       }
+    }
+
+    // só vira cabeceira NOVA quando ninguém a montante já carrega rede -- é o que evita o PV
+    // "cortar" uma rede que já vinha por trás de uma boca de lobo/caixa de passagem (ver
+    // comentário no topo da função).
+    if (redeAtual == null && numeroPorPvCabeceira.has(caixaId)) {
+      redeAtual = numeroPorPvCabeceira.get(caixaId)
     }
 
     if (redeAtual != null) {

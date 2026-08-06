@@ -145,6 +145,41 @@ describe('identificarTroncoRede', () => {
     const tronco = identificarTroncoRede(caixas, trechos)
     expect([...tronco].sort()).toEqual(['bstc1', 'bstc1b', 'bstc2', 'bstc3', 'bstc4', 'pvc5'].sort())
   })
+
+  it('sem pesoPorTrecho, mantém só o de maior diâmetro (fallback pré-cálculo)', () => {
+    const caixas = ['A', 'B', 'X'].map(caixa)
+    const trechos = [
+      { id: 'grande', montanteId: 'A', jusanteId: 'X', nome: 'T-A', diametroM: 0.6 },
+      { id: 'tambemGrande', montanteId: 'B', jusanteId: 'X', nome: 'T-B', diametroM: 0.4 },
+    ]
+    const tronco = identificarTroncoRede(caixas, trechos)
+    expect(tronco.has('grande')).toBe(true)
+    expect(tronco.has('tambemGrande')).toBe(false)
+  })
+
+  it('com pesoPorTrecho, inclui ramais que carregam pelo menos FRACAO_MINIMA_RAMAL_TRONCO do peso do principal', () => {
+    // reproduz o caso real do PV-21: dois ramais grandes (18 e 17) convergindo, mais dois
+    // pequenos (167 escolhido por diâmetro, 169 residual) -- tronco deve pegar os DOIS grandes,
+    // não só o de maior diâmetro.
+    const caixas = ['A', 'B', 'C', 'D', 'X'].map(caixa)
+    const trechos = [
+      { id: 'tubo18', montanteId: 'A', jusanteId: 'X', nome: 'TUBO-18', diametroM: 0.4 },
+      { id: 'tubo167', montanteId: 'B', jusanteId: 'X', nome: 'TUBO-167', diametroM: 0.6 },
+      { id: 'tubo169', montanteId: 'C', jusanteId: 'X', nome: 'TUBO-169', diametroM: 0.3 },
+      { id: 'tubo17', montanteId: 'D', jusanteId: 'X', nome: 'TUBO-17', diametroM: 0.4 },
+    ]
+    const peso = new Map([
+      ['tubo18', 88056.61],
+      ['tubo167', 5954.71],
+      ['tubo169', 500],
+      ['tubo17', 48202.63],
+    ])
+    const tronco = identificarTroncoRede(caixas, trechos, peso)
+    expect(tronco.has('tubo167')).toBe(true) // principal (maior diâmetro) sempre entra
+    expect(tronco.has('tubo18')).toBe(true) // 88056 >> 20% de 5954.71 -> entra
+    expect(tronco.has('tubo17')).toBe(true) // 48202 >> 20% de 5954.71 -> entra
+    expect(tronco.has('tubo169')).toBe(false) // 500 < 20% de 5954.71 -> fica de fora
+  })
 })
 
 describe('identificarRedesPorPvCabeceira', () => {
@@ -247,6 +282,26 @@ describe('identificarRedesPorPvCabeceira', () => {
     // a boca de lobo não GERA rede própria, mas passa a integrar a rede em que deságua
     expect(redes.get('tBl')).toBe(redes.get('tA'))
     expect(redes.get('tX')).toBe(redes.get('tA')) // e o trecho depois da confluência também segue a rede do PV
+  })
+
+  it('PV que só recebe de caixas não-PV não corta a rede se uma delas já carrega rede vinda de outro PV mais a montante', () => {
+    // reproduz o bug real: PV-61 (rede 1, grande) -> ... -> BL-12 (não-pv, só repassa) -> PV-22.
+    // PV-22 só tem entradas não-pv diretas (BL-12 e CT-47), então seria "candidato" a cabeceira
+    // -- mas BL-12 já carrega a rede de PV-61 (que vem de trás), então PV-22 tem que herdar essa
+    // rede, não criar uma segunda do zero.
+    const caixas = [caixa('PV-61'), caixa('BL-12', 'boca_de_lobo'), caixa('CT-47', 'caixa_transicao'), caixa('PV-22'), caixa('Saida')]
+    const trechos = [
+      { id: 'tubo18', montanteId: 'PV-61', jusanteId: 'BL-12', nome: 'TUBO-18', diametroM: 0.6 },
+      { id: 'tubo19', montanteId: 'BL-12', jusanteId: 'PV-22', nome: 'TUBO-19', diametroM: 0.6 },
+      { id: 'tubo207', montanteId: 'CT-47', jusanteId: 'PV-22', nome: 'TUBO-207', diametroM: 0.6 },
+      { id: 'tubo20', montanteId: 'PV-22', jusanteId: 'Saida', nome: 'TUBO-20', diametroM: 0.6 },
+    ]
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
+    const redePv61 = redes.get('tubo18')!
+    expect(redePv61).toBeDefined()
+    // TUBO-20 (saída de PV-22) continua a rede de PV-61 -- PV-22 NÃO criou uma rede nova
+    expect(redes.get('tubo20')).toBe(redePv61)
+    expect(new Set(redes.values()).size).toBe(1)
   })
 
   it('numera os PVs de cabeceira em ordem alfabética do nome', () => {

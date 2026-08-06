@@ -522,22 +522,29 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
-  // Rede tronco = cadeia principal (maior diâmetro em cada confluência) partindo de cada
-  // saída da rede, sem os ramais menores — mesmo critério usado em ordenarTrechosPorFluxo.
-  // Filtra tanto o diagrama quanto a tabela de resultados quando "Só rede tronco" está ativo.
+  // ΣC×A acumulado por trecho, já calculado -- usado como peso pra decidir tanto a rede tronco
+  // (abaixo) quanto o alerta de confluências suspeitas.
+  const caAcumuladoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.ca_acumulado ?? 0])), [resultados])
+
+  // Rede tronco = ramais relevantes de cada confluência partindo de cada saída da rede (não só
+  // um): sem cálculo rodado ainda, só o de maior diâmetro (fallback); com ΣC×A calculado, todo
+  // ramal que carregue pelo menos FRACAO_MINIMA_RAMAL_TRONCO do peso do maior entra junto -- uma
+  // confluência de dois sistemas grandes fica com os dois no tronco, só ramais realmente
+  // secundários ficam de fora. Filtra diagrama/tabela quando "Só rede tronco" está ativo; não
+  // muda o cálculo hidráulico (ΣC×A/vazão sempre soma todas as entradas de toda caixa).
   const troncoIds = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Set<string>()
     return identificarTroncoRede(
       caixas.map((c) => ({ id: c.id, nome: c.nome })),
-      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m })),
+      caAcumuladoPorTrecho.size > 0 ? caAcumuladoPorTrecho : undefined
     )
-  }, [caixas, trechos])
+  }, [caixas, trechos, caAcumuladoPorTrecho])
 
-  // Confluências onde o critério de maior diâmetro (usado acima) provavelmente cortou o ramal
-  // errado da rede tronco. Usa o ΣC×A acumulado já calculado (peso hidráulico real) quando o
-  // cálculo já rodou; sem isso ainda cai pro fallback de contar trechos a montante (só
-  // topológico). Não muda o cálculo, só avisa: vale conferir no Civil 3D.
-  const caAcumuladoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.ca_acumulado ?? 0])), [resultados])
+  // Confluências onde o critério de maior diâmetro provavelmente cortou o ramal errado da rede
+  // tronco. Usa o ΣC×A acumulado já calculado (peso hidráulico real) quando o cálculo já rodou;
+  // sem isso ainda cai pro fallback de contar trechos a montante (só topológico). Não muda o
+  // cálculo, só avisa: vale conferir no Civil 3D.
   const ambiguidadesTronco = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return []
     return identificarAmbiguidadesTronco(
@@ -547,11 +554,13 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos, caAcumuladoPorTrecho])
 
-  // Rede = a partir de cada PV de cabeceira (poço de visita sem trecho de entrada), gera uma
-  // rede independente que se propaga rio abaixo até desaguar em outra rede já estabelecida
-  // (na confluência, quem continua é a entrada dominante — maior diâmetro). Cabeceiras que não
-  // são PV (boca de lobo, grelha etc.) não geram rede própria. Não depende de rede_nome (nome
-  // do PipeNetwork importado do Civil3D). Permite isolar cada rede pra análise (filtro abaixo).
+  // Rede = a partir de cada PV de cabeceira, gera uma rede independente que se propaga rio abaixo
+  // até desaguar em outra rede já estabelecida (na confluência, quem continua é a entrada
+  // dominante — maior diâmetro). Um PV só vira cabeceira NOVA quando ninguém a montante (mesmo
+  // atrás de uma boca de lobo/caixa de passagem no meio do caminho) já carrega uma rede — evita
+  // cortar uma rede grande que passa por uma caixa não-PV antes de chegar num PV mais a jusante.
+  // Não depende de rede_nome (nome do PipeNetwork importado do Civil3D). Permite isolar cada rede
+  // pra análise (filtro abaixo).
   const redesPorPvCabeceira = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) {
       return { redePorTrecho: new Map<string, number>(), redesQueDesaguamPorCaixa: new Map<string, number[]>(), erro: null as string | null }
@@ -678,7 +687,11 @@ export function RedePluvialPage() {
 
   const avisosTroncoAmbiguo = useMemo(
     () =>
-      ambiguidadesTronco.map((a) => {
+      // filtra os casos em que o ramal "descartado" já entrou na rede tronco mesmo assim (pelo
+      // critério de ΣC×A em identificarTroncoRede) -- só sobra aviso pros que continuam de fora.
+      ambiguidadesTronco
+        .filter((a) => !troncoIds.has(a.trechoDescartadoId))
+        .map((a) => {
         const caixaNome = nomeCaixaPorId.get(a.caixaId) ?? '?'
         const escolhidoNome = nomeTrechoPorId.get(a.trechoEscolhidoId) ?? '?'
         const descartadoNome = nomeTrechoPorId.get(a.trechoDescartadoId) ?? '?'
@@ -687,7 +700,7 @@ export function RedePluvialPage() {
           : `${a.trechosAMontanteDescartado} trecho(s) a montante contra ${a.trechosAMontanteEscolhido}`
         return `Em ${caixaNome}: ${escolhidoNome} foi escolhido pra rede tronco por ter o maior diâmetro, mas ${descartadoNome} carrega mais (${contexto}) — confira no Civil 3D se não é ${descartadoNome} quem deveria continuar como tronco.`
       }),
-    [ambiguidadesTronco, nomeCaixaPorId, nomeTrechoPorId, caAcumuladoPorTrecho]
+    [ambiguidadesTronco, nomeCaixaPorId, nomeTrechoPorId, caAcumuladoPorTrecho, troncoIds]
   )
 
   // identificarTroncoRede segue só a cadeia vencedora a partir de cada saída REAL do terreno
