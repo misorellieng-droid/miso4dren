@@ -135,6 +135,32 @@ export async function updateTrecho(id: string, patch: TrechoPatch): Promise<void
   if (error) throw error
 }
 
+/** Aplica um patch de perfil (declividade + cotas) por trecho, em paralelo -- usado pelo
+ * recálculo de perfil da rede inteira (declividade/recobrimento uniformes), que tipicamente
+ * mexe em uma centena de trechos de uma vez; um loop sequencial de updateTrecho seria lento
+ * demais pra isso. */
+export async function updateTrechosPerfilEmLote(
+  patches: { id: string; declividadeM_m: number; cotaFundoMontante: number; cotaFundoJusante: number; cotaTopoMontante: number; cotaTopoJusante: number }[]
+): Promise<void> {
+  const client = requireSupabase()
+  const resultados = await Promise.all(
+    patches.map((p) =>
+      client
+        .from('trechos')
+        .update({
+          declividade_m_m: p.declividadeM_m,
+          cota_fundo_montante: p.cotaFundoMontante,
+          cota_fundo_jusante: p.cotaFundoJusante,
+          cota_topo_montante: p.cotaTopoMontante,
+          cota_topo_jusante: p.cotaTopoJusante,
+        })
+        .eq('id', p.id)
+    )
+  )
+  const primeiroErro = resultados.find((r) => r.error)?.error
+  if (primeiroErro) throw primeiroErro
+}
+
 /**
  * Exclui uma caixa (estrutura). Caixa_montante_id/caixa_jusante_id em `trechos` são
  * NOT NULL, então qualquer trecho ligado nela (montante ou jusante) tem que ser excluído

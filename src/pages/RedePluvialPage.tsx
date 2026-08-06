@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  AlertTriangle,
   Boxes,
   CheckCircle2,
   ClipboardList,
@@ -26,9 +27,12 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
+  identificarCaixasSemJusante,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTrechosPorFluxo,
+  recalcularPerfilRedeUniforme,
+  type PatchPerfilRede,
 } from '../engine/rede'
 import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
 import { calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
@@ -39,7 +43,14 @@ import { exportarTabelaRedePluvialPdf } from '../lib/exportRedePluvialPdf'
 import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
-import { listCaixas, listTrechos, updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
+import {
+  listCaixas,
+  listTrechos,
+  updateTrecho,
+  updateTrechosPerfilEmLote,
+  type CaixaRecord,
+  type TrechoRecord,
+} from '../lib/redeStorage'
 import { listBacias, type BaciaRecord } from '../lib/baciasStorage'
 import { listCaptacoesPorRevisao, type CaptacaoRecord } from '../lib/captacaoStorage'
 import {
@@ -53,6 +64,10 @@ import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
   'flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
+const SECONDARY_BTN =
+  'flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60'
+const SMALL_BTN =
+  'flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60'
 
 type ColunaMemorialKey =
   | 'trecho'
@@ -388,6 +403,10 @@ export function RedePluvialPage() {
   const [colunasOcultasNotaServico, setColunasOcultasNotaServico] = useState<Set<ColunaNotaServicoKey>>(new Set())
   const [colunasOcultasQuantidade, setColunasOcultasQuantidade] = useState<Set<ColunaQuantidadeKey>>(new Set())
   const [aba, setAba] = useState<'memorial' | 'notaServico' | 'quantidade'>('memorial')
+  const [declividadePerfilPct, setDeclividadePerfilPct] = useState('0.50')
+  const [recobrimentoPerfil, setRecobrimentoPerfil] = useState('1.20')
+  const [perfilPendente, setPerfilPendente] = useState<{ patches: PatchPerfilRede[]; cabeceirasSemCotaTerreno: string[] } | null>(null)
+  const [aplicandoPerfil, setAplicandoPerfil] = useState(false)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -510,6 +529,62 @@ export function RedePluvialPage() {
     setResultados(existentes)
   }
 
+  // Calcula (sem gravar ainda) o resultado de aplicar uma declividade + recobrimento uniformes
+  // desde cada cabeceira -- sobrepõe as cotas vindas do Civil 3D. Fica pendente de confirmação
+  // (handleAplicarPerfil) porque mexe potencialmente em centenas de trechos de uma vez.
+  const handleCalcularPerfil = () => {
+    setError(null)
+    const declividadeMM = Number(declividadePerfilPct) / 100
+    const recobrimentoM = Number(recobrimentoPerfil)
+    if (!Number.isFinite(declividadeMM) || declividadeMM <= 0) {
+      setError('Declividade uniforme inválida — informe um número maior que zero.')
+      return
+    }
+    if (!Number.isFinite(recobrimentoM) || recobrimentoM < 0) {
+      setError('Recobrimento inválido — informe um número maior ou igual a zero.')
+      return
+    }
+    const trechosEscopo = trechos.filter((t) => redeSelecionada === 'todas' || redePorTrecho.get(t.id) === redeSelecionada)
+    const resultado = recalcularPerfilRedeUniforme(
+      caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
+      trechosEscopo.map((t) => ({
+        id: t.id,
+        montanteId: t.caixa_montante_id,
+        jusanteId: t.caixa_jusante_id,
+        nome: t.nome,
+        diametroM: t.diametro_m,
+        comprimentoM: t.comprimento_m,
+      })),
+      declividadeMM,
+      recobrimentoM
+    )
+    setPerfilPendente(resultado)
+  }
+
+  const handleAplicarPerfil = async () => {
+    if (!perfilPendente) return
+    setAplicandoPerfil(true)
+    setError(null)
+    try {
+      await updateTrechosPerfilEmLote(
+        perfilPendente.patches.map((p) => ({
+          id: p.id,
+          declividadeM_m: p.declividadeMM,
+          cotaFundoMontante: p.cotaFundoMontante,
+          cotaFundoJusante: p.cotaFundoJusante,
+          cotaTopoMontante: p.cotaTopoMontante,
+          cotaTopoJusante: p.cotaTopoJusante,
+        }))
+      )
+      setPerfilPendente(null)
+      await handleRecalcularAposEdicao()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao aplicar o perfil recalculado.')
+    } finally {
+      setAplicandoPerfil(false)
+    }
+  }
+
   // Ordem de fluxo real: tronco + ramais (ver doc de ordenarTrechosPorFluxo em
   // engine/rede.ts) — em cada confluência o trecho de maior diâmetro é tratado
   // como a continuação do tronco, ramais menores desaguam nele em seguida.
@@ -582,6 +657,24 @@ export function RedePluvialPage() {
   }
 
   const formatSistema = (n: number | undefined): string => (n != null ? `Sistema ${String(n).padStart(2, '0')}` : '—')
+
+  // Caixas que recebem água mas não têm trecho de saída -- ou é a saída real do terreno, ou é
+  // um vínculo quebrado no import (a rede "morre" ali sem ninguém perceber). Lista todas pra
+  // conferência manual, sem tentar adivinhar qual é qual.
+  const caixasSemJusante = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return [] as { id: string; nome: string; sistema: number | undefined }[]
+    const ids = identificarCaixasSemJusante(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+    )
+    const nomePorId = new Map(caixas.map((c) => [c.id, c.nome]))
+    const sistemaPorCaixa = new Map<string, number>()
+    for (const t of trechos) {
+      const sistema = redePorTrecho.get(t.id)
+      if (sistema != null) sistemaPorCaixa.set(t.caixa_jusante_id, sistema)
+    }
+    return ids.map((id) => ({ id, nome: nomePorId.get(id) ?? id, sistema: sistemaPorCaixa.get(id) })).sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [caixas, trechos, redePorTrecho])
 
   // Sistema de quem CONTINUA a partir de cada caixa (o trecho de saída dali) -- permite marcar
   // o lado inverso da confluência: "sufixoRedesQueDesaguam" avisa na caixa montante quem chega
@@ -1097,6 +1190,23 @@ export function RedePluvialPage() {
         </div>
       ))}
 
+      {caixasSemJusante.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-amber">
+            {caixasSemJusante.length} caixa(s) sem jusante definida
+          </div>
+          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-amber">
+            {caixasSemJusante.map((c) => (
+              <li key={c.id}>
+                Não há jusante definido para caixa {c.nome}
+                {c.sistema != null ? ` (${formatSistema(c.sistema)})` : ''} — confira se é a saída real do terreno ou se ficou um vínculo
+                quebrado na importação.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="mb-6 rounded-lg border border-border bg-surface p-4">
         <div className="mb-3 font-sans text-sm font-semibold text-text-primary">Critérios de conformidade</div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -1162,6 +1272,67 @@ export function RedePluvialPage() {
           )}
         </div>
       </div>
+
+      {trechos.length > 0 && (
+        <div className="mb-6 rounded-lg border border-border bg-surface p-4">
+          <div className="mb-1 font-sans text-sm font-semibold text-text-primary">Recalcular perfil da rede</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            Aplica uma declividade e um recobrimento únicos a partir de cada cabeceira, sobrepondo as cotas de fundo/topo que vieram do
+            Civil 3D — útil pra testar rápido um perfil alternativo sem editar trecho a trecho nem voltar pro CAD.{' '}
+            {redeSelecionada === 'todas' ? 'Escopo: rede inteira.' : `Escopo: só ${formatSistema(redeSelecionada)} (filtro atual).`}
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Field label="Declividade uniforme (%)">
+              <input
+                type="number"
+                step="any"
+                className={`${fieldInputClass} py-1.5`}
+                value={declividadePerfilPct}
+                onChange={(e) => setDeclividadePerfilPct(e.target.value)}
+              />
+            </Field>
+            <Field label="Recobrimento na cabeceira (m)">
+              <input
+                type="number"
+                step="any"
+                className={`${fieldInputClass} py-1.5`}
+                value={recobrimentoPerfil}
+                onChange={(e) => setRecobrimentoPerfil(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <button onClick={handleCalcularPerfil} className={SECONDARY_BTN}>
+              Calcular
+            </button>
+          </div>
+
+          {perfilPendente && (
+            <div className="mt-3 rounded-md border border-accent-amber/40 bg-accent-amber/5 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-text-primary">
+                <AlertTriangle size={16} className="text-accent-amber shrink-0" />
+                Isso vai sobrescrever declividade e cotas de {perfilPendente.patches.length} trecho(s). Não tem desfazer automático —
+                exportar/reimportar o LandXML original é o jeito de voltar atrás.
+              </div>
+              {perfilPendente.cabeceirasSemCotaTerreno.length > 0 && (
+                <div className="mb-2 text-xs text-accent-amber">
+                  {perfilPendente.cabeceirasSemCotaTerreno.length} cabeceira(s) sem cota de terreno cadastrada ficaram de fora (e tudo a
+                  jusante delas também) — preencha a cota de terreno nelas em Rede Importada pra incluí-las.
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button onClick={handleAplicarPerfil} disabled={aplicandoPerfil} className={SMALL_BTN}>
+                  {aplicandoPerfil && <Loader2 size={14} className="animate-spin" />}
+                  Aplicar
+                </button>
+                <button onClick={() => setPerfilPendente(null)} className="text-xs text-text-secondary hover:text-text-primary">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {caixas.length > 0 && trechos.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">

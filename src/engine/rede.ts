@@ -212,6 +212,121 @@ export function identificarTroncoRede(caixas: CaixaComEhTronco[], trechos: Trech
   return tronco
 }
 
+/**
+ * Toda caixa sem trecho de saída é, pra topologia, uma "saída da rede" (outfall) -- é assim que
+ * identificarTroncoRede/ordenarTrechosPorFluxo decidem por onde começar a andar rio acima. Mas
+ * nem toda caixa sem saída é uma saída de verdade: às vezes é um erro de vínculo no LandXML (o
+ * trecho que deveria continuar dali não ficou ligado a ela) e a rede simplesmente "morre" no meio
+ * do caminho sem ninguém perceber. Retorna os ids (já resolvidos -- funde pares Start/EndNullStruct,
+ * então não aponta os dois lados de uma emenda sem estrutura como "sem jusante" por engano) de
+ * toda caixa que RECEBE água (tem pelo menos 1 trecho de entrada) mas não tem trecho de saída --
+ * candidatas a conferir manualmente se são a saída real do terreno ou um vínculo quebrado.
+ */
+export function identificarCaixasSemJusante(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): string[] {
+  const { entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+  return outfalls.filter((id) => (entradasPorCaixa.get(id) ?? []).length > 0)
+}
+
+export interface CaixaPerfil extends CaixaOrdenavel {
+  cotaTerreno: number | null
+}
+
+export interface TrechoPerfil extends TrechoOrdenavel {
+  comprimentoM: number
+}
+
+export interface PatchPerfilRede {
+  id: string
+  declividadeMM: number
+  cotaFundoMontante: number
+  cotaFundoJusante: number
+  cotaTopoMontante: number
+  cotaTopoJusante: number
+}
+
+export interface ResultadoPerfilRede {
+  patches: PatchPerfilRede[]
+  /** Ids (resolvidos) de cabeceiras sem cota de terreno cadastrada -- não dá pra aplicar o
+   * recobrimento ali, então elas (e tudo a jusante delas) ficam de fora do resultado. */
+  cabeceirasSemCotaTerreno: string[]
+}
+
+/**
+ * Recalcula a rede inteira (ou o subconjunto de trechos passado) com uma declividade uniforme e
+ * um recobrimento fixo aplicado só nas cabeceiras (caixas sem trecho de entrada) -- sobrepõe
+ * completamente as cotas de fundo/topo que vieram do LandXML/Civil 3D, em vez de editar trecho a
+ * trecho. Em cada confluência, a cota de fundo que continua rio abaixo é a MENOR entre as
+ * entradas que já chegaram ali (prática padrão: a saída não pode ficar acima de nenhuma entrada,
+ * senão empoça). Serve pra testar rapidamente um perfil alternativo na rede inteira sem precisar
+ * voltar pro Civil 3D -- se o resultado não for bom (ex.: ficar abaixo do nível de alguma
+ * captação), o engenheiro ajusta os parâmetros e roda de novo, ou corrige pontualmente depois com
+ * a edição trecho a trecho normal (que já existe).
+ */
+export function recalcularPerfilRedeUniforme(
+  caixas: CaixaPerfil[],
+  trechos: TrechoPerfil[],
+  declividadeUniformeMM: number,
+  recobrimentoM: number
+): ResultadoPerfilRede {
+  const { resolve, entradasPorCaixa } = montarEstruturaFluxo(caixas, trechos)
+
+  const idsResolvidos = [...new Set(caixas.map((c) => resolve(c.id)))]
+  const trechosResolvidos = trechos.map((t) => ({ id: t.id, montanteId: resolve(t.montanteId), jusanteId: resolve(t.jusanteId) }))
+  const ordem = ordenarTopologicamente(idsResolvidos, trechosResolvidos)
+
+  const cotaTerrenoPorCaixa = new Map<string, number | null>()
+  for (const c of caixas) {
+    const id = resolve(c.id)
+    if (!cotaTerrenoPorCaixa.has(id)) cotaTerrenoPorCaixa.set(id, c.cotaTerreno)
+  }
+
+  const saidaPorCaixa = new Map<string, TrechoPerfil[]>()
+  for (const t of trechos) {
+    const montanteId = resolve(t.montanteId)
+    if (!saidaPorCaixa.has(montanteId)) saidaPorCaixa.set(montanteId, [])
+    saidaPorCaixa.get(montanteId)!.push(t)
+  }
+
+  const cotaFundoJusantePorTrecho = new Map<string, number>()
+  const patches: PatchPerfilRede[] = []
+  const cabeceirasSemCotaTerreno = new Set<string>()
+
+  for (const caixaId of ordem) {
+    const entradas = entradasPorCaixa.get(caixaId) ?? []
+    let cotaNaCaixa: number | undefined
+
+    if (entradas.length === 0) {
+      const saidas = saidaPorCaixa.get(caixaId) ?? []
+      if (saidas.length === 0) continue
+      const terreno = cotaTerrenoPorCaixa.get(caixaId)
+      if (terreno == null) {
+        cabeceirasSemCotaTerreno.add(caixaId)
+        continue
+      }
+      cotaNaCaixa = terreno - recobrimentoM - saidas[0].diametroM
+    } else {
+      const cotas = entradas.map((e) => cotaFundoJusantePorTrecho.get(e.id)).filter((v): v is number => v != null)
+      if (cotas.length === 0) continue
+      cotaNaCaixa = Math.min(...cotas)
+    }
+
+    for (const saida of saidaPorCaixa.get(caixaId) ?? []) {
+      const cotaFundoJusante = cotaNaCaixa - declividadeUniformeMM * saida.comprimentoM
+      cotaFundoJusantePorTrecho.set(saida.id, cotaFundoJusante)
+      patches.push({
+        id: saida.id,
+        declividadeMM: declividadeUniformeMM,
+        cotaFundoMontante: cotaNaCaixa,
+        cotaFundoJusante,
+        cotaTopoMontante: cotaNaCaixa + saida.diametroM,
+        cotaTopoJusante: cotaFundoJusante + saida.diametroM,
+      })
+    }
+  }
+
+  return { patches, cabeceirasSemCotaTerreno: [...cabeceirasSemCotaTerreno] }
+}
+
 export interface CaixaComTipo extends CaixaOrdenavel {
   tipo: string
 }

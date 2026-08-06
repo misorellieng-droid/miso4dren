@@ -5,10 +5,12 @@ import {
   calcularQProjeto,
   calcularTcSistema,
   GrafoCicloError,
+  identificarCaixasSemJusante,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTopologicamente,
   ordenarTrechosPorFluxo,
+  recalcularPerfilRedeUniforme,
 } from '../rede'
 
 describe('ordenarTopologicamente', () => {
@@ -350,6 +352,93 @@ describe('identificarRedesPorPvCabeceira', () => {
     ]
     const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
     expect(redes.get('bstc1')).toBe(redes.get('bstc1b'))
+  })
+})
+
+describe('identificarCaixasSemJusante', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
+  it('identifica a saída real do terreno (recebe água, não tem pra onde mandar)', () => {
+    const caixas = ['A', 'B'].map(caixa)
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }]
+    expect(identificarCaixasSemJusante(caixas, trechos)).toEqual(['B'])
+  })
+
+  it('não aponta uma cabeceira pura (sem entrada nenhuma) como "sem jusante" -- ela nunca recebeu água', () => {
+    const caixas = ['A'].map(caixa)
+    const trechos: { id: string; montanteId: string; jusanteId: string; nome: string; diametroM: number }[] = []
+    expect(identificarCaixasSemJusante(caixas, trechos)).toEqual([])
+  })
+
+  it('não acusa falso positivo num par Start/EndNullStruct (emenda sem estrutura real)', () => {
+    const caixas = [caixa('PV-001'), caixa('StartNullStruct0'), caixa('EndNullStruct0'), caixa('PV-002')]
+    const trechos = [
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+    ]
+    // EndNullStruct0/StartNullStruct0 são o mesmo ponto físico (fundidos) -- só PV-002 (saída
+    // real) deveria aparecer, não a emenda no meio do caminho.
+    expect(identificarCaixasSemJusante(caixas, trechos)).toEqual(['PV-002'])
+  })
+
+  it('lista mais de uma caixa sem jusante quando a rede tem mais de uma saída/quebra', () => {
+    const caixas = ['A', 'B', 'C', 'D'].map(caixa)
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'C', jusanteId: 'D', nome: 'T2', diametroM: 0.3 },
+    ]
+    expect(identificarCaixasSemJusante(caixas, trechos).sort()).toEqual(['B', 'D'])
+  })
+})
+
+describe('recalcularPerfilRedeUniforme', () => {
+  const caixa = (id: string, cotaTerreno: number | null = 100) => ({ id, nome: id, cotaTerreno })
+
+  it('aplica recobrimento na cabeceira e a mesma declividade rio abaixo, em cascata', () => {
+    const caixas = [caixa('A', 100), caixa('B', 98), caixa('C', 96)]
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.4, comprimentoM: 20 },
+      { id: 't2', montanteId: 'B', jusanteId: 'C', nome: 'T2', diametroM: 0.4, comprimentoM: 20 },
+    ]
+    const { patches, cabeceirasSemCotaTerreno } = recalcularPerfilRedeUniforme(caixas, trechos, 0.01, 1.2)
+    expect(cabeceirasSemCotaTerreno).toEqual([])
+
+    const p1 = patches.find((p) => p.id === 't1')!
+    // cabeceira A: terreno 100 - recobrimento 1.2 - diâmetro 0.4 = cota de fundo 98.4
+    expect(p1.cotaFundoMontante).toBeCloseTo(98.4)
+    expect(p1.declividadeMM).toBe(0.01)
+    // cota de fundo jusante = 98.4 - 0.01*20 = 98.2
+    expect(p1.cotaFundoJusante).toBeCloseTo(98.2)
+    expect(p1.cotaTopoMontante).toBeCloseTo(98.8)
+
+    const p2 = patches.find((p) => p.id === 't2')!
+    // t2 continua exatamente de onde t1 parou (mesma cota, mesma declividade uniforme)
+    expect(p2.cotaFundoMontante).toBeCloseTo(p1.cotaFundoJusante)
+    expect(p2.declividadeMM).toBe(0.01)
+    expect(p2.cotaFundoJusante).toBeCloseTo(98.2 - 0.01 * 20)
+  })
+
+  it('numa confluência, a cota que continua rio abaixo é a MENOR entre as entradas', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100), caixa('X', 90), caixa('Saida', 85)]
+    const trechos = [
+      { id: 'ta', montanteId: 'A', jusanteId: 'X', nome: 'TA', diametroM: 0.4, comprimentoM: 10 },
+      { id: 'tb', montanteId: 'B', jusanteId: 'X', nome: 'TB', diametroM: 0.3, comprimentoM: 30 }, // mais comprido -> chega mais baixo
+      { id: 'tx', montanteId: 'X', jusanteId: 'Saida', nome: 'TX', diametroM: 0.4, comprimentoM: 10 },
+    ]
+    const { patches } = recalcularPerfilRedeUniforme(caixas, trechos, 0.01, 1.0)
+    const pa = patches.find((p) => p.id === 'ta')!
+    const pb = patches.find((p) => p.id === 'tb')!
+    const px = patches.find((p) => p.id === 'tx')!
+    expect(pb.cotaFundoJusante).toBeLessThan(pa.cotaFundoJusante) // TB é o mais fundo em X
+    expect(px.cotaFundoMontante).toBeCloseTo(pb.cotaFundoJusante) // TX continua do mais fundo, não do TA
+  })
+
+  it('cabeceira sem cota de terreno cadastrada entra em cabeceirasSemCotaTerreno e fica fora dos patches', () => {
+    const caixas = [caixa('A', null), caixa('B', 90)]
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.4, comprimentoM: 20 }]
+    const { patches, cabeceirasSemCotaTerreno } = recalcularPerfilRedeUniforme(caixas, trechos, 0.01, 1.2)
+    expect(cabeceirasSemCotaTerreno).toEqual(['A'])
+    expect(patches).toEqual([])
   })
 })
 
