@@ -5,6 +5,8 @@ import {
   calcularQProjeto,
   calcularTcSistema,
   GrafoCicloError,
+  identificarCaixasComMultiplasSaidas,
+  identificarCaixasIsoladas,
   identificarCaixasSemJusante,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
@@ -388,6 +390,65 @@ describe('identificarCaixasSemJusante', () => {
       { id: 't2', montanteId: 'C', jusanteId: 'D', nome: 'T2', diametroM: 0.3 },
     ]
     expect(identificarCaixasSemJusante(caixas, trechos).sort()).toEqual(['B', 'D'])
+  })
+})
+
+describe('identificarCaixasIsoladas', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
+  it('identifica uma caixa sem nenhum trecho ligado (nem montante, nem jusante)', () => {
+    const caixas = [caixa('A'), caixa('B'), caixa('CT-24')]
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }]
+    expect(identificarCaixasIsoladas(caixas, trechos)).toEqual(['CT-24'])
+  })
+
+  it('não aponta uma caixa que tem entrada ou saída, mesmo que só uma das duas', () => {
+    const caixas = [caixa('A'), caixa('B'), caixa('C')]
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }, // A: só saída; B: só entrada
+    ]
+    expect(identificarCaixasIsoladas(caixas, trechos)).not.toContain('A')
+    expect(identificarCaixasIsoladas(caixas, trechos)).not.toContain('B')
+    expect(identificarCaixasIsoladas(caixas, trechos)).toEqual(['C'])
+  })
+
+  it('não acusa falso positivo num par Start/EndNullStruct (emenda sem estrutura real)', () => {
+    const caixas = [caixa('PV-001'), caixa('StartNullStruct0'), caixa('EndNullStruct0'), caixa('PV-002')]
+    const trechos = [
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+    ]
+    expect(identificarCaixasIsoladas(caixas, trechos)).toEqual([])
+  })
+})
+
+describe('identificarCaixasComMultiplasSaidas', () => {
+  const caixa = (id: string) => ({ id, nome: id })
+
+  it('identifica uma caixa com 2 trechos de saída', () => {
+    const caixas = [caixa('A'), caixa('B'), caixa('C')]
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 },
+      { id: 't2', montanteId: 'A', jusanteId: 'C', nome: 'T2', diametroM: 0.3 },
+    ]
+    expect(identificarCaixasComMultiplasSaidas(caixas, trechos)).toEqual([{ caixaId: 'A', quantidade: 2 }])
+  })
+
+  it('não acusa caixa com só 1 saída', () => {
+    const caixas = [caixa('A'), caixa('B')]
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }]
+    expect(identificarCaixasComMultiplasSaidas(caixas, trechos)).toEqual([])
+  })
+
+  it('não acusa falso positivo num par Start/EndNullStruct (emenda sem estrutura real) mesmo com outro trecho saindo da mesma caixa fundida', () => {
+    // StartNullStruct0/EndNullStruct0 é o MESMO ponto físico (fundido) -- a saída dele
+    // (bstc1b, StartNullStruct0->PV-002) não deveria contar como uma segunda saída de PV-001.
+    const caixas = [caixa('PV-001'), caixa('StartNullStruct0'), caixa('EndNullStruct0'), caixa('PV-002')]
+    const trechos = [
+      { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
+      { id: 'bstc1b', montanteId: 'StartNullStruct0', jusanteId: 'PV-002', nome: 'BSTC-1(1)', diametroM: 0.6 },
+    ]
+    expect(identificarCaixasComMultiplasSaidas(caixas, trechos)).toEqual([])
   })
 })
 

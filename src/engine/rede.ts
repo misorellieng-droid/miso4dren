@@ -227,6 +227,42 @@ export function identificarCaixasSemJusante(caixas: CaixaOrdenavel[], trechos: T
   return outfalls.filter((id) => (entradasPorCaixa.get(id) ?? []).length > 0)
 }
 
+/**
+ * Caixas completamente desconectadas da rede: nenhum trecho de entrada NEM de saída ligado a
+ * elas (depois de fundir pares Start/EndNullStruct -- senão uma emenda sem estrutura real
+ * apareceria aqui por engano). Normalmente sinal de erro de vínculo no LandXML -- uma estrutura
+ * que devia estar ligada a algum tubo ficou solta na importação.
+ */
+export function identificarCaixasIsoladas(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): string[] {
+  const { entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+  return outfalls.filter((id) => (entradasPorCaixa.get(id) ?? []).length === 0)
+}
+
+export interface CaixaComMultiplasSaidas {
+  caixaId: string
+  quantidade: number
+}
+
+/**
+ * "No máximo 1 trecho de saída por caixa" é uma suposição usada em todo o engine (rede tronco,
+ * cascata jusante, numeração de Sistema, acumulação de vazão) -- uma caixa com 2+ saídas quebra
+ * esse modelo de forma silenciosa: o cálculo roda, mas o resultado fica arbitrário conforme qual
+ * saída "vence" em cada função (não necessariamente a mesma em todas). Detecta e lista as
+ * caixas assim pra correção manual no Civil 3D. Funde pares Start/EndNullStruct antes de contar,
+ * senão uma emenda sem estrutura real contaria como uma segunda saída por engano.
+ */
+export function identificarCaixasComMultiplasSaidas(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): CaixaComMultiplasSaidas[] {
+  const { resolve } = montarEstruturaFluxo(caixas, trechos)
+  const contagem = new Map<string, number>()
+  for (const t of trechos) {
+    const montanteId = resolve(t.montanteId)
+    contagem.set(montanteId, (contagem.get(montanteId) ?? 0) + 1)
+  }
+  return [...contagem.entries()]
+    .filter(([, n]) => n > 1)
+    .map(([caixaId, quantidade]) => ({ caixaId, quantidade }))
+}
+
 export interface CaixaPerfil extends CaixaOrdenavel {
   cotaTerreno: number | null
 }

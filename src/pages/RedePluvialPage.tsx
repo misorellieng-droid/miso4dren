@@ -27,6 +27,8 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
+  identificarCaixasComMultiplasSaidas,
+  identificarCaixasIsoladas,
   identificarCaixasSemJusante,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
@@ -676,6 +678,43 @@ export function RedePluvialPage() {
     return ids.map((id) => ({ id, nome: nomePorId.get(id) ?? id, sistema: sistemaPorCaixa.get(id) })).sort((a, b) => a.nome.localeCompare(b.nome))
   }, [caixas, trechos, redePorTrecho])
 
+  // Caixas totalmente desconectadas (nenhum trecho ligado, nem montante nem jusante) --
+  // normalmente uma estrutura que ficou solta na importação do LandXML.
+  const caixasIsoladas = useMemo(() => {
+    if (caixas.length === 0) return [] as { id: string; nome: string }[]
+    const ids = identificarCaixasIsoladas(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+    )
+    const nomePorId = new Map(caixas.map((c) => [c.id, c.nome]))
+    return ids.map((id) => ({ id, nome: nomePorId.get(id) ?? id })).sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [caixas, trechos])
+
+  // Caixas com mais de um trecho de saída -- quebra a suposição ("no máximo 1 saída por caixa")
+  // usada em toda a topologia do engine (rede tronco, cascata, Sistema, vazão acumulada).
+  const caixasComMultiplasSaidas = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return [] as { id: string; nome: string; quantidade: number }[]
+    const encontradas = identificarCaixasComMultiplasSaidas(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+    )
+    const nomePorId = new Map(caixas.map((c) => [c.id, c.nome]))
+    return encontradas
+      .map((e) => ({ id: e.caixaId, nome: nomePorId.get(e.caixaId) ?? e.caixaId, quantidade: e.quantidade }))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [caixas, trechos])
+
+  // Caixas marcadas "recebe vazão" (aparecem como opção de captação em Cadastros → Bacias) mas
+  // sem nenhuma bacia de fato vinculada a elas -- provavelmente esquecida na hora de montar a
+  // captação, ou não devia estar marcada como "recebe vazão".
+  const caixasRecebeVazaoSemCaptacao = useMemo(() => {
+    const dispositivosCaptados = new Set(captacoes.map((c) => c.dispositivo_id))
+    return caixas
+      .filter((c) => c.recebe_vazao && !dispositivosCaptados.has(c.id))
+      .map((c) => ({ id: c.id, nome: c.nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [caixas, captacoes])
+
   // Sistema de quem CONTINUA a partir de cada caixa (o trecho de saída dali) -- permite marcar
   // o lado inverso da confluência: "sufixoRedesQueDesaguam" avisa na caixa montante quem chega
   // de fora, isso aqui avisa na caixa jusante de um trecho que ELE MESMO é quem deságua noutro
@@ -1201,6 +1240,53 @@ export function RedePluvialPage() {
                 Não há jusante definido para caixa {c.nome}
                 {c.sistema != null ? ` (${formatSistema(c.sistema)})` : ''} — confira se é a saída real do terreno ou se ficou um vínculo
                 quebrado na importação.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {caixasIsoladas.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-red">
+            {caixasIsoladas.length} caixa(s) sem nenhum trecho ligado
+          </div>
+          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-red">
+            {caixasIsoladas.map((c) => (
+              <li key={c.id}>
+                {c.nome} não tem tubo ligado nem a montante nem a jusante — erro de vínculo na importação (estrutura ficou solta).
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {caixasComMultiplasSaidas.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-red">
+            {caixasComMultiplasSaidas.length} caixa(s) com mais de um trecho de saída
+          </div>
+          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-red">
+            {caixasComMultiplasSaidas.map((c) => (
+              <li key={c.id}>
+                {c.nome} tem {c.quantidade} trechos saindo dela — a rede assume no máximo 1 saída por caixa; com mais de uma, o resultado
+                de Sistema/rede tronco/vazão acumulada fica indefinido ali. Corrija o vínculo no Civil 3D.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {caixasRecebeVazaoSemCaptacao.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-amber">
+            {caixasRecebeVazaoSemCaptacao.length} caixa(s) marcada(s) "recebe vazão" sem nenhuma bacia vinculada
+          </div>
+          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-amber">
+            {caixasRecebeVazaoSemCaptacao.map((c) => (
+              <li key={c.id}>
+                {c.nome} está marcada como "recebe vazão" mas não tem nenhuma bacia vinculada em Cadastros → Bacias — provavelmente falta
+                a captação, ou ela não devia estar marcada como "recebe vazão".
               </li>
             ))}
           </ul>
