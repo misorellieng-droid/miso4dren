@@ -348,6 +348,30 @@ export function identificarRedesPorPvCabeceira(caixas: CaixaComTipo[], trechos: 
     }
   }
 
+  // Retropropagação: a passada acima só "adota" ramais órfãos que desaguam DIRETO na caixa que
+  // acabou de descobrir sua rede (1 hop) -- uma cadeia de 2+ caixas de captação em fila (ex.:
+  // CT-19 -> CT-20 -> CT-21 -> PV-21) fica com os trechos do meio (CT-19->CT-20, CT-20->CT-21)
+  // sem rede nenhuma, porque quando cada uma delas foi processada (em ordem topológica, sempre
+  // antes do PV que só decide ser cabeceira depois) ninguém a montante ainda carregava rede.
+  // Aqui, pra cada trecho ainda sem rede, segue a cadeia rio abaixo (pelas próprias saídas) até
+  // achar um trecho que já tenha rede, e propaga essa rede de volta pra cadeia inteira -- afinal
+  // fisicamente esses trechos deságuam ali de qualquer jeito.
+  for (const t of trechos) {
+    if (redePorTrecho.get(t.id) != null) continue
+    const cadeia: string[] = [t.id]
+    const visitados = new Set<string>([t.id])
+    let jusanteAtual = resolve(t.jusanteId)
+    let proximo = saidaPorCaixa.get(jusanteAtual)
+    while (proximo && redePorTrecho.get(proximo.id) == null && !visitados.has(proximo.id)) {
+      cadeia.push(proximo.id)
+      visitados.add(proximo.id)
+      jusanteAtual = resolve(proximo.jusanteId)
+      proximo = saidaPorCaixa.get(jusanteAtual)
+    }
+    const redeFinal = proximo ? redePorTrecho.get(proximo.id) : undefined
+    if (redeFinal != null) for (const id of cadeia) redePorTrecho.set(id, redeFinal)
+  }
+
   return { redePorTrecho, redesQueDesaguamPorCaixa }
 }
 

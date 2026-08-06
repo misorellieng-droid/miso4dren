@@ -202,6 +202,29 @@ describe('identificarRedesPorPvCabeceira', () => {
     expect(() => identificarRedesPorPvCabeceira(caixas, trechos)).toThrow('PV-02')
   })
 
+  it('retropropaga a rede pra cadeia inteira de caixas de captação em fila (2+ hops antes do PV), não só a última', () => {
+    // reproduz o caso real: CT-19 -> CT-20 -> CT-21 -> PV-21 (cabeceira). Quando CT-20 e CT-21
+    // são processadas (antes de PV-21, em ordem topológica), ainda não existe rede nenhuma pra
+    // herdar -- só quando PV-21 é processada e vira cabeceira que a rede aparece, e só o trecho
+    // que desagua DIRETO nela (CT-21->PV-21) seria adotado sem a retropropagação. Os trechos do
+    // meio (CT-19->CT-20, CT-20->CT-21) precisam herdar a mesma rede.
+    const caixas = [
+      caixa('CT-19', 'caixa_passagem'),
+      caixa('CT-20', 'caixa_passagem'),
+      caixa('CT-21', 'caixa_passagem'),
+      caixa('PV-21', 'pv'),
+    ]
+    const trechos = [
+      { id: 't1', montanteId: 'CT-19', jusanteId: 'CT-20', nome: 'TUBO-165', diametroM: 0.3 },
+      { id: 't2', montanteId: 'CT-20', jusanteId: 'CT-21', nome: 'TUBO-166', diametroM: 0.3 },
+      { id: 't3', montanteId: 'CT-21', jusanteId: 'PV-21', nome: 'TUBO-167', diametroM: 0.6 },
+    ]
+    const { redePorTrecho: redes } = identificarRedesPorPvCabeceira(caixas, trechos)
+    expect(redes.get('t3')).toBeDefined()
+    expect(redes.get('t2')).toBe(redes.get('t3'))
+    expect(redes.get('t1')).toBe(redes.get('t3'))
+  })
+
   it('cada PV de cabeceira gera uma rede independente', () => {
     const caixas = [caixa('PV-A'), caixa('PV-B'), caixa('X'), caixa('Y')]
     const trechos = [
