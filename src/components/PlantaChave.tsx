@@ -85,20 +85,33 @@ export function PlantaChave({ caixas, trechos, trechoIdsDaRede, trechoAtualId }:
           )
         })}
         {pontoAtual?.a && pontoAtual.b && (
-          <line
-            x1={pontoAtual.a.x}
-            y1={pontoAtual.a.y}
-            x2={pontoAtual.b.x}
-            y2={pontoAtual.b.y}
-            strokeWidth={3.5}
-            strokeLinecap="round"
-            className="stroke-accent-amber"
-          />
+          <>
+            <line
+              x1={pontoAtual.a.x}
+              y1={pontoAtual.a.y}
+              x2={pontoAtual.b.x}
+              y2={pontoAtual.b.y}
+              strokeWidth={3.5}
+              strokeLinecap="round"
+              className="stroke-accent-amber"
+            />
+            {/* círculo vermelho meio raio da tela — não marca o trecho exato (pequeno demais
+             * pra achar de relance), marca a região, pra bater o olho e já saber onde ir no
+             * Civil sem precisar caçar a linha destacada dentro do aglomerado de trechos. */}
+            <circle
+              cx={(pontoAtual.a.x + pontoAtual.b.x) / 2}
+              cy={(pontoAtual.a.y + pontoAtual.b.y) / 2}
+              r={Math.max(20, W * 0.09)}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth={2.5}
+            />
+          </>
         )}
       </svg>
       <div className="flex items-center gap-3 border-t border-border/60 px-2.5 py-1 text-[9px] text-text-secondary">
         <span className="flex items-center gap-1">
-          <span className="h-0.5 w-3 bg-accent-amber" /> este trecho
+          <span className="h-0.5 w-3 rounded-full border-2 border-[#ef4444]" /> região do trecho
         </span>
         <span className="flex items-center gap-1">
           <span className="h-0.5 w-3 bg-accent-blue" /> rede deste trecho
