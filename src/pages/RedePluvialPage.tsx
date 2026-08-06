@@ -167,10 +167,10 @@ function acharItemBiblioteca(biblioteca: ItemBiblioteca[], material: string | nu
 }
 
 const DEFAULT_LIMITES = {
-  limiteYD: 0.85,
-  velMinMs: 0.75,
+  limiteYD: 0.75,
+  velMinMs: 0.6,
   velMaxMs: 5,
-  declMinMM: 0.004,
+  declMinMM: 0.003,
   declMaxMM: 0.15,
 }
 
