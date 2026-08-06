@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Lightbulb, Loader2, X, XCircle } from 'lucide-react'
 import { fieldInputClass } from './ui/Field'
+import { PlantaChave } from './PlantaChave'
 import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
 import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { nomeSemRede } from '../lib/nomeRede'
@@ -21,6 +22,9 @@ interface MemoriaCalculoModalProps {
   trecho: TrechoRecord
   trechos: TrechoRecord[]
   caixas: CaixaRecord[]
+  /** Número do sistema/rede (identificado por PV de cabeceira) de cada trecho — usado pra
+   * destacar na planta chave a rede à qual o trecho aberto pertence. */
+  redePorTrecho: Map<string, number>
   /** Catálogo de peças (material+diâmetro -> espessura de parede) — quando tem item pro
    * material do trecho, o campo de diâmetro vira dropdown restrito a esses tamanhos (só
    * assim a reimportação no Civil 3D consegue trocar a peça sem erro). */
@@ -51,6 +55,7 @@ export function MemoriaCalculoModal({
   trecho,
   trechos,
   caixas,
+  redePorTrecho,
   biblioteca,
   sugestaoDiametroM,
   sugestaoDeclividadeMM,
@@ -69,6 +74,8 @@ export function MemoriaCalculoModal({
   const nomeMontante = nomePorId.get(trecho.caixa_montante_id) ?? '—'
   const nomeJusante = nomePorId.get(trecho.caixa_jusante_id) ?? '—'
   const nomeTrecho = nomeExibido(resultado?.trecho_nome ?? trecho.nome, trecho.rede_nome)
+  const numeroRede = redePorTrecho.get(trecho.id)
+  const trechoIdsDaRede = new Set(trechos.filter((t) => redePorTrecho.get(t.id) === numeroRede).map((t) => t.id))
 
   const aplicarPatches = async (patches: PatchCascata[]) => {
     setBusy(true)
@@ -193,6 +200,8 @@ export function MemoriaCalculoModal({
             </button>
           </div>
         </div>
+
+        <PlantaChave caixas={caixas} trechos={trechos} trechoIdsDaRede={trechoIdsDaRede} trechoAtualId={trecho.id} />
 
         <div className="mb-3">
           {!resultado ? (

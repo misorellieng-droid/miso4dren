@@ -1511,6 +1511,7 @@ export function RedePluvialPage() {
           trechos={trechos}
           biblioteca={biblioteca}
           caixas={caixas}
+          redePorTrecho={redePorTrecho}
           sugestaoDiametroM={sugestaoModal?.diametroM ?? null}
           sugestaoDeclividadeMM={sugestaoModal?.declividadeMM ?? null}
           onClose={() => setTrechoModalId(null)}
