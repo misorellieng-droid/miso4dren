@@ -39,6 +39,7 @@ import {
 } from '../lib/captacaoStorage'
 import { criarImportacao, excluirImportacao, listImportacoes, type ImportacaoRecord } from '../lib/importacoesStorage'
 import { listMateriaisManning, toMateriaisManningMap } from '../lib/materiaisStorage'
+import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -53,6 +54,7 @@ export function BaciasPage() {
   const [trechos, setTrechos] = useState<TrechoRecord[]>([])
   const [bacias, setBacias] = useState<BaciaRecord[]>([])
   const [captacoes, setCaptacoes] = useState<CaptacaoRecord[]>([])
+  const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [baciasExpandidas, setBaciasExpandidas] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -90,6 +92,12 @@ export function BaciasPage() {
       setImportacoes(await listImportacoes(revisaoAtiva.id))
     } catch {
       setImportacoes([])
+    }
+    if (revisaoAtiva.equacao_idf_id) {
+      const eqs = await listEquacoesIdf()
+      setEquacao(eqs.find((e) => e.id === revisaoAtiva.equacao_idf_id) ?? null)
+    } else {
+      setEquacao(null)
     }
   }
 
@@ -267,8 +275,12 @@ export function BaciasPage() {
       return
     }
     const dispositivos = caixas.filter((c) => c.recebe_vazao)
-    gerarPlanilhaCaptacao(bacias, dispositivos, captacoes, revisaoAtiva.nome)
-    setMessage('Planilha de captação baixada — edite e reimporte pelo card "3. Importação da tabela ajustada".')
+    gerarPlanilhaCaptacao(bacias, dispositivos, captacoes, revisaoAtiva.nome, equacao, revisaoAtiva.tempo_retorno_anos ?? 10)
+    setMessage(
+      equacao
+        ? 'Planilha de captação baixada — edite e reimporte pelo card "3. Importação da tabela ajustada".'
+        : 'Planilha de captação baixada (sem equação IDF vinculada à revisão, a coluna de contribuição estimada ficou em branco) — edite e reimporte pelo card "3. Importação da tabela ajustada".'
+    )
     setError(null)
   }
 
