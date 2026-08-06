@@ -108,6 +108,40 @@ describe('ordenarTrechosPorFluxo', () => {
     const ordem = ordenarTrechosPorFluxo(caixas, trechos)
     expect(ordem.get('t_a')).toBeLessThan(ordem.get('t_z')!)
   })
+
+  it('com diâmetros todos iguais, usa a classificação de rede tronco (ehTronco) em vez do nome pra decidir quem é a continuação do tronco', () => {
+    // reproduz o caso real: PV-48 -> PV-49 -> PV-50 -> PV-51 é o tronco de verdade (cabeceira lá
+    // atrás, em PV-48), mas PV-49 também recebe um ramalzinho de captação (CT-81 -> CT-82 ->
+    // CT-83 -> PV-49) com o MESMO diâmetro 0.6 -- sem classificação de tronco, o desempate por
+    // nome do trecho ("TUBO-256" do ramal vs "TUBO-249" do tronco, por exemplo) podia mandar a
+    // tabela começar pelo ramal de captação em vez da cabeceira real do tronco.
+    const caixa = (id: string, ehTronco: boolean) => ({ id, nome: id, ehTronco })
+    const caixas = [
+      caixa('PV-48', true),
+      caixa('PV-49', true),
+      caixa('PV-50', true),
+      caixa('PV-51', true),
+      caixa('CT-81', false),
+      caixa('CT-82', false),
+      caixa('CT-83', false),
+    ]
+    const trechos = [
+      // nomeado de propósito pra vir DEPOIS dos ramais em ordem alfabética -- só a classificação
+      // de tronco (não o nome) deve decidir a ordem aqui.
+      { id: 'troncoA', montanteId: 'PV-48', jusanteId: 'PV-49', nome: 'TUBO-Z-tronco-A', diametroM: 0.6 },
+      { id: 'troncoB', montanteId: 'PV-49', jusanteId: 'PV-50', nome: 'TUBO-Z-tronco-B', diametroM: 0.6 },
+      { id: 'troncoC', montanteId: 'PV-50', jusanteId: 'PV-51', nome: 'TUBO-Z-tronco-C', diametroM: 0.6 },
+      { id: 'ramal1', montanteId: 'CT-81', jusanteId: 'CT-82', nome: 'TUBO-A-ramal-1', diametroM: 0.6 },
+      { id: 'ramal2', montanteId: 'CT-82', jusanteId: 'CT-83', nome: 'TUBO-A-ramal-2', diametroM: 0.6 },
+      { id: 'ramal3', montanteId: 'CT-83', jusanteId: 'PV-49', nome: 'TUBO-A-ramal-3', diametroM: 0.6 },
+    ]
+    const ordem = ordenarTrechosPorFluxo(caixas, trechos)
+    // o tronco que chega em PV-49 (troncoA) tem que vir ANTES do ramal de captação que também
+    // desagua em PV-49 (ramal1), mesmo o ramal tendo nome alfabeticamente anterior.
+    expect(ordem.get('troncoA')).toBeLessThan(ordem.get('ramal1')!)
+    // e o resto do tronco rio abaixo de PV-49 continua depois do ramal já ter sido emitido ali
+    expect(ordem.get('ramal3')).toBeLessThan(ordem.get('troncoB')!)
+  })
 })
 
 describe('identificarTroncoRede', () => {

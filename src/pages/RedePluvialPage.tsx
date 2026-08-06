@@ -593,7 +593,7 @@ export function RedePluvialPage() {
   const ordemTrechos = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Map<string, number>()
     return ordenarTrechosPorFluxo(
-      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      caixas.map((c) => ({ id: c.id, nome: c.nome, ehTronco: c.eh_tronco })),
       trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
   }, [caixas, trechos])
@@ -629,7 +629,7 @@ export function RedePluvialPage() {
     }
     try {
       return { ...identificarRedesPorPvCabeceira(
-        caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })),
+        caixas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo, ehTronco: c.eh_tronco })),
         trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
       ), erro: null as string | null }
     } catch (e) {

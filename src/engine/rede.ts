@@ -81,6 +81,14 @@ export interface TrechoOrdenavel extends ArestaGrafo {
 export interface CaixaOrdenavel {
   id: string
   nome: string
+  /** Classificação de rede tronco (ver CaixaComEhTronco) -- opcional aqui porque nem toda
+   * chamada de montarEstruturaFluxo tem essa informação (ex.: antes de rodar o cálculo). Quando
+   * presente, é o critério PRINCIPAL pra decidir qual entrada é "a continuação do tronco" em
+   * cada confluência (ordenarTrechosPorFluxo/identificarRedesPorPvCabeceira) -- sem isso, cai no
+   * fallback de maior diâmetro/nome, que quebra quando os diâmetros ainda estão todos iguais
+   * (comum antes do dimensionamento) e o desempate por nome não tem relação nenhuma com
+   * hierarquia hidráulica. */
+  ehTronco?: boolean
 }
 
 /** Civil 3D representa um tubo emendando direto no outro (sem estrutura real no meio) como
@@ -120,6 +128,8 @@ function montarEstruturaFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel
     if (!nomePorCaixa.has(id)) nomePorCaixa.set(id, c.nome)
   }
 
+  const ehTroncoPorCaixaId = new Map(caixas.map((c) => [c.id, c.ehTronco ?? false]))
+
   const entradasPorCaixa = new Map<string, TrechoOrdenavel[]>()
   const temSaida = new Set<string>()
   for (const t of trechos) {
@@ -128,8 +138,18 @@ function montarEstruturaFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel
     entradasPorCaixa.get(jusante)!.push(t)
     temSaida.add(resolve(t.montanteId))
   }
-  // maior diâmetro primeiro (continuação do tronco); empate resolvido pelo nome do trecho
-  for (const lista of entradasPorCaixa.values()) lista.sort((a, b) => b.diametroM - a.diametroM || a.nome.localeCompare(b.nome))
+  // critério de "quem é a continuação do tronco" nessa confluência: 1º a caixa de montante
+  // classificada como rede tronco (explícita, controlada pelo engenheiro -- ver CaixaOrdenavel),
+  // 2º maior diâmetro, 3º empate pelo nome do trecho. Sem o critério de rede tronco (ou com
+  // nenhuma das entradas classificada), cai direto pro diâmetro/nome como sempre foi.
+  for (const lista of entradasPorCaixa.values()) {
+    lista.sort(
+      (a, b) =>
+        Number(ehTroncoPorCaixaId.get(b.montanteId) ?? false) - Number(ehTroncoPorCaixaId.get(a.montanteId) ?? false) ||
+        b.diametroM - a.diametroM ||
+        a.nome.localeCompare(b.nome)
+    )
+  }
 
   const idsCaixas = [...new Set(caixas.map((c) => resolve(c.id)))]
   const outfalls = idsCaixas.filter((id) => !temSaida.has(id))
@@ -139,12 +159,15 @@ function montarEstruturaFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel
 }
 
 /**
- * Ordena os trechos seguindo o caminho físico da água, de montante pra jusante,
- * tratando a rede como "tronco + ramais": em cada confluência, o trecho de maior
- * diâmetro é tratado como a continuação do tronco — tudo que está a montante dele
- * (o resto do tronco) é emitido primeiro, e só depois os ramais menores que também
- * desaguam ali (o critério de nível/distância-da-cabeceira usado antes intercalava
- * ramais e tronco de forma arbitrária, na ordem alfabética da cabeceira).
+ * Ordena os trechos seguindo o caminho físico da água, de montante pra jusante, tratando a rede
+ * como "tronco + ramais": em cada confluência, a entrada cuja caixa de montante é classificada
+ * como rede tronco (`ehTronco` em CaixaOrdenavel, quando presente) é tratada como a continuação
+ * do tronco — tudo que está a montante dela (o resto do tronco) é emitido primeiro, e só depois
+ * os ramais que também desaguam ali. Sem classificação de tronco disponível, cai pro critério
+ * antigo (maior diâmetro, empate por nome) -- que sozinho quebra quando os diâmetros ainda estão
+ * todos iguais (comum antes de rodar o dimensionamento): o desempate por nome do trecho não tem
+ * NENHUMA relação com hierarquia hidráulica, então a tabela podia "começar" por um ramal
+ * qualquer perto da saída em vez da cabeceira de verdade da rede tronco.
  */
 export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): Map<string, number> {
   const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
