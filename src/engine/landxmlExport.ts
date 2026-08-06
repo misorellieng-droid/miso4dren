@@ -74,7 +74,9 @@ export function exportarRedeLandXml(caixas: CaixaRecord[], trechos: TrechoRecord
           const type = TIPO_PARA_TYPE[c.tipo] ?? 'Junction'
           const elevRim = c.cota_terreno != null ? ` elevRim="${fmt(c.cota_terreno)}"` : ''
           const elevSump = c.cota_fundo != null ? ` elevSump="${fmt(c.cota_fundo)}"` : ''
-          const center = c.x != null && c.y != null ? `\n          <Center>${fmt(c.x)} ${fmt(c.y)}</Center>` : ''
+          // "N E" (Northing Easting), mesma ordem que parseLandXml espera de volta (ver
+          // comentário de parsePos em landxml.ts) -- y (Northing) primeiro, x (Easting) depois.
+          const center = c.x != null && c.y != null ? `\n          <Center>${fmt(c.y)} ${fmt(c.x)}</Center>` : ''
           const inverts = invertsPorCaixa.get(c.id) ?? []
           return (
             `        <Struct name="${escapeXml(c.nome)}" type="${type}" desc="${escapeXml(c.nome)}"${elevRim}${elevSump}>${center}\n` +

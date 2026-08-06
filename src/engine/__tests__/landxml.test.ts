@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parseLandXml } from '../landxml'
 
 // Formato validado contra um export real do Civil 3D 2027: <Structs>/<Struct>
-// com atributos elevRim/elevSump e <Center>X Y</Center> como texto direto,
+// com atributos elevRim/elevSump e <Center>N E</Center> (Northing Easting) como texto direto,
 // sem atributo `type` (o tipo é inferido do `desc`); <Pipes>/<Pipe> com
 // length/slope como atributos e <CircPipe diameter="mm"/>; cotas de fundo
 // vêm dos <Invert> de cada estrutura, casados por refPipe + flowDir.
@@ -55,7 +55,8 @@ describe('parseLandXml', () => {
     expect(caixas).toHaveLength(3)
 
     const pv01 = caixas.find((c) => c.nome === 'PV-01')
-    expect(pv01).toMatchObject({ tipo: 'pv', x: 100, y: 200, cotaTerreno: 850.5, cotaFundo: 847.2 })
+    // <Center>100.0 200.0</Center> é "N E" (Northing Easting) -- x (Easting) = 200, y (Northing) = 100
+    expect(pv01).toMatchObject({ tipo: 'pv', x: 200, y: 100, cotaTerreno: 850.5, cotaFundo: 847.2 })
 
     const bl01 = caixas.find((c) => c.nome === 'BL-01')
     expect(bl01?.tipo).toBe('boca_de_lobo')

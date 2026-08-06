@@ -2,7 +2,8 @@ import type { ManningOrigem, TipoCaixa } from './types'
 
 // Parser do Pipe Network exportado em LandXML pelo Civil 3D. Validado contra
 // um export real (Civil 3D 2027): <PipeNetworks><PipeNetwork><Structs>
-// <Struct name="..." desc="..." elevRim="..." elevSump="..."><Center>X Y</Center>
+// <Struct name="..." desc="..." elevRim="..." elevSump="..."><Center>N E</Center> (Northing
+// Easting, não X Y -- ver comentário de parsePos)
 // <CircStruct diameter="mm"/ ou RectStruct length="m" width="m"/>
 // <Invert elev="..." flowDir="in|out" refPipe="..."/></Struct></Structs>
 // <Pipes><Pipe name="..." refStart="..." refEnd="..." length="..." slope="...">
@@ -101,12 +102,18 @@ function inferirTipoCaixa(tipoAttr: string | null, desc: string | null): TipoCai
   return 'caixa_passagem'
 }
 
-/** Distância entre dois pontos "x y" (formato do texto de <Center> ou <PipeNetPos>). */
+/** Ponto em "N E" -- Northing (metros pra norte) primeiro, Easting (metros pra leste) depois --
+ * é a ordem que o LandXML usa em TODOS os pares de coordenada 2D (<Center>, <PipeNetPos>,
+ * <Start>/<End> de CoordGeom), tanto no Pipe Network quanto nos Parcels. Fácil de confundir com
+ * "X Y" (Easting primeiro) por ser a ordem mais comum em outros formatos GIS -- errar aqui não
+ * quebra nada visivelmente óbvio, só deixa o desenho (RedeDiagrama/PlantaChave, que assumem
+ * x=Easting/horizontal e y=Northing/vertical) espelhado e rotacionado em relação ao CAD. x =
+ * Easting (2º número), y = Northing (1º número). */
 function parsePos(text: string | undefined): { x: number; y: number } | undefined {
   if (!text) return undefined
   const parts = text.trim().split(/\s+/).map(Number)
   if (parts.length < 2 || parts.some((n) => !Number.isFinite(n))) return undefined
-  return { x: parts[0], y: parts[1] }
+  return { x: parts[1], y: parts[0] }
 }
 
 /** Aceita <Center>X Y</Center> direto ou <Center><PipeNetPos>X Y</PipeNetPos></Center>. */

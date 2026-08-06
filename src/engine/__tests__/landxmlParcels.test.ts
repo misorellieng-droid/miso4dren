@@ -126,7 +126,8 @@ describe('parseLandXmlParcels', () => {
     expect(b1.areaM2).toBeCloseTo(53598.544232090921)
     expect(b1.poligonos).toHaveLength(1)
     expect(b1.poligonos[0]).toHaveLength(4)
-    expect(b1.poligonos[0][0]).toEqual({ x: 7437096.338916659355, y: 426354.159036490601 })
+    // "Start>N E</Start>" -- x (Easting) é o 2º número, y (Northing) o 1º
+    expect(b1.poligonos[0][0]).toEqual({ x: 426354.159036490601, y: 7437096.338916659355 })
   })
 
   it('extrai as duas bacias do arquivo real', () => {
@@ -140,7 +141,7 @@ describe('parseLandXmlParcels', () => {
     expect(b2.poligonos).toEqual([
       [
         { x: 100, y: 100 },
-        { x: 140, y: 100 },
+        { x: 100, y: 140 },
         { x: 140, y: 140 },
       ],
     ])

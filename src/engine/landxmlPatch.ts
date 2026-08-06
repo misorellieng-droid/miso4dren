@@ -40,7 +40,9 @@ function setCenterTexto(struct: Element, x: number, y: number) {
   if (!center) return
   const nested = center.getElementsByTagName('PipeNetPos')[0]
   const alvo = nested ?? center
-  alvo.textContent = `${fmt(x)} ${fmt(y)}`
+  // "N E" (Northing Easting) -- mesma ordem que parseLandXml lê (ver parsePos em landxml.ts) e
+  // que o Civil 3D espera de volta; x é Easting, y é Northing, então escreve y antes de x.
+  alvo.textContent = `${fmt(y)} ${fmt(x)}`
 }
 
 function setPipeLength(pipe: Element, valor: number) {
