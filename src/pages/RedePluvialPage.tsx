@@ -26,7 +26,6 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
-  identificarAmbiguidadesTronco,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTrechosPorFluxo,
@@ -522,37 +521,23 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
-  // ΣC×A acumulado por trecho, já calculado -- usado como peso pra decidir tanto a rede tronco
-  // (abaixo) quanto o alerta de confluências suspeitas.
+  // ΣC×A acumulado por trecho, já calculado -- usado pelo alerta de sistema inteiro fora da rede
+  // tronco (dá contexto de quanto ele carrega, mesmo não fazendo mais parte da decisão de
+  // inclusão em si).
   const caAcumuladoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.ca_acumulado ?? 0])), [resultados])
 
-  // Rede tronco = ramais relevantes de cada confluência partindo de cada saída da rede (não só
-  // um): sem cálculo rodado ainda, só o de maior diâmetro (fallback); com ΣC×A calculado, todo
-  // ramal que carregue pelo menos FRACAO_MINIMA_RAMAL_TRONCO do peso do maior entra junto -- uma
-  // confluência de dois sistemas grandes fica com os dois no tronco, só ramais realmente
-  // secundários ficam de fora. Filtra diagrama/tabela quando "Só rede tronco" está ativo; não
-  // muda o cálculo hidráulico (ΣC×A/vazão sempre soma todas as entradas de toda caixa).
+  // Rede tronco = trechos cuja caixa de MONTANTE é classificada como "rede tronco" (eh_tronco,
+  // editável em Rede Importada) -- por padrão PV e boca de lobo entram, caixa de passagem não.
+  // Critério explícito e controlado pelo engenheiro, não tenta adivinhar por diâmetro/vazão.
+  // Filtra diagrama/tabela quando "Só rede tronco" está ativo; não muda o cálculo hidráulico
+  // (ΣC×A/vazão sempre soma todas as entradas de toda caixa, mesmo as fora da rede tronco).
   const troncoIds = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return new Set<string>()
     return identificarTroncoRede(
-      caixas.map((c) => ({ id: c.id, nome: c.nome })),
-      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m })),
-      caAcumuladoPorTrecho.size > 0 ? caAcumuladoPorTrecho : undefined
+      caixas.map((c) => ({ id: c.id, nome: c.nome, ehTronco: c.eh_tronco })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
     )
-  }, [caixas, trechos, caAcumuladoPorTrecho])
-
-  // Confluências onde o critério de maior diâmetro provavelmente cortou o ramal errado da rede
-  // tronco. Usa o ΣC×A acumulado já calculado (peso hidráulico real) quando o cálculo já rodou;
-  // sem isso ainda cai pro fallback de contar trechos a montante (só topológico). Não muda o
-  // cálculo, só avisa: vale conferir no Civil 3D.
-  const ambiguidadesTronco = useMemo(() => {
-    if (caixas.length === 0 || trechos.length === 0) return []
-    return identificarAmbiguidadesTronco(
-      caixas.map((c) => ({ id: c.id, nome: c.nome })),
-      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m })),
-      caAcumuladoPorTrecho.size > 0 ? caAcumuladoPorTrecho : undefined
-    )
-  }, [caixas, trechos, caAcumuladoPorTrecho])
+  }, [caixas, trechos])
 
   // Rede = a partir de cada PV de cabeceira, gera uma rede independente que se propaga rio abaixo
   // até desaguar em outra rede já estabelecida (na confluência, quem continua é a entrada
@@ -685,30 +670,9 @@ export function RedePluvialPage() {
   )
   const caixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c])), [caixas])
 
-  const avisosTroncoAmbiguo = useMemo(
-    () =>
-      // filtra os casos em que o ramal "descartado" já entrou na rede tronco mesmo assim (pelo
-      // critério de ΣC×A em identificarTroncoRede) -- só sobra aviso pros que continuam de fora.
-      ambiguidadesTronco
-        .filter((a) => !troncoIds.has(a.trechoDescartadoId))
-        .map((a) => {
-        const caixaNome = nomeCaixaPorId.get(a.caixaId) ?? '?'
-        const escolhidoNome = nomeTrechoPorId.get(a.trechoEscolhidoId) ?? '?'
-        const descartadoNome = nomeTrechoPorId.get(a.trechoDescartadoId) ?? '?'
-        const contexto = a.usouPeso
-          ? `${caAcumuladoPorTrecho.get(a.trechoDescartadoId)?.toFixed(2) ?? '?'} m² de ΣC×A contra ${caAcumuladoPorTrecho.get(a.trechoEscolhidoId)?.toFixed(2) ?? '?'} m²`
-          : `${a.trechosAMontanteDescartado} trecho(s) a montante contra ${a.trechosAMontanteEscolhido}`
-        return `Em ${caixaNome}: ${escolhidoNome} foi escolhido pra rede tronco por ter o maior diâmetro, mas ${descartadoNome} carrega mais (${contexto}) — confira no Civil 3D se não é ${descartadoNome} quem deveria continuar como tronco.`
-      }),
-    [ambiguidadesTronco, nomeCaixaPorId, nomeTrechoPorId, caAcumuladoPorTrecho, troncoIds]
-  )
-
-  // identificarTroncoRede segue só a cadeia vencedora a partir de cada saída REAL do terreno
-  // (caixa sem trecho de saída) -- se dois ou mais Sistemas (identificarRedesPorPvCabeceira)
-  // deságuam um no outro antes de chegar numa saída, só o Sistema vencedor NAQUELE ponto de
-  // confluência aparece na rede tronco; o Sistema inteiro que perdeu ali some da tabela/diagrama
-  // filtrados por "Só rede tronco", mesmo carregando bastante ΣC×A internamente -- é o caso do
-  // usuário (Sistema inteiro sumindo, não só um trecho isolado).
+  // Sistema inteiro sem nenhum trecho na rede tronco -- ex.: todas as caixas de cabeceira desse
+  // Sistema foram classificadas como não-tronco (ou o padrão do tipo não bateu com o projeto).
+  // Não muda o cálculo, só avisa: vale conferir a classificação das caixas em Rede Importada.
   const sistemasForaDoTronco = useMemo(() => {
     if (trechos.length === 0 || troncoIds.size === 0) return [] as { sistema: number; maxCa: number; numTrechos: number }[]
     const porSistema = new Map<number, { numTrechos: number; maxCa: number }>()
@@ -1249,22 +1213,9 @@ export function RedePluvialPage() {
             {sistemasForaDoTronco.map((s) => (
               <li key={s.sistema}>
                 Sistema {String(s.sistema).padStart(2, '0')}: nenhum dos seus {s.numTrechos} trecho(s) aparece na rede tronco (some inteiro
-                do filtro "Só rede tronco"), mesmo acumulando até {s.maxCa.toFixed(2)} m² de ΣC×A — ele perde pro sistema vizinho bem na
-                confluência onde deságua; confira lá se a rede tronco não devia continuar por ele.
+                do filtro "Só rede tronco"), mesmo acumulando até {s.maxCa.toFixed(2)} m² de ΣC×A — confira em Rede Importada se as caixas de
+                cabeceira desse sistema não deveriam estar marcadas como rede tronco.
               </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {avisosTroncoAmbiguo.length > 0 && (
-        <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3">
-          <div className="mb-1.5 text-sm font-medium text-accent-amber">
-            {avisosTroncoAmbiguo.length} possível(is) corte(s) errado(s) na rede tronco
-          </div>
-          <ul className="list-inside list-disc space-y-1 text-xs text-accent-amber">
-            {avisosTroncoAmbiguo.map((a, i) => (
-              <li key={i}>{a}</li>
             ))}
           </ul>
         </div>

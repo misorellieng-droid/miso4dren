@@ -107,10 +107,10 @@ describe('ordenarTrechosPorFluxo', () => {
 })
 
 describe('identificarTroncoRede', () => {
-  const caixa = (id: string) => ({ id, nome: id })
+  const caixa = (id: string, ehTronco: boolean) => ({ id, nome: id, ehTronco })
 
-  it('inclui só o trecho de maior diâmetro em cada confluência, deixando ramais menores de fora', () => {
-    const caixas = ['A', 'B', 'C', 'X'].map(caixa)
+  it('inclui um trecho quando a caixa de montante dele é classificada como rede tronco', () => {
+    const caixas = [caixa('A', true), caixa('B', false), caixa('C', false), caixa('X', true)]
     const trechos = [
       { id: 'tronco', montanteId: 'A', jusanteId: 'X', nome: 'BSTC-1', diametroM: 0.6 },
       { id: 'ramal1', montanteId: 'B', jusanteId: 'X', nome: 'PVC-1', diametroM: 0.2 },
@@ -122,12 +122,52 @@ describe('identificarTroncoRede', () => {
     expect(tronco.has('ramal2')).toBe(false)
   })
 
-  it('reproduz o tronco da rede real (cadeia de BSTC, sem os ramais de PVC)', () => {
+  it('inclui os DOIS ramais grandes de uma confluência quando as duas caixas de montante são tronco -- não escolhe só um por diâmetro', () => {
+    // reproduz o caso real do PV-21: TUBO-18 (de BL-11, boca de lobo) e TUBO-17 (de BL-1, boca
+    // de lobo) convergindo, mais TUBO-167/169 vindo de caixas de passagem (CT) -- com BL e PV
+    // classificados como tronco por padrão e CT não, tronco pega os dois BL, não só o de maior
+    // diâmetro.
+    const caixas = [
+      caixa('BL-11', true),
+      caixa('BL-1', true),
+      caixa('CT-21', false),
+      caixa('CT-22', false),
+      caixa('PV-21', true),
+    ]
+    const trechos = [
+      { id: 'tubo18', montanteId: 'BL-11', jusanteId: 'PV-21', nome: 'TUBO-18', diametroM: 0.4 },
+      { id: 'tubo167', montanteId: 'CT-21', jusanteId: 'PV-21', nome: 'TUBO-167', diametroM: 0.6 },
+      { id: 'tubo169', montanteId: 'CT-22', jusanteId: 'PV-21', nome: 'TUBO-169', diametroM: 0.3 },
+      { id: 'tubo17', montanteId: 'BL-1', jusanteId: 'PV-21', nome: 'TUBO-17', diametroM: 0.4 },
+    ]
+    const tronco = identificarTroncoRede(caixas, trechos)
+    expect(tronco.has('tubo18')).toBe(true)
+    expect(tronco.has('tubo17')).toBe(true)
+    expect(tronco.has('tubo167')).toBe(false)
+    expect(tronco.has('tubo169')).toBe(false)
+  })
+
+  it('uma caixa não-tronco no meio do caminho não interrompe a exploração rio acima -- só o trecho que sai dela fica de fora', () => {
+    // A (tronco) -> B (NÃO tronco, só repassa) -> X (tronco): o trecho A->B é tronco (montante A
+    // é tronco), o trecho B->X não é (montante B não é tronco) -- mesmo assim a função continua
+    // explorando pra trás de B e inclui A->B corretamente.
+    const caixas = [caixa('A', true), caixa('B', false), caixa('X', true)]
+    const trechos = [
+      { id: 'ab', montanteId: 'A', jusanteId: 'B', nome: 'T-AB', diametroM: 0.3 },
+      { id: 'bx', montanteId: 'B', jusanteId: 'X', nome: 'T-BX', diametroM: 0.3 },
+    ]
+    const tronco = identificarTroncoRede(caixas, trechos)
+    expect(tronco.has('ab')).toBe(true)
+    expect(tronco.has('bx')).toBe(false)
+  })
+
+  it('reproduz o tronco da rede real (cadeia de PVs, sem os ramais de BLCS)', () => {
+    const nomesPv = new Set(['PV-001', 'PV-002', 'PV-003', 'PV-004', 'PV-005', 'StartNullStruct0', 'EndNullStruct0'])
     const caixas = [
       'BLCS-06', 'BLCS-08', 'BLCS-09', 'BLCS-10', 'BLCS-11', 'BLCS-12', 'BLCS-13',
       'PV-001', 'PV-002', 'PV-003', 'PV-004', 'PV-005',
       'StartNullStruct0', 'EndNullStruct0',
-    ].map(caixa)
+    ].map((id) => caixa(id, nomesPv.has(id)))
     const trechos = [
       { id: 'pvc5', montanteId: 'BLCS-06', jusanteId: 'PV-001', nome: 'PVC-5', diametroM: 0.2 },
       { id: 'bstc1', montanteId: 'PV-001', jusanteId: 'EndNullStruct0', nome: 'BSTC-1', diametroM: 0.6 },
@@ -135,7 +175,6 @@ describe('identificarTroncoRede', () => {
       { id: 'pvc6', montanteId: 'BLCS-08', jusanteId: 'PV-002', nome: 'PVC-6', diametroM: 0.4 },
       { id: 'pvc7', montanteId: 'BLCS-09', jusanteId: 'PV-002', nome: 'PVC-7', diametroM: 0.5 },
       { id: 'bstc2', montanteId: 'PV-002', jusanteId: 'PV-003', nome: 'BSTC-2', diametroM: 0.6 },
-      { id: 'pvc8', montanteId: 'BLCS-10', jusanteId: 'BLCS-11', nome: 'PVC-8', diametroM: 0.2 },
       { id: 'pvc9', montanteId: 'BLCS-11', jusanteId: 'PV-003', nome: 'PVC-9', diametroM: 0.5 },
       { id: 'bstc3', montanteId: 'PV-003', jusanteId: 'PV-004', nome: 'BSTC-3', diametroM: 0.6 },
       { id: 'pvc10', montanteId: 'BLCS-12', jusanteId: 'PV-004', nome: 'PVC-10', diametroM: 0.2 },
@@ -143,42 +182,7 @@ describe('identificarTroncoRede', () => {
       { id: 'pvc11', montanteId: 'BLCS-13', jusanteId: 'PV-005', nome: 'PVC-11', diametroM: 0.4 },
     ]
     const tronco = identificarTroncoRede(caixas, trechos)
-    expect([...tronco].sort()).toEqual(['bstc1', 'bstc1b', 'bstc2', 'bstc3', 'bstc4', 'pvc5'].sort())
-  })
-
-  it('sem pesoPorTrecho, mantém só o de maior diâmetro (fallback pré-cálculo)', () => {
-    const caixas = ['A', 'B', 'X'].map(caixa)
-    const trechos = [
-      { id: 'grande', montanteId: 'A', jusanteId: 'X', nome: 'T-A', diametroM: 0.6 },
-      { id: 'tambemGrande', montanteId: 'B', jusanteId: 'X', nome: 'T-B', diametroM: 0.4 },
-    ]
-    const tronco = identificarTroncoRede(caixas, trechos)
-    expect(tronco.has('grande')).toBe(true)
-    expect(tronco.has('tambemGrande')).toBe(false)
-  })
-
-  it('com pesoPorTrecho, inclui ramais que carregam pelo menos FRACAO_MINIMA_RAMAL_TRONCO do peso do principal', () => {
-    // reproduz o caso real do PV-21: dois ramais grandes (18 e 17) convergindo, mais dois
-    // pequenos (167 escolhido por diâmetro, 169 residual) -- tronco deve pegar os DOIS grandes,
-    // não só o de maior diâmetro.
-    const caixas = ['A', 'B', 'C', 'D', 'X'].map(caixa)
-    const trechos = [
-      { id: 'tubo18', montanteId: 'A', jusanteId: 'X', nome: 'TUBO-18', diametroM: 0.4 },
-      { id: 'tubo167', montanteId: 'B', jusanteId: 'X', nome: 'TUBO-167', diametroM: 0.6 },
-      { id: 'tubo169', montanteId: 'C', jusanteId: 'X', nome: 'TUBO-169', diametroM: 0.3 },
-      { id: 'tubo17', montanteId: 'D', jusanteId: 'X', nome: 'TUBO-17', diametroM: 0.4 },
-    ]
-    const peso = new Map([
-      ['tubo18', 88056.61],
-      ['tubo167', 5954.71],
-      ['tubo169', 500],
-      ['tubo17', 48202.63],
-    ])
-    const tronco = identificarTroncoRede(caixas, trechos, peso)
-    expect(tronco.has('tubo167')).toBe(true) // principal (maior diâmetro) sempre entra
-    expect(tronco.has('tubo18')).toBe(true) // 88056 >> 20% de 5954.71 -> entra
-    expect(tronco.has('tubo17')).toBe(true) // 48202 >> 20% de 5954.71 -> entra
-    expect(tronco.has('tubo169')).toBe(false) // 500 < 20% de 5954.71 -> fica de fora
+    expect([...tronco].sort()).toEqual(['bstc1', 'bstc1b', 'bstc2', 'bstc3', 'bstc4'].sort())
   })
 })
 

@@ -49,6 +49,7 @@ function caixa(over: Partial<CaixaRecord> = {}): CaixaRecord {
     origem: 'landxml',
     rede_nome: 'Rede-1',
     recebe_vazao: false,
+    eh_tronco: false,
     importacao_id: null,
     ...over,
   }

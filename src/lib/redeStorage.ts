@@ -15,6 +15,7 @@ export interface CaixaRecord {
   origem: string
   rede_nome: string | null
   recebe_vazao: boolean
+  eh_tronco: boolean
   importacao_id: string | null
 }
 
@@ -91,6 +92,7 @@ export interface CaixaPatch {
   cota_terreno?: number | null
   cota_fundo?: number | null
   recebe_vazao?: boolean
+  eh_tronco?: boolean
 }
 
 export async function updateCaixa(id: string, patch: CaixaPatch): Promise<void> {
@@ -107,6 +109,12 @@ export async function updateCaixasTipoEmLote(ids: string[], tipo: string): Promi
 export async function updateCaixasRecebeVazaoEmLote(ids: string[], recebeVazao: boolean): Promise<void> {
   if (ids.length === 0) return
   const { error } = await requireSupabase().from('caixas').update({ recebe_vazao: recebeVazao }).in('id', ids)
+  if (error) throw error
+}
+
+export async function updateCaixasEhTroncoEmLote(ids: string[], ehTronco: boolean): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await requireSupabase().from('caixas').update({ eh_tronco: ehTronco }).in('id', ids)
   if (error) throw error
 }
 
@@ -205,6 +213,7 @@ export async function importarRedeLandXml(
           origem: 'landxml',
           rede_nome: c.redeNome ?? null,
           recebe_vazao: c.recebeVazao,
+          eh_tronco: c.ehTronco,
           importacao_id: importacaoId,
         }))
       )
@@ -258,10 +267,10 @@ export interface ResumoReimportacao {
  * - 'ignorar': não toca em nada que já existe, só insere o que é novo.
  * - 'atualizar': sincroniza os campos vindos do XML (geometria, diâmetro, declividade,
  *   ligação montante/jusante, cotas) mas preserva edições manuais já feitas no app
- *   (manning_n quando a origem é 'manual', recebe_vazao).
- * - 'sobrepor': mesmo que 'atualizar', só que força também manning_n/manning_n_origem e
- *   recebe_vazao a partir do XML — descarta qualquer edição manual feita depois do último
- *   import.
+ *   (manning_n quando a origem é 'manual', recebe_vazao, eh_tronco).
+ * - 'sobrepor': mesmo que 'atualizar', só que força também manning_n/manning_n_origem,
+ *   recebe_vazao e eh_tronco a partir do XML — descarta qualquer edição manual feita depois
+ *   do último import.
  */
 export async function aplicarReimportacao(
   revisaoId: string,
@@ -301,6 +310,7 @@ export async function aplicarReimportacao(
           origem: 'landxml',
           rede_nome: c.novo.redeNome ?? null,
           recebe_vazao: c.novo.recebeVazao,
+          eh_tronco: c.novo.ehTronco,
         }))
       )
       .select()
@@ -319,7 +329,10 @@ export async function aplicarReimportacao(
         cota_terreno: c.novo.cotaTerreno ?? null,
         cota_fundo: c.novo.cotaFundo ?? null,
       }
-      if (modo === 'sobrepor') patch.recebe_vazao = c.novo.recebeVazao
+      if (modo === 'sobrepor') {
+        patch.recebe_vazao = c.novo.recebeVazao
+        patch.eh_tronco = c.novo.ehTronco
+      }
       await updateCaixa(c.atual.id, patch)
       caixasAtualizadas++
     }

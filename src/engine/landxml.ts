@@ -25,6 +25,10 @@ export interface CaixaImportada {
   /** Se a caixa pode receber vazão de bacia diretamente — chute inicial pelo
    * tipo inferido (boca de lobo = sim); editável depois em Rede Importada. */
   recebeVazao: boolean
+  /** Se a caixa é considerada "rede tronco" (filtro "Só rede tronco" em Rede Pluvial) —
+   * chute inicial pelo tipo inferido (PV e boca de lobo = sim; caixa de passagem = não);
+   * editável depois em Rede Importada. */
+  ehTronco: boolean
 }
 
 export interface TrechoImportado {
@@ -170,6 +174,7 @@ export function parseLandXml(xmlText: string, materiaisManning: Map<string, numb
         cotaFundo,
         redeNome,
         recebeVazao: tipo === 'boca_de_lobo',
+        ehTronco: tipo === 'pv' || tipo === 'boca_de_lobo',
       })
 
       const inverts: InvertInfo[] = []

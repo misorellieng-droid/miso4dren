@@ -171,131 +171,45 @@ export function ordenarTrechosPorFluxo(caixas: CaixaOrdenavel[], trechos: Trecho
   return new Map(ordem.map((id, i) => [id, i]))
 }
 
-/** Um ramal entra na rede tronco junto com o principal quando carrega pelo menos essa fração
- * do peso do principal na mesma confluência (ex.: 0.2 = pelo menos 20% do ΣC×A do principal).
- * Só vale quando `pesoPorTrecho` é passado pra identificarTroncoRede -- sem peso (antes do
- * cálculo rodar), o critério continua sendo só o de maior diâmetro, como sempre foi. */
-export const FRACAO_MINIMA_RAMAL_TRONCO = 0.2
+export interface CaixaComEhTronco extends CaixaOrdenavel {
+  /** Classificação explícita da caixa (editável em Rede Importada) — chute inicial pelo tipo
+   * inferido do LandXML (PV e boca de lobo = true), mas o engenheiro é quem decide de fato
+   * quais caixas fazem parte da rede tronco no projeto. */
+  ehTronco: boolean
+}
 
 /**
- * Identifica os trechos que formam a "rede tronco": partindo de cada saída da rede, segue rio
- * acima os ramais relevantes de cada confluência (não só um). O critério de relevância:
- * - sem `pesoPorTrecho` (antes do cálculo rodar): só o trecho de MAIOR diâmetro em cada
- *   confluência -- não dá pra saber ainda quanto cada ramal carrega de fato.
- * - com `pesoPorTrecho` (ex.: ΣC×A acumulado, já calculado): o de maior diâmetro continua
- *   entrando sempre, e junto dele qualquer outro ramal cujo peso seja pelo menos
- *   FRACAO_MINIMA_RAMAL_TRONCO do peso do principal -- uma confluência real de dois sistemas
- *   grandes (ex.: dois PVs de cabeceira desaguando na mesma caixa) deixa os DOIS no tronco, só
- *   ramais de fato secundários (bocas de lobo isoladas etc.) ficam de fora. Isso NÃO afeta o
- *   cálculo hidráulico -- ΣC×A/vazão sempre soma TODAS as entradas de toda caixa, inclusive as
- *   que ficam fora da rede tronco; esse filtro só decide o que aparece na tabela/diagrama/Nota
- *   de Serviço/Quantidade quando "Só rede tronco" está ativo.
- * Usa a mesma fusão de pares Start/EndNullStruct que ordenarTrechosPorFluxo.
+ * Identifica os trechos que formam a "rede tronco": um trecho entra quando a caixa de MONTANTE
+ * dele é classificada como rede tronco (`ehTronco`, campo editável por caixa — ver
+ * CaixaComEhTronco). Critério explícito e previsível, controlado pelo engenheiro (não tenta
+ * adivinhar por diâmetro/vazão): por padrão PV e boca de lobo entram, caixa de passagem não —
+ * ajustável caixa a caixa em Rede Importada quando o padrão não bater com o projeto real (ex.:
+ * uma boca de lobo que só capta localmente, sem função de tronco). Percorre a rede inteira a
+ * partir de cada saída (caixa sem trecho de saída), então uma caixa não-tronco no meio do
+ * caminho não interrompe a exploração rio acima -- só decide se O TRECHO que sai DELA entra ou
+ * não no conjunto. Não afeta o cálculo hidráulico (ΣC×A/vazão sempre soma TODAS as entradas de
+ * toda caixa); esse filtro só decide o que aparece na tabela/diagrama/Nota de Serviço/Quantidade
+ * quando "Só rede tronco" está ativo. Usa a mesma fusão de pares Start/EndNullStruct que
+ * ordenarTrechosPorFluxo.
  */
-export function identificarTroncoRede(
-  caixas: CaixaOrdenavel[],
-  trechos: TrechoOrdenavel[],
-  pesoPorTrecho?: Map<string, number>
-): Set<string> {
+export function identificarTroncoRede(caixas: CaixaComEhTronco[], trechos: TrechoOrdenavel[]): Set<string> {
   const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+  const ehTroncoPorCaixa = new Map(caixas.map((c) => [resolve(c.id), c.ehTronco]))
 
   const tronco = new Set<string>()
   const caixaVisitada = new Set<string>()
   const seguir = (caixaId: string) => {
     if (caixaVisitada.has(caixaId)) return
     caixaVisitada.add(caixaId)
-    const entradas = entradasPorCaixa.get(caixaId)
-    if (!entradas || entradas.length === 0) return
-    const principal = entradas[0] // já ordenado por diâmetro desc (empate: nome)
-    const pesoPrincipal = pesoPorTrecho?.get(principal.id)
+    const entradas = entradasPorCaixa.get(caixaId) ?? []
     for (const e of entradas) {
-      const relevante =
-        e === principal ||
-        (pesoPrincipal != null && pesoPrincipal > 0 && (pesoPorTrecho!.get(e.id) ?? 0) >= pesoPrincipal * FRACAO_MINIMA_RAMAL_TRONCO)
-      if (!relevante) continue
-      tronco.add(e.id)
-      seguir(resolve(e.montanteId))
+      const montanteId = resolve(e.montanteId)
+      if (ehTroncoPorCaixa.get(montanteId)) tronco.add(e.id)
+      seguir(montanteId)
     }
   }
   for (const outfallId of outfalls) seguir(outfallId)
   return tronco
-}
-
-export interface AmbiguidadeTronco {
-  /** Caixa de confluência onde a escolha de qual entrada é "tronco" é suspeita. */
-  caixaId: string
-  /** Trecho escolhido como principal (maior diâmetro) — o que fica na rede tronco. */
-  trechoEscolhidoId: string
-  /** Trecho descartado nessa confluência — some da rede tronco. */
-  trechoDescartadoId: string
-  /** Nº de trechos a montante (recursivo) de cada lado — sempre calculado, serve de contexto
-   * na mensagem mesmo quando a decisão em si usou `pesoPorTrecho` (ΣC×A). */
-  trechosAMontanteEscolhido: number
-  trechosAMontanteDescartado: number
-  /** true quando a comparação usou `pesoPorTrecho` (ΣC×A acumulado, mais confiável) em vez do
-   * fallback de contagem de trechos — diferencia as duas colunas na mensagem exibida. */
-  usouPeso: boolean
-}
-
-/**
- * identificarTroncoRede decide, em cada confluência, qual entrada é a "continuação do tronco"
- * só pelo diâmetro do trecho ali — critério que quebra quando o diâmetro nominal não reflete
- * qual ramal é de fato o principal (ex.: erro de import, trecho redimensionado à mão, ramal
- * com diâmetro maior por sobra de catálogo). Esta função sinaliza essas confluências suspeitas
- * comparando o quanto cada ramal carrega a montante: por padrão o nº de trechos (recursivo,
- * puramente topológico, sempre disponível); quando `pesoPorTrecho` é passado (ex.: ΣC×A
- * acumulado, já calculado pelo cálculo da rede) usa esse valor em vez disso — mede o peso
- * hidráulico de fato, não só o tamanho da malha. Se o ramal DESCARTADO carrega mais que o
- * escolhido, é bem provável que a rede tronco esteja cortando o pedaço errado ali — vale
- * conferir manualmente no Civil 3D.
- */
-export function identificarAmbiguidadesTronco(
-  caixas: CaixaOrdenavel[],
-  trechos: TrechoOrdenavel[],
-  pesoPorTrecho?: Map<string, number>
-): AmbiguidadeTronco[] {
-  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
-
-  const tamanhoSubRede = new Map<string, number>()
-  const contarSubRede = (caixaId: string): number => {
-    if (tamanhoSubRede.has(caixaId)) return tamanhoSubRede.get(caixaId)!
-    const entradas = entradasPorCaixa.get(caixaId) ?? []
-    let total = 0
-    for (const e of entradas) total += 1 + contarSubRede(resolve(e.montanteId))
-    tamanhoSubRede.set(caixaId, total)
-    return total
-  }
-
-  const ambiguidades: AmbiguidadeTronco[] = []
-  const caixaVisitada = new Set<string>()
-  const percorrer = (caixaId: string) => {
-    if (caixaVisitada.has(caixaId)) return
-    caixaVisitada.add(caixaId)
-    const entradas = entradasPorCaixa.get(caixaId) ?? []
-    if (entradas.length === 0) return
-    const [principal, ...ramais] = entradas // já ordenado por diâmetro desc (empate: nome)
-    const tamanhoPrincipal = contarSubRede(resolve(principal.montanteId))
-    const pesoPrincipal = pesoPorTrecho?.get(principal.id)
-    for (const ramal of ramais) {
-      const tamanhoRamal = contarSubRede(resolve(ramal.montanteId))
-      const pesoRamal = pesoPorTrecho?.get(ramal.id)
-      const usouPeso = pesoPrincipal != null && pesoRamal != null
-      const descartaErrado = usouPeso ? pesoRamal! > pesoPrincipal! : tamanhoRamal > tamanhoPrincipal
-      if (descartaErrado) {
-        ambiguidades.push({
-          caixaId,
-          trechoEscolhidoId: principal.id,
-          trechoDescartadoId: ramal.id,
-          trechosAMontanteEscolhido: tamanhoPrincipal,
-          trechosAMontanteDescartado: tamanhoRamal,
-          usouPeso,
-        })
-      }
-    }
-    for (const e of entradas) percorrer(resolve(e.montanteId))
-  }
-  for (const outfallId of outfalls) percorrer(outfallId)
-  return ambiguidades
 }
 
 export interface CaixaComTipo extends CaixaOrdenavel {

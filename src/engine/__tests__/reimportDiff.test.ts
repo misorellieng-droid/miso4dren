@@ -16,6 +16,7 @@ function caixa(over: Partial<CaixaRecord> = {}): CaixaRecord {
     origem: 'landxml',
     rede_nome: 'REDE-01',
     recebe_vazao: false,
+    eh_tronco: false,
     importacao_id: null,
     ...over,
   }
@@ -47,7 +48,7 @@ function trecho(over: Partial<TrechoRecord> = {}): TrechoRecord {
 describe('compararImportacao', () => {
   it('marca caixa e trecho como novos quando não existem no banco', () => {
     const resultado: ResultadoImportLandXml = {
-      caixas: [{ nome: 'PV-99', tipo: 'pv', recebeVazao: false }],
+      caixas: [{ nome: 'PV-99', tipo: 'pv', recebeVazao: false, ehTronco: false }],
       trechos: [],
     }
     const diff = compararImportacao(resultado, [], [])
@@ -57,7 +58,7 @@ describe('compararImportacao', () => {
   it('marca caixa como igual quando os campos batem dentro da tolerância', () => {
     const existente = caixa()
     const resultado: ResultadoImportLandXml = {
-      caixas: [{ nome: 'PV-01', tipo: 'pv', x: 100.001, y: 200, cotaTerreno: 10, cotaFundo: 8, recebeVazao: false }],
+      caixas: [{ nome: 'PV-01', tipo: 'pv', x: 100.001, y: 200, cotaTerreno: 10, cotaFundo: 8, recebeVazao: false, ehTronco: false }],
       trechos: [],
     }
     const diff = compararImportacao(resultado, [existente], [])
@@ -67,7 +68,7 @@ describe('compararImportacao', () => {
   it('marca caixa como alterada quando a cota de fundo mudou', () => {
     const existente = caixa()
     const resultado: ResultadoImportLandXml = {
-      caixas: [{ nome: 'PV-01', tipo: 'pv', x: 100, y: 200, cotaTerreno: 10, cotaFundo: 7.5, recebeVazao: false }],
+      caixas: [{ nome: 'PV-01', tipo: 'pv', x: 100, y: 200, cotaTerreno: 10, cotaFundo: 7.5, recebeVazao: false, ehTronco: false }],
       trechos: [],
     }
     const diff = compararImportacao(resultado, [existente], [])
@@ -81,8 +82,8 @@ describe('compararImportacao', () => {
     const t1 = trecho({ caixa_montante_id: 'c1', caixa_jusante_id: 'c2' })
     const resultado: ResultadoImportLandXml = {
       caixas: [
-        { nome: 'PV-01', tipo: 'pv', recebeVazao: false },
-        { nome: 'PV-02', tipo: 'pv', recebeVazao: false },
+        { nome: 'PV-01', tipo: 'pv', recebeVazao: false, ehTronco: false },
+        { nome: 'PV-02', tipo: 'pv', recebeVazao: false, ehTronco: false },
       ],
       trechos: [
         {
@@ -109,8 +110,8 @@ describe('compararImportacao', () => {
     const t1 = trecho({ caixa_montante_id: 'c1', caixa_jusante_id: 'c2', manning_n: 0.013, manning_n_origem: 'manual' })
     const resultado: ResultadoImportLandXml = {
       caixas: [
-        { nome: 'PV-01', tipo: 'pv', recebeVazao: false },
-        { nome: 'PV-02', tipo: 'pv', recebeVazao: false },
+        { nome: 'PV-01', tipo: 'pv', recebeVazao: false, ehTronco: false },
+        { nome: 'PV-02', tipo: 'pv', recebeVazao: false, ehTronco: false },
       ],
       trechos: [
         {
@@ -134,7 +135,7 @@ describe('compararImportacao', () => {
 
   it('resumoDiff conta corretamente e temMudancas reflete o resultado', () => {
     const resultado: ResultadoImportLandXml = {
-      caixas: [{ nome: 'PV-99', tipo: 'pv', recebeVazao: false }],
+      caixas: [{ nome: 'PV-99', tipo: 'pv', recebeVazao: false, ehTronco: false }],
       trechos: [],
     }
     const diff = compararImportacao(resultado, [], [])
