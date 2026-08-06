@@ -197,6 +197,83 @@ export function identificarTroncoRede(caixas: CaixaOrdenavel[], trechos: TrechoO
   return tronco
 }
 
+export interface AmbiguidadeTronco {
+  /** Caixa de confluência onde a escolha de qual entrada é "tronco" é suspeita. */
+  caixaId: string
+  /** Trecho escolhido como principal (maior diâmetro) — o que fica na rede tronco. */
+  trechoEscolhidoId: string
+  /** Trecho descartado nessa confluência — some da rede tronco. */
+  trechoDescartadoId: string
+  /** Nº de trechos a montante (recursivo) de cada lado — sempre calculado, serve de contexto
+   * na mensagem mesmo quando a decisão em si usou `pesoPorTrecho` (ΣC×A). */
+  trechosAMontanteEscolhido: number
+  trechosAMontanteDescartado: number
+  /** true quando a comparação usou `pesoPorTrecho` (ΣC×A acumulado, mais confiável) em vez do
+   * fallback de contagem de trechos — diferencia as duas colunas na mensagem exibida. */
+  usouPeso: boolean
+}
+
+/**
+ * identificarTroncoRede decide, em cada confluência, qual entrada é a "continuação do tronco"
+ * só pelo diâmetro do trecho ali — critério que quebra quando o diâmetro nominal não reflete
+ * qual ramal é de fato o principal (ex.: erro de import, trecho redimensionado à mão, ramal
+ * com diâmetro maior por sobra de catálogo). Esta função sinaliza essas confluências suspeitas
+ * comparando o quanto cada ramal carrega a montante: por padrão o nº de trechos (recursivo,
+ * puramente topológico, sempre disponível); quando `pesoPorTrecho` é passado (ex.: ΣC×A
+ * acumulado, já calculado pelo cálculo da rede) usa esse valor em vez disso — mede o peso
+ * hidráulico de fato, não só o tamanho da malha. Se o ramal DESCARTADO carrega mais que o
+ * escolhido, é bem provável que a rede tronco esteja cortando o pedaço errado ali — vale
+ * conferir manualmente no Civil 3D.
+ */
+export function identificarAmbiguidadesTronco(
+  caixas: CaixaOrdenavel[],
+  trechos: TrechoOrdenavel[],
+  pesoPorTrecho?: Map<string, number>
+): AmbiguidadeTronco[] {
+  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+
+  const tamanhoSubRede = new Map<string, number>()
+  const contarSubRede = (caixaId: string): number => {
+    if (tamanhoSubRede.has(caixaId)) return tamanhoSubRede.get(caixaId)!
+    const entradas = entradasPorCaixa.get(caixaId) ?? []
+    let total = 0
+    for (const e of entradas) total += 1 + contarSubRede(resolve(e.montanteId))
+    tamanhoSubRede.set(caixaId, total)
+    return total
+  }
+
+  const ambiguidades: AmbiguidadeTronco[] = []
+  const caixaVisitada = new Set<string>()
+  const percorrer = (caixaId: string) => {
+    if (caixaVisitada.has(caixaId)) return
+    caixaVisitada.add(caixaId)
+    const entradas = entradasPorCaixa.get(caixaId) ?? []
+    if (entradas.length === 0) return
+    const [principal, ...ramais] = entradas // já ordenado por diâmetro desc (empate: nome)
+    const tamanhoPrincipal = contarSubRede(resolve(principal.montanteId))
+    const pesoPrincipal = pesoPorTrecho?.get(principal.id)
+    for (const ramal of ramais) {
+      const tamanhoRamal = contarSubRede(resolve(ramal.montanteId))
+      const pesoRamal = pesoPorTrecho?.get(ramal.id)
+      const usouPeso = pesoPrincipal != null && pesoRamal != null
+      const descartaErrado = usouPeso ? pesoRamal! > pesoPrincipal! : tamanhoRamal > tamanhoPrincipal
+      if (descartaErrado) {
+        ambiguidades.push({
+          caixaId,
+          trechoEscolhidoId: principal.id,
+          trechoDescartadoId: ramal.id,
+          trechosAMontanteEscolhido: tamanhoPrincipal,
+          trechosAMontanteDescartado: tamanhoRamal,
+          usouPeso,
+        })
+      }
+    }
+    for (const e of entradas) percorrer(resolve(e.montanteId))
+  }
+  for (const outfallId of outfalls) percorrer(outfallId)
+  return ambiguidades
+}
+
 export interface CaixaComTipo extends CaixaOrdenavel {
   tipo: string
 }

@@ -26,6 +26,7 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
+  identificarAmbiguidadesTronco,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTrechosPorFluxo,
@@ -532,6 +533,20 @@ export function RedePluvialPage() {
     )
   }, [caixas, trechos])
 
+  // Confluências onde o critério de maior diâmetro (usado acima) provavelmente cortou o ramal
+  // errado da rede tronco. Usa o ΣC×A acumulado já calculado (peso hidráulico real) quando o
+  // cálculo já rodou; sem isso ainda cai pro fallback de contar trechos a montante (só
+  // topológico). Não muda o cálculo, só avisa: vale conferir no Civil 3D.
+  const caAcumuladoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.ca_acumulado ?? 0])), [resultados])
+  const ambiguidadesTronco = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return []
+    return identificarAmbiguidadesTronco(
+      caixas.map((c) => ({ id: c.id, nome: c.nome })),
+      trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m })),
+      caAcumuladoPorTrecho.size > 0 ? caAcumuladoPorTrecho : undefined
+    )
+  }, [caixas, trechos, caAcumuladoPorTrecho])
+
   // Rede = a partir de cada PV de cabeceira (poço de visita sem trecho de entrada), gera uma
   // rede independente que se propaga rio abaixo até desaguar em outra rede já estabelecida
   // (na confluência, quem continua é a entrada dominante — maior diâmetro). Cabeceiras que não
@@ -660,6 +675,45 @@ export function RedePluvialPage() {
     [trechos, ocultarNomeRede]
   )
   const caixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c])), [caixas])
+
+  const avisosTroncoAmbiguo = useMemo(
+    () =>
+      ambiguidadesTronco.map((a) => {
+        const caixaNome = nomeCaixaPorId.get(a.caixaId) ?? '?'
+        const escolhidoNome = nomeTrechoPorId.get(a.trechoEscolhidoId) ?? '?'
+        const descartadoNome = nomeTrechoPorId.get(a.trechoDescartadoId) ?? '?'
+        const contexto = a.usouPeso
+          ? `${caAcumuladoPorTrecho.get(a.trechoDescartadoId)?.toFixed(2) ?? '?'} m² de ΣC×A contra ${caAcumuladoPorTrecho.get(a.trechoEscolhidoId)?.toFixed(2) ?? '?'} m²`
+          : `${a.trechosAMontanteDescartado} trecho(s) a montante contra ${a.trechosAMontanteEscolhido}`
+        return `Em ${caixaNome}: ${escolhidoNome} foi escolhido pra rede tronco por ter o maior diâmetro, mas ${descartadoNome} carrega mais (${contexto}) — confira no Civil 3D se não é ${descartadoNome} quem deveria continuar como tronco.`
+      }),
+    [ambiguidadesTronco, nomeCaixaPorId, nomeTrechoPorId, caAcumuladoPorTrecho]
+  )
+
+  // identificarTroncoRede segue só a cadeia vencedora a partir de cada saída REAL do terreno
+  // (caixa sem trecho de saída) -- se dois ou mais Sistemas (identificarRedesPorPvCabeceira)
+  // deságuam um no outro antes de chegar numa saída, só o Sistema vencedor NAQUELE ponto de
+  // confluência aparece na rede tronco; o Sistema inteiro que perdeu ali some da tabela/diagrama
+  // filtrados por "Só rede tronco", mesmo carregando bastante ΣC×A internamente -- é o caso do
+  // usuário (Sistema inteiro sumindo, não só um trecho isolado).
+  const sistemasForaDoTronco = useMemo(() => {
+    if (trechos.length === 0 || troncoIds.size === 0) return [] as { sistema: number; maxCa: number; numTrechos: number }[]
+    const porSistema = new Map<number, { numTrechos: number; maxCa: number }>()
+    for (const t of trechos) {
+      const sistema = redePorTrecho.get(t.id)
+      if (sistema == null) continue
+      const entry = porSistema.get(sistema) ?? { numTrechos: 0, maxCa: 0 }
+      entry.numTrechos++
+      entry.maxCa = Math.max(entry.maxCa, caAcumuladoPorTrecho.get(t.id) ?? 0)
+      porSistema.set(sistema, entry)
+    }
+    const fora: { sistema: number; maxCa: number; numTrechos: number }[] = []
+    for (const [sistema, info] of porSistema) {
+      const temAlgumNoTronco = trechos.some((t) => redePorTrecho.get(t.id) === sistema && troncoIds.has(t.id))
+      if (!temAlgumNoTronco && info.maxCa > 0) fora.push({ sistema, ...info })
+    }
+    return fora.sort((a, b) => b.maxCa - a.maxCa)
+  }, [trechos, redePorTrecho, troncoIds, caAcumuladoPorTrecho])
 
   // Tc na caixa JUSANTE de cada trecho (o que vira o Tc de entrada do PRÓXIMO trecho) —
   // recalculado no cliente com as velocidades finais já persistidas, já que
@@ -1170,6 +1224,36 @@ export function RedePluvialPage() {
               Mostra só a cadeia principal (maior diâmetro em cada confluência) — os ramais menores ficam ocultos na tabela e no diagrama.
             </div>
           )}
+        </div>
+      )}
+
+      {sistemasForaDoTronco.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-red">
+            {sistemasForaDoTronco.length} sistema(s) inteiro(s) fora da rede tronco
+          </div>
+          <ul className="list-inside list-disc space-y-1 text-xs text-accent-red">
+            {sistemasForaDoTronco.map((s) => (
+              <li key={s.sistema}>
+                Sistema {String(s.sistema).padStart(2, '0')}: nenhum dos seus {s.numTrechos} trecho(s) aparece na rede tronco (some inteiro
+                do filtro "Só rede tronco"), mesmo acumulando até {s.maxCa.toFixed(2)} m² de ΣC×A — ele perde pro sistema vizinho bem na
+                confluência onde deságua; confira lá se a rede tronco não devia continuar por ele.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {avisosTroncoAmbiguo.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3">
+          <div className="mb-1.5 text-sm font-medium text-accent-amber">
+            {avisosTroncoAmbiguo.length} possível(is) corte(s) errado(s) na rede tronco
+          </div>
+          <ul className="list-inside list-disc space-y-1 text-xs text-accent-amber">
+            {avisosTroncoAmbiguo.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
         </div>
       )}
 
