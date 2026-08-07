@@ -66,7 +66,7 @@ import {
   saveResultadoRede,
   type ResultadoRedeRecord,
 } from '../lib/resultadosStorage'
-import type { RevisaoComProjeto } from '../lib/revisoesStorage'
+import { updateCriteriosConformidade, type RevisaoComProjeto } from '../lib/revisoesStorage'
 import { supabase } from '../lib/supabase'
 
 const PRIMARY_BTN =
@@ -413,6 +413,36 @@ export function RedePluvialPage() {
   const [captacoes, setCaptacoes] = useState<CaptacaoRecord[]>([])
   const [equacao, setEquacao] = useState<EquacaoIdfRecord | null>(null)
   const [limites, setLimites] = useState(DEFAULT_LIMITES)
+  // Critérios de conformidade ficam vinculados à revisão (migração 025) -- todo estudo desta
+  // versão adota os mesmos valores, e eles sobrevivem a um F5 em vez de voltar pro padrão do
+  // sistema. `limitesRevisaoIdRef` marca de qual revisão o `limites` atual já reflete os
+  // critérios salvos, pra distinguir "acabei de carregar" (não precisa regravar) de "usuário
+  // editou" (precisa persistir) no efeito de salvamento abaixo.
+  const limitesRevisaoIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!revisaoAtiva) return
+    setLimites({
+      limiteYD: revisaoAtiva.criterio_limite_yd ?? DEFAULT_LIMITES.limiteYD,
+      velMinMs: revisaoAtiva.criterio_vel_min_ms ?? DEFAULT_LIMITES.velMinMs,
+      velMaxMs: revisaoAtiva.criterio_vel_max_ms ?? DEFAULT_LIMITES.velMaxMs,
+      declMinMM: revisaoAtiva.criterio_decl_min_mm ?? DEFAULT_LIMITES.declMinMM,
+      declMaxMM: revisaoAtiva.criterio_decl_max_mm ?? DEFAULT_LIMITES.declMaxMM,
+      diametroMinTroncoM: revisaoAtiva.criterio_diametro_min_tronco_m ?? DEFAULT_LIMITES.diametroMinTroncoM,
+      diametroMinRamalM: revisaoAtiva.criterio_diametro_min_ramal_m ?? DEFAULT_LIMITES.diametroMinRamalM,
+      energiaSoTronco: revisaoAtiva.criterio_energia_so_tronco ?? DEFAULT_LIMITES.energiaSoTronco,
+    })
+    limitesRevisaoIdRef.current = revisaoAtiva.id
+  }, [revisaoAtiva])
+  useEffect(() => {
+    if (!revisaoAtiva || limitesRevisaoIdRef.current !== revisaoAtiva.id) return
+    const t = setTimeout(() => {
+      updateCriteriosConformidade(revisaoAtiva.id, limites).catch((err) => {
+        setError(err instanceof Error ? err.message : 'Erro ao salvar os critérios de conformidade.')
+      })
+    }, 600)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limites, revisaoAtiva?.id])
   const [resultados, setResultados] = useState<LinhaResultado[]>([])
   const [running, setRunning] = useState(false)
   const [atualizando, setAtualizando] = useState(false)

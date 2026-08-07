@@ -7,6 +7,18 @@ export interface RevisaoRecord {
   descricao: string | null
   equacao_idf_id: string | null
   tempo_retorno_anos: number | null
+  /** Critérios de conformidade da rede pluvial (y/D, velocidade, declividade, diâmetro mínimo
+   * por categoria, escopo do EGL) -- vinculados à revisão, então todo estudo desta versão adota
+   * os mesmos valores. Null nas revisões criadas antes da migração 025 (cai pro padrão do
+   * sistema, ver DEFAULT_LIMITES em RedePluvialPage.tsx). */
+  criterio_limite_yd: number | null
+  criterio_vel_min_ms: number | null
+  criterio_vel_max_ms: number | null
+  criterio_decl_min_mm: number | null
+  criterio_decl_max_mm: number | null
+  criterio_diametro_min_tronco_m: number | null
+  criterio_diametro_min_ramal_m: number | null
+  criterio_energia_so_tronco: boolean | null
   created_at: string
 }
 
@@ -81,6 +93,36 @@ export async function updateRevisao(
   if (input.tempoRetornoAnos !== undefined) patch.tempo_retorno_anos = input.tempoRetornoAnos
 
   const { error } = await requireSupabase().from('revisoes').update(patch).eq('id', id)
+  if (error) throw error
+}
+
+export interface CriteriosConformidade {
+  limiteYD: number
+  velMinMs: number
+  velMaxMs: number
+  declMinMM: number
+  declMaxMM: number
+  diametroMinTroncoM: number
+  diametroMinRamalM: number
+  energiaSoTronco: boolean
+}
+
+/** Persiste os critérios de conformidade da rede pluvial na própria revisão -- ver
+ * migração 025_criterios_conformidade.sql. */
+export async function updateCriteriosConformidade(id: string, criterios: CriteriosConformidade): Promise<void> {
+  const { error } = await requireSupabase()
+    .from('revisoes')
+    .update({
+      criterio_limite_yd: criterios.limiteYD,
+      criterio_vel_min_ms: criterios.velMinMs,
+      criterio_vel_max_ms: criterios.velMaxMs,
+      criterio_decl_min_mm: criterios.declMinMM,
+      criterio_decl_max_mm: criterios.declMaxMM,
+      criterio_diametro_min_tronco_m: criterios.diametroMinTroncoM,
+      criterio_diametro_min_ramal_m: criterios.diametroMinRamalM,
+      criterio_energia_so_tronco: criterios.energiaSoTronco,
+    })
+    .eq('id', id)
   if (error) throw error
 }
 
