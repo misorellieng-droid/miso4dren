@@ -405,9 +405,16 @@ function secaoMetodo(
   blocoVazaoTotalCaixa(doc, cursor, vazaoTotalCaixaM3s, resultado.vazaoM3s)
 }
 
-/** Memória de cálculo completa, ponto a ponto — layout formatado pra impressão/anexo de projeto. */
-export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+/**
+ * Memória de cálculo completa, ponto a ponto — layout formatado pra impressão/anexo de projeto.
+ * Passando `docExistente` (ver relatório completo em exportRelatorioCompletoPdf.ts), desenha essa
+ * seção dentro dele (numa página nova) em vez de criar/salvar um PDF próprio -- devolve o mesmo
+ * doc pra quem chamou continuar adicionando seções.
+ */
+export function exportSarjetaoPdf(data: DadosSarjetaoPdf, docExistente?: jsPDF): jsPDF {
+  const doc = docExistente ?? new jsPDF({ unit: 'pt', format: 'a4' })
+  if (docExistente) doc.addPage()
+  const paginaInicial = doc.getNumberOfPages()
   const cursor: Cursor = { y: 55 }
   const { parametros: p, memorial } = data
 
@@ -509,15 +516,18 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf): void {
   desenharPerfilLongitudinalSarjetao(doc, cursor, memorial.resultado.comprimentoEquilibrioM, p.yMaxM)
 
   const totalPaginas = doc.getNumberOfPages()
-  for (let i = 1; i <= totalPaginas; i++) {
+  for (let i = paginaInicial; i <= totalPaginas; i++) {
     doc.setPage(i)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(`${data.nomeTrecho} — Sarjetão em Dente de Serra`, MARGIN_X, 825)
-    doc.text(`Página ${i} de ${totalPaginas}`, 555, 825, { align: 'right' })
+    doc.text(`Página ${i - paginaInicial + 1} de ${totalPaginas - paginaInicial + 1}`, 555, 825, { align: 'right' })
   }
 
-  const nomeArquivo = `memoria-sarjetao-${data.nomeTrecho}`.replace(/\s+/g, '-').toLowerCase() + '.pdf'
-  doc.save(nomeArquivo)
+  if (!docExistente) {
+    const nomeArquivo = `memoria-sarjetao-${data.nomeTrecho}`.replace(/\s+/g, '-').toLowerCase() + '.pdf'
+    doc.save(nomeArquivo)
+  }
+  return doc
 }

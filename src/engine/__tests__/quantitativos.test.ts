@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agruparQuantidadesPorItem,
   areaSecaoValaM2,
   calcularVolumeBercoM3,
   calcularVolumeEscavacaoM3,
@@ -80,5 +81,54 @@ describe('calcularVolumesTrecho', () => {
     expect(r.volumeReaterroM3).toBeCloseTo(r.volumeEscavacaoM3 - r.volumeBercoM3 - volumeTuboM3, 6)
     expect(r.volumeEscavacaoM3).toBeGreaterThan(0)
     expect(r.volumeBercoM3).toBeGreaterThan(0)
+  })
+})
+
+describe('agruparQuantidadesPorItem', () => {
+  const item = (over: Partial<Parameters<typeof agruparQuantidadesPorItem>[0][number]>) => ({
+    material: 'CONCRETO',
+    diametroM: 0.6,
+    comprimentoM: 10,
+    volumeEscavacaoM3: 5,
+    volumeBercoM3: 1,
+    volumeReaterroM3: 3,
+    ...over,
+  })
+
+  it('soma as quantidades de trechos com o mesmo material e diâmetro num único item', () => {
+    const resumo = agruparQuantidadesPorItem([item({}), item({ comprimentoM: 20, volumeEscavacaoM3: 8 })])
+    expect(resumo).toHaveLength(1)
+    expect(resumo[0]).toMatchObject({ material: 'CONCRETO', diametroM: 0.6, quantidade: 2, comprimentoTotalM: 30 })
+    expect(resumo[0].volumeEscavacaoTotalM3).toBeCloseTo(13)
+  })
+
+  it('separa itens com material ou diâmetro diferentes em grupos distintos', () => {
+    const resumo = agruparQuantidadesPorItem([item({}), item({ diametroM: 0.8 }), item({ material: 'PEAD' })])
+    expect(resumo).toHaveLength(3)
+  })
+
+  it('não abre grupo novo por ruído de ponto flutuante no diâmetro', () => {
+    const resumo = agruparQuantidadesPorItem([item({ diametroM: 0.6 }), item({ diametroM: 0.6 + 1e-10 })])
+    expect(resumo).toHaveLength(1)
+    expect(resumo[0].quantidade).toBe(2)
+  })
+
+  it('agrupa material vazio/nulo como "SEM MATERIAL", e é case-insensitive no material', () => {
+    const resumo = agruparQuantidadesPorItem([item({ material: null }), item({ material: '' }), item({ material: 'concreto' })])
+    expect(resumo.find((r) => r.material === 'SEM MATERIAL')?.quantidade).toBe(2)
+    expect(resumo.find((r) => r.material === 'concreto')?.quantidade).toBe(1)
+  })
+
+  it('ordena por material, depois por diâmetro', () => {
+    const resumo = agruparQuantidadesPorItem([
+      item({ material: 'PEAD', diametroM: 0.4 }),
+      item({ material: 'CONCRETO', diametroM: 0.8 }),
+      item({ material: 'CONCRETO', diametroM: 0.6 }),
+    ])
+    expect(resumo.map((r) => `${r.material}-${r.diametroM}`)).toEqual(['CONCRETO-0.6', 'CONCRETO-0.8', 'PEAD-0.4'])
+  })
+
+  it('lista vazia devolve resumo vazio', () => {
+    expect(agruparQuantidadesPorItem([])).toEqual([])
   })
 })

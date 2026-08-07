@@ -10,6 +10,7 @@ import {
   EyeOff,
   FileDown,
   FileSpreadsheet,
+  FileText,
   Loader2,
   Network,
   NotebookText,
@@ -42,7 +43,7 @@ import {
   type PatchPerfilRede,
 } from '../engine/rede'
 import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaEnergia } from '../engine/energia'
-import { calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
+import { agruparQuantidadesPorItem, calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
@@ -65,9 +66,15 @@ import { listCaptacoesPorRevisao, type CaptacaoRecord } from '../lib/captacaoSto
 import {
   deleteResultadosRedeByTrechoIds,
   listResultadosRedeByRevisao,
+  listResultadosSarjeta,
   saveResultadoRede,
   type ResultadoRedeRecord,
 } from '../lib/resultadosStorage'
+import { listResultadosSarjetao } from '../lib/resultadosSarjetaoStorage'
+import { construirMemorialSarjetaCritica } from './SarjetaCriticaPage'
+import { parametrosExibicaoDoRegistroSarjetao, recalcularSarjetaoDoRegistro } from './SarjetaoDenteServaPage'
+import { gerarSvgDiagrama, rasterizarSvgParaPngDataUrl } from '../lib/diagramaSvg'
+import { gerarRelatorioCompletoPdf } from '../lib/exportRelatorioCompletoPdf'
 import { updateCriteriosConformidade, type RevisaoComProjeto } from '../lib/revisoesStorage'
 import { supabase } from '../lib/supabase'
 
@@ -202,6 +209,10 @@ const DEFAULT_LIMITES = {
    * troca de diâmetro se TODOS os lados envolvidos forem rede tronco -- uma boca de lobo (ramal)
    * menor entrando num PV maior da rede tronco continua com degrau zero simples. */
   energiaSoTronco: false,
+  /** Mínimo pro alerta/correção de recobrimento insuficiente -- 0 m só acusa o caso impossível
+   * (tubo acima da cota de terreno); suba pra também flagar cobertura positiva mas abaixo do
+   * mínimo de projeto. */
+  recobrimentoMinimoM: 0,
 }
 
 interface LinhaResultado extends ResultadoRedeRecord {
@@ -432,6 +443,7 @@ export function RedePluvialPage() {
       diametroMinTroncoM: revisaoAtiva.criterio_diametro_min_tronco_m ?? DEFAULT_LIMITES.diametroMinTroncoM,
       diametroMinRamalM: revisaoAtiva.criterio_diametro_min_ramal_m ?? DEFAULT_LIMITES.diametroMinRamalM,
       energiaSoTronco: revisaoAtiva.criterio_energia_so_tronco ?? DEFAULT_LIMITES.energiaSoTronco,
+      recobrimentoMinimoM: revisaoAtiva.criterio_recobrimento_minimo_m ?? DEFAULT_LIMITES.recobrimentoMinimoM,
     })
     limitesRevisaoIdRef.current = revisaoAtiva.id
   }, [revisaoAtiva])
@@ -899,11 +911,11 @@ export function RedePluvialPage() {
   // captação). Critério PRÓPRIO, independente do campo "Recobrimento" da ferramenta de recálculo
   // de perfil (que é um parâmetro de ferramenta, não o mínimo de projeto) -- default 0 m, ou
   // seja, só acusa o caso realmente impossível (recobrimento negativo). O engenheiro pode subir
-  // esse valor pra também flagar cobertura positiva mas abaixo do mínimo de projeto dele.
-  const [recobrimentoMinimoAlerta, setRecobrimentoMinimoAlerta] = useState('0')
+  // esse valor pra também flagar cobertura positiva mas abaixo do mínimo de projeto dele. Vive em
+  // `limites` (vinculado à revisão, ver migração 026) junto com os demais critérios.
   const violacoesRecobrimento = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return []
-    const recobrimentoMinimoM = Number(recobrimentoMinimoAlerta)
+    const recobrimentoMinimoM = limites.recobrimentoMinimoM
     if (!Number.isFinite(recobrimentoMinimoM)) return []
     return identificarRecobrimentoInsuficiente(
       caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
@@ -920,14 +932,14 @@ export function RedePluvialPage() {
       })),
       recobrimentoMinimoM
     ).sort((a, b) => a.recobrimentoM - b.recobrimentoM)
-  }, [caixas, trechos, recobrimentoMinimoAlerta])
+  }, [caixas, trechos, limites.recobrimentoMinimoM])
   const [corrigindoRecobrimento, setCorrigindoRecobrimento] = useState(false)
 
   // Corrige a rede INTEIRA (não só cabeceiras) -- ver corrigirRecobrimentoRedeCompleta:
   // cabeceira empurra a própria cota, o resto da rede aumenta a própria declividade onde
   // precisar pra garantir o mínimo, herdando a cota mais funda em confluências.
   const handleCorrigirRecobrimento = async () => {
-    const recobrimentoMinimoM = Number(recobrimentoMinimoAlerta)
+    const recobrimentoMinimoM = limites.recobrimentoMinimoM
     if (!Number.isFinite(recobrimentoMinimoM)) return
     setCorrigindoRecobrimento(true)
     setError(null)
@@ -1442,6 +1454,159 @@ export function RedePluvialPage() {
     }
   }
 
+  const [gerandoRelatorioCompleto, setGerandoRelatorioCompleto] = useState(false)
+
+  /**
+   * Relatório completo do projeto: diagramas (tronco + completo), memorial justificativo, nota
+   * de serviço, quantidade + resumo por item, critérios adotados, e a memória de cálculo de todo
+   * estudo de sarjeta crítica/sarjetão já salvo na revisão -- um PDF só (ver
+   * exportRelatorioCompletoPdf.ts). Sempre com escopo de rede INTEIRA/todos os sistemas,
+   * independente do filtro "só rede tronco"/"sistema" ativo na tela no momento (esses filtros são
+   * só pra navegação em tela) -- por isso monta as listas de novo aqui em vez de reaproveitar
+   * resultadosOrdenados/trechosOrdenados (que já vêm filtrados).
+   */
+  const handleGerarRelatorioCompleto = async () => {
+    if (!revisaoAtiva) return
+    setGerandoRelatorioCompleto(true)
+    setError(null)
+    try {
+      const [sarjetasRegistros, sarjetoesRegistros] = await Promise.all([
+        listResultadosSarjeta(revisaoAtiva.id),
+        listResultadosSarjetao(revisaoAtiva.id),
+      ])
+
+      const sarjetasCriticas = sarjetasRegistros.map((h) => {
+        const { memorial, parametros } = construirMemorialSarjetaCritica(h)
+        return {
+          nomeVia: h.nome_via,
+          projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+          revisaoNome: revisaoAtiva.nome,
+          equacaoNome: equacao?.nome ?? null,
+          tempoRetornoAnos: revisaoAtiva.tempo_retorno_anos ?? 10,
+          intensidadeMmH: h.intensidade_mm_h,
+          parametros,
+          memorial,
+        }
+      })
+
+      // recalcularSarjetaoDoRegistro precisa da equação IDF da revisão (não persistida no
+      // registro) -- sem equação vinculada, não dá pra regerar o memorial desses estudos.
+      const sarjetoes = equacao
+        ? sarjetoesRegistros.map((h) => ({
+            nomeTrecho: h.nome_trecho,
+            projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+            revisaoNome: revisaoAtiva.nome,
+            equacaoNome: equacao.nome,
+            tempoRetornoAnos: h.tempo_retorno_anos,
+            parametros: parametrosExibicaoDoRegistroSarjetao(h),
+            memorial: recalcularSarjetaoDoRegistro(h, equacao),
+          }))
+        : []
+      if (!equacao && sarjetoesRegistros.length > 0) {
+        setError(
+          `A revisão não tem equação IDF vinculada -- ${sarjetoesRegistros.length} estudo(s) de sarjetão foram deixados de fora do relatório.`
+        )
+      }
+
+      const posicao = (id: string) => ordemTrechos.get(id) ?? Number.MAX_SAFE_INTEGER
+      const resultadosCompletos = [...resultados].sort((a, b) => posicao(a.trecho_id) - posicao(b.trecho_id))
+      const trechosCompletos = [...trechos].sort((a, b) => posicao(a.id) - posicao(b.id))
+
+      const memorial = {
+        colunas: COLUNAS_MEMORIAL,
+        linhas: resultadosCompletos.map((r) => ({ ...montarValoresMemorial(r), conformidade: montarConformidadeTexto(r) })),
+      }
+      const notaServico = { colunas: COLUNAS_NOTA_SERVICO, linhas: trechosCompletos.map((t) => montarValoresNotaServico(t)) }
+      const quantidade = { colunas: COLUNAS_QUANTIDADE, linhas: trechosCompletos.map((t) => montarValoresQuantidade(t)) }
+
+      const resumoItens = agruparQuantidadesPorItem(
+        trechos.map((t) => {
+          const volumes = volumesPorTrecho.get(t.id)
+          return {
+            material: t.material,
+            diametroM: t.diametro_m,
+            comprimentoM: t.comprimento_m,
+            volumeEscavacaoM3: volumes?.escavacao ?? 0,
+            volumeBercoM3: volumes?.berco ?? 0,
+            volumeReaterroM3: volumes?.reaterro ?? 0,
+          }
+        })
+      )
+      const resumoQuantidade = {
+        colunas: [
+          { key: 'material', label: 'Material' },
+          { key: 'diametro', label: 'Diâm. (m)' },
+          { key: 'quantidade', label: 'Qtd. trechos' },
+          { key: 'extensao', label: 'Extensão total (m)' },
+          { key: 'volEscavacao', label: 'Vol. escavação total (m³)' },
+          { key: 'volBerco', label: 'Vol. berço total (m³)' },
+          { key: 'volReaterro', label: 'Vol. reaterro total (m³)' },
+        ],
+        linhas: resumoItens.map((r) => ({
+          material: r.material,
+          diametro: r.diametroM.toFixed(3),
+          quantidade: String(r.quantidade),
+          extensao: r.comprimentoTotalM.toFixed(2),
+          volEscavacao: r.volumeEscavacaoTotalM3.toFixed(2),
+          volBerco: r.volumeBercoTotalM3.toFixed(2),
+          volReaterro: r.volumeReaterroTotalM3.toFixed(2),
+        })),
+      }
+
+      const svgCompleto = gerarSvgDiagrama(
+        caixas.map((c) => ({ id: c.id, x: c.x, y: c.y })),
+        trechos.map((t) => ({ id: t.id, caixa_montante_id: t.caixa_montante_id, caixa_jusante_id: t.caixa_jusante_id })),
+        conformidadePorTrecho
+      )
+      const trechosTronco = trechos.filter((t) => troncoIds.has(t.id))
+      const idsCaixasTronco = new Set(trechosTronco.flatMap((t) => [t.caixa_montante_id, t.caixa_jusante_id]))
+      const svgTronco = gerarSvgDiagrama(
+        caixas.filter((c) => idsCaixasTronco.has(c.id)).map((c) => ({ id: c.id, x: c.x, y: c.y })),
+        trechosTronco.map((t) => ({ id: t.id, caixa_montante_id: t.caixa_montante_id, caixa_jusante_id: t.caixa_jusante_id })),
+        conformidadePorTrecho
+      )
+      const [diagramaCompleto, diagramaTronco] = await Promise.all([
+        svgCompleto ? rasterizarSvgParaPngDataUrl(svgCompleto) : Promise.resolve(null),
+        svgTronco ? rasterizarSvgParaPngDataUrl(svgTronco) : Promise.resolve(null),
+      ])
+
+      gerarRelatorioCompletoPdf({
+        projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
+        revisaoNome: revisaoAtiva.nome,
+        equacaoNome: equacao?.nome ?? null,
+        tempoRetornoAnos: revisaoAtiva.tempo_retorno_anos ?? 10,
+        qtdCaixas: caixas.length,
+        qtdTrechos: trechos.length,
+        qtdBacias: bacias.length,
+        diagramaTronco,
+        diagramaCompleto,
+        memorial,
+        notaServico,
+        quantidade,
+        resumoQuantidade,
+        criterios: {
+          limiteYD: limites.limiteYD,
+          velMinMs: limites.velMinMs,
+          velMaxMs: limites.velMaxMs,
+          declMinMM: limites.declMinMM,
+          declMaxMM: limites.declMaxMM,
+          diametroMinTroncoM: limites.diametroMinTroncoM,
+          diametroMinRamalM: limites.diametroMinRamalM,
+          energiaSoTronco: limites.energiaSoTronco,
+          recobrimentoMinimoM: limites.recobrimentoMinimoM,
+        },
+        materiaisManning,
+        bibliotecaPecas: biblioteca,
+        sarjetasCriticas,
+        sarjetoes,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar o relatório completo.')
+    } finally {
+      setGerandoRelatorioCompleto(false)
+    }
+  }
+
   const resultadoModal = trechoModalId ? (resultados.find((r) => r.trecho_id === trechoModalId) ?? null) : null
   const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
   const sugestaoModal = trechoModalId ? (sugestoesPorTrecho.get(trechoModalId) ?? null) : null
@@ -1559,7 +1724,7 @@ export function RedePluvialPage() {
         </div>
       )}
 
-      {(violacoesRecobrimento.length > 0 || Number(recobrimentoMinimoAlerta) > 0) && (
+      {(violacoesRecobrimento.length > 0 || limites.recobrimentoMinimoM > 0) && (
         <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
           <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-medium text-accent-red">
@@ -1573,8 +1738,8 @@ export function RedePluvialPage() {
                 <input
                   type="number"
                   step="0.05"
-                  value={recobrimentoMinimoAlerta}
-                  onChange={(e) => setRecobrimentoMinimoAlerta(e.target.value)}
+                  value={limites.recobrimentoMinimoM}
+                  onChange={(e) => setLimites({ ...limites, recobrimentoMinimoM: Number(e.target.value) })}
                   className="w-16 rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text-primary"
                 />
               </label>
@@ -1706,6 +1871,17 @@ export function RedePluvialPage() {
             >
               {gerandoRelatorio ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
               Relatório de diâmetros alterados
+            </button>
+          )}
+          {caixas.length > 0 && trechos.length > 0 && (
+            <button
+              onClick={handleGerarRelatorioCompleto}
+              disabled={gerandoRelatorioCompleto}
+              className={PRIMARY_BTN}
+              title="Um PDF só: diagramas da rede tronco e completa, memorial justificativo, nota de serviço, quantidade (com resumo por item), critérios adotados (equação IDF, materiais, biblioteca de peças, declividade/recobrimento mínimos) e a memória de cálculo de toda sarjeta crítica/sarjetão já salvo nesta revisão."
+            >
+              {gerandoRelatorioCompleto ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+              {gerandoRelatorioCompleto ? 'Gerando relatório...' : 'Relatório completo do projeto'}
             </button>
           )}
         </div>

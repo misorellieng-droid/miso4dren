@@ -62,6 +62,61 @@ export function calcularVolumeReaterroM3(volumeEscavacaoM3: number, volumeBercoM
   return Math.max(volumeEscavacaoM3 - volumeBercoM3 - volumeTuboM3, 0)
 }
 
+export interface ItemQuantidade {
+  material: string | null
+  diametroM: number
+  comprimentoM: number
+  volumeEscavacaoM3: number
+  volumeBercoM3: number
+  volumeReaterroM3: number
+}
+
+export interface ResumoQuantidadeItem {
+  material: string
+  diametroM: number
+  /** Quantos trechos entraram nesse item (material + diâmetro). */
+  quantidade: number
+  comprimentoTotalM: number
+  volumeEscavacaoTotalM3: number
+  volumeBercoTotalM3: number
+  volumeReaterroTotalM3: number
+}
+
+/**
+ * Agrupa trechos por item (material + diâmetro) e soma as quantidades -- tabela-resumo pro
+ * relatório completo do projeto: uma linha por combinação, mais direto de orçar/comprar do que
+ * ler trecho a trecho na tabela de Quantidade. Material vazio/nulo cai em "SEM MATERIAL";
+ * diâmetro arredondado pra 3 casas (mm) antes de agrupar, pra não abrir um grupo novo à toa por
+ * ruído de ponto flutuante. Ordenado por material, depois diâmetro.
+ */
+export function agruparQuantidadesPorItem(itens: ItemQuantidade[]): ResumoQuantidadeItem[] {
+  const grupos = new Map<string, ResumoQuantidadeItem>()
+  for (const item of itens) {
+    const material = item.material?.trim() || 'SEM MATERIAL'
+    const diametroM = Math.round(item.diametroM * 1000) / 1000
+    const chave = `${material.toUpperCase()}__${diametroM}`
+    const atual = grupos.get(chave)
+    if (atual) {
+      atual.quantidade += 1
+      atual.comprimentoTotalM += item.comprimentoM
+      atual.volumeEscavacaoTotalM3 += item.volumeEscavacaoM3
+      atual.volumeBercoTotalM3 += item.volumeBercoM3
+      atual.volumeReaterroTotalM3 += item.volumeReaterroM3
+    } else {
+      grupos.set(chave, {
+        material,
+        diametroM,
+        quantidade: 1,
+        comprimentoTotalM: item.comprimentoM,
+        volumeEscavacaoTotalM3: item.volumeEscavacaoM3,
+        volumeBercoTotalM3: item.volumeBercoM3,
+        volumeReaterroTotalM3: item.volumeReaterroM3,
+      })
+    }
+  }
+  return [...grupos.values()].sort((a, b) => a.material.localeCompare(b.material) || a.diametroM - b.diametroM)
+}
+
 export function calcularVolumesTrecho(
   comprimentoM: number,
   cotaTerrenoMontanteM: number,

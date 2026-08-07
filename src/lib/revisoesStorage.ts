@@ -19,6 +19,9 @@ export interface RevisaoRecord {
   criterio_diametro_min_tronco_m: number | null
   criterio_diametro_min_ramal_m: number | null
   criterio_energia_so_tronco: boolean | null
+  /** Mínimo de recobrimento (m) usado pelo alerta/correção de recobrimento insuficiente da tela
+   * Rede Pluvial -- ver migração 026_criterio_recobrimento_minimo.sql. */
+  criterio_recobrimento_minimo_m: number | null
   created_at: string
 }
 
@@ -105,10 +108,11 @@ export interface CriteriosConformidade {
   diametroMinTroncoM: number
   diametroMinRamalM: number
   energiaSoTronco: boolean
+  recobrimentoMinimoM: number
 }
 
 /** Persiste os critérios de conformidade da rede pluvial na própria revisão -- ver
- * migração 025_criterios_conformidade.sql. */
+ * migração 025_criterios_conformidade.sql e 026_criterio_recobrimento_minimo.sql. */
 export async function updateCriteriosConformidade(id: string, criterios: CriteriosConformidade): Promise<void> {
   const { error } = await requireSupabase()
     .from('revisoes')
@@ -121,6 +125,7 @@ export async function updateCriteriosConformidade(id: string, criterios: Criteri
       criterio_diametro_min_tronco_m: criterios.diametroMinTroncoM,
       criterio_diametro_min_ramal_m: criterios.diametroMinRamalM,
       criterio_energia_so_tronco: criterios.energiaSoTronco,
+      criterio_recobrimento_minimo_m: criterios.recobrimentoMinimoM,
     })
     .eq('id', id)
   if (error) throw error
