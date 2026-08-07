@@ -5,6 +5,7 @@ import {
   calcularQProjeto,
   calcularTcSistema,
   corrigirRecobrimentoCabeceiras,
+  corrigirRecobrimentoRedeCompleta,
   ehCaixaDestinoExterno,
   GrafoCicloError,
   identificarCaixasComMultiplasSaidas,
@@ -660,6 +661,120 @@ describe('corrigirRecobrimentoCabeceiras', () => {
       { id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', diametroM: 0.3, comprimentoM: 20, declividadeMM: 0.005, cotaTopoMontante: 91, cotaTopoJusante: 89 },
     ]
     expect(corrigirRecobrimentoCabeceiras(caixas, trechos, 1.2)).toEqual([])
+  })
+})
+
+describe('corrigirRecobrimentoRedeCompleta', () => {
+  const caixa = (id: string, cotaTerreno: number | null) => ({ id, nome: id, cotaTerreno })
+  const trecho = (over: {
+    id: string
+    nome: string
+    montanteId: string
+    jusanteId: string
+    cotaTopoMontante: number
+    cotaTopoJusante: number
+    comprimentoM?: number
+    declividadeMM?: number
+    diametroM?: number
+  }) => ({
+    diametroM: 0.3,
+    comprimentoM: 20,
+    declividadeMM: 0.005,
+    ...over,
+  })
+
+  it('corrige a cabeceira igual corrigirRecobrimentoCabeceiras (preserva a própria declividade quando a jusante já fica ok)', () => {
+    const caixas = [caixa('A', 99.5), caixa('B', 99.5)]
+    const trechos = [
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 99.6, cotaTopoJusante: 99.5 }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+    expect(correcoes).toHaveLength(1)
+    expect(correcoes[0].cotaTopoMontante).toBeCloseTo(98.3)
+    expect(correcoes[0].cotaFundoMontante).toBeCloseTo(98.0)
+    expect(correcoes[0].cotaFundoJusante).toBeCloseTo(97.9)
+    expect(correcoes[0].declividadeMM).toBeCloseTo(0.005) // sem violação na jusante -- declividade preservada
+  })
+
+  it('vai além de corrigirRecobrimentoCabeceiras: se o empurrão da cabeceira não bastar pra jusante (terreno caindo rápido), também clampa a jusante', () => {
+    // mesmo caso que o teste equivalente em corrigirRecobrimentoCabeceiras (A 99.5, B 95) -- lá
+    // a jusante ficava com -3.2 m de recobrimento sem ninguém perceber, porque a função antiga só
+    // olhava pra cabeceira. Aqui a mesma violação (agora "fora de cabeceira") é corrigida também.
+    const caixas = [caixa('A', 99.5), caixa('B', 95)]
+    const trechos = [
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 99.6, cotaTopoJusante: 99.5 }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+    expect(correcoes).toHaveLength(1)
+    expect(correcoes[0].cotaFundoMontante).toBeCloseTo(98.0) // igual antes -- cabeceira empurrada pro mínimo em A
+    // jusante: terreno(95) - mínimo(1.2) - diâmetro(0.3) = 93.5, mais fundo que a simples
+    // continuação por declividade (97.9) permitiria
+    expect(correcoes[0].cotaFundoJusante).toBeCloseTo(93.5)
+    expect(correcoes[0].declividadeMM).toBeGreaterThan(0.005)
+  })
+
+  it('corrige violação FORA de cabeceira aumentando a própria declividade do trecho, sem mexer na montante', () => {
+    // B->C é cabeceira/ok (recobrimento de sobra, dados consistentes: fundo jusante = fundo
+    // montante - declividade×comprimento); C->D tem terreno caindo muito mais rápido que a
+    // declividade original do tubo e viola na jusante (D) -- igual o caso relatado no app,
+    // marcado "fora de cabeceira".
+    const caixas = [caixa('B', 100), caixa('C', 99), caixa('D', 90)]
+    const trechos = [
+      // fundoMontante 98.2, drop 0.04*20=0.8 -> fundoJusante 97.4, topoJusante 97.7 (recob. 1.3, ok)
+      trecho({ id: 't1', nome: 'T1', montanteId: 'B', jusanteId: 'C', cotaTopoMontante: 98.5, cotaTopoJusante: 97.7, comprimentoM: 20, declividadeMM: 0.04 }),
+      // continua exatamente de onde t1 chegou (97.7/97.4) -- drop original 0.015*20=0.3, bem manso
+      // pra segurar os 9m de queda de terreno até D (90)
+      trecho({ id: 't2', nome: 'T2', montanteId: 'C', jusanteId: 'D', cotaTopoMontante: 97.7, cotaTopoJusante: 97.4, comprimentoM: 20, declividadeMM: 0.015 }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+
+    const t1 = correcoes.find((c) => c.trechoId === 't1')
+    expect(t1).toBeUndefined() // t1 já tinha recobrimento de sobra -- não mexe
+
+    const t2 = correcoes.find((c) => c.trechoId === 't2')!
+    // montante de t2 continua exatamente onde t1 chegava (97.7 - 0.3 = 97.4) -- não muda
+    expect(t2.cotaFundoMontante).toBeCloseTo(97.4)
+    // jusante precisa ficar em terreno(90) - mínimo(1.2) - diâmetro(0.3) = 88.5
+    expect(t2.cotaTopoJusante).toBeCloseTo(88.8)
+    expect(t2.cotaFundoJusante).toBeCloseTo(88.5)
+    // declividade aumentou (ficou mais íngreme) pra vencer os 8.9 m em 20 m
+    expect(t2.declividadeMM).toBeCloseTo((97.4 - 88.5) / 20)
+    expect(t2.declividadeMM).toBeGreaterThan(0.015)
+  })
+
+  it('propaga a correção da cabeceira pro trecho seguinte (herda a cota mais funda, sem precisar reprocessar)', () => {
+    const caixas = [caixa('A', 99.5), caixa('B', 99), caixa('C', 90)]
+    const trechos = [
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 99.6, cotaTopoJusante: 99.4, comprimentoM: 20, declividadeMM: 0.01 }), // cabeceira com recobrimento negativo
+      trecho({ id: 't2', nome: 'T2', montanteId: 'B', jusanteId: 'C', cotaTopoMontante: 99.4, cotaTopoJusante: 90.2, comprimentoM: 20, declividadeMM: 0.46 }), // essa já garante bastante recobrimento na jusante
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+    const t1 = correcoes.find((c) => c.trechoId === 't1')!
+    const t2 = correcoes.find((c) => c.trechoId === 't2')!
+    // t2 herda a nova cota de fundo montante de t1 (não a antiga)
+    expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante)
+  })
+
+  it('numa confluência, herda a mais restritiva (mais funda) entre as entradas', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100), caixa('C', 100), caixa('D', 95)]
+    const trechos = [
+      // fundoMontante 97.7, drop 0.005*20=0.1 -> fundoJusante 97.6, topoJusante 97.9 -- entrada rasa
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'C', cotaTopoMontante: 98, cotaTopoJusante: 97.9 }),
+      // fundoMontante 94.7, drop 0.1 -> fundoJusante 94.6, topoJusante 94.9 -- entrada funda, deve reger
+      trecho({ id: 't2', nome: 'T2', montanteId: 'B', jusanteId: 'C', cotaTopoMontante: 95, cotaTopoJusante: 94.9 }),
+      trecho({ id: 't3', nome: 'T3', montanteId: 'C', jusanteId: 'D', cotaTopoMontante: 97, cotaTopoJusante: 96.9 }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+    const t3 = correcoes.find((c) => c.trechoId === 't3')
+    // t3 devia herdar o fundo jusante de t2 (94.6, a mais funda), não o de t1 (97.6)
+    expect(t3?.cotaFundoMontante).toBeCloseTo(94.6)
+  })
+
+  it('não retorna nada quando a rede inteira já está com recobrimento adequado', () => {
+    const caixas = [caixa('A', 100), caixa('B', 99)]
+    // fundoMontante 98.2, drop 0.06*20=1.2 -> fundoJusante 97.0, topoJusante 97.3 (recob. 1.7, ok)
+    const trechos = [trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 98.5, cotaTopoJusante: 97.3, declividadeMM: 0.06 })]
+    expect(corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)).toEqual([])
   })
 })
 

@@ -494,6 +494,123 @@ export function corrigirRecobrimentoCabeceiras(
   return correcoes
 }
 
+export interface CorrecaoRecobrimentoTrecho {
+  trechoId: string
+  cotaFundoMontante: number
+  cotaFundoJusante: number
+  cotaTopoMontante: number
+  cotaTopoJusante: number
+  declividadeMM: number
+}
+
+const TOLERANCIA_COTA_RECOBRIMENTO_M = 0.001
+
+/**
+ * Corrige o recobrimento insuficiente da rede INTEIRA, não só cabeceiras -- generalização de
+ * corrigirRecobrimentoCabeceiras. Percorre a rede na mesma ordem de fluxo de
+ * ordenarTrechosPorFluxo (montante pra jusante, cabeceira primeiro) empurrando cota pra baixo
+ * sempre que necessário:
+ * - Cabeceira: empurra a própria cota de fundo montante, preservando a declividade própria do
+ *   trecho (igual corrigirRecobrimentoCabeceiras).
+ * - Qualquer outro trecho: herda a cota de fundo montante de quem chega nele (a mais restritiva,
+ *   quando há confluência com mais de uma entrada) -- não é uma decisão nova, só reflete o que a
+ *   caixa já vai receber depois que os trechos de montante forem corrigidos. Se mesmo assim faltar
+ *   recobrimento na extremidade jusante, aumenta a PRÓPRIA declividade o suficiente pra garantir o
+ *   mínimo ali (a montante não muda -- só a rampa fica mais íngreme).
+ * Nunca deixa uma cota SUBIR, só descer -- por isso qualquer violação vira uma trincheira mais
+ * funda, nunca um degrau pra cima que represaria água.
+ *
+ * A correção aqui usa continuidade simples (degrau zero / mais restritiva entre entradas), sem
+ * linha de energia (EGL) -- essa é uma etapa de planejamento; o recálculo de verdade que roda
+ * depois (calcularCotasPorEnergia, já com vazão/lâmina/velocidade da rede) é quem ajusta fino as
+ * confluências com troca de diâmetro, mas o resultado dele nunca fica mais RASO do que a entrada
+ * escolhida aqui (usa sempre o mínimo entre a energia calculada e a cota da entrada de menor
+ * energia), então o recobrimento mínimo garantido aqui não se perde no recálculo -- na pior das
+ * hipóteses sobra uma folga maior que o estritamente necessário.
+ */
+export function corrigirRecobrimentoRedeCompleta(
+  caixas: CaixaPerfil[],
+  trechos: TrechoRecobrimento[],
+  recobrimentoMinimoM: number
+): CorrecaoRecobrimentoTrecho[] {
+  const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
+  const caixaPorId = new Map(caixas.map((c) => [c.id, c]))
+  const trechoPorId = new Map(trechos.map((t) => [t.id, t]))
+
+  // mesma travessia de ordenarTrechosPorFluxo: monta a ordem montante -> jusante a partir das
+  // saídas da rede, andando rio acima primeiro.
+  const ordem: string[] = []
+  const trechoVisitado = new Set<string>()
+  const caixaVisitada = new Set<string>()
+  const emitir = (caixaId: string) => {
+    if (caixaVisitada.has(caixaId)) return
+    caixaVisitada.add(caixaId)
+    for (const t of entradasPorCaixa.get(caixaId) ?? []) {
+      if (trechoVisitado.has(t.id)) continue
+      trechoVisitado.add(t.id)
+      emitir(resolve(t.montanteId))
+      ordem.push(t.id)
+    }
+  }
+  for (const outfallId of outfalls) emitir(outfallId)
+  for (const t of trechos) if (!trechoVisitado.has(t.id)) ordem.push(t.id) // grafo com ciclo/desconexo -- não trava
+
+  const cotaFundoMontantePorTrecho = new Map<string, number>()
+  const cotaFundoJusantePorTrecho = new Map<string, number>()
+  const cotaFundoMaximaEm = (caixaId: string, diametroM: number): number | null => {
+    const terreno = caixaPorId.get(caixaId)?.cotaTerreno
+    return terreno != null ? terreno - recobrimentoMinimoM - diametroM : null
+  }
+
+  for (const trechoId of ordem) {
+    const t = trechoPorId.get(trechoId)
+    if (!t) continue
+    const caixaMontanteId = resolve(t.montanteId)
+    const entradas = (entradasPorCaixa.get(caixaMontanteId) ?? []).filter((e) => cotaFundoJusantePorTrecho.has(e.id))
+
+    let cotaFundoMontante: number
+    if (entradas.length > 0) {
+      cotaFundoMontante = Math.min(...entradas.map((e) => cotaFundoJusantePorTrecho.get(e.id)!))
+    } else if (t.cotaTopoMontante != null) {
+      cotaFundoMontante = t.cotaTopoMontante - t.diametroM
+    } else {
+      continue // sem nenhuma cota pra ancorar -- não há o que corrigir aqui
+    }
+    const maximaMontante = cotaFundoMaximaEm(t.montanteId, t.diametroM)
+    if (maximaMontante != null) cotaFundoMontante = Math.min(cotaFundoMontante, maximaMontante)
+    cotaFundoMontantePorTrecho.set(t.id, cotaFundoMontante)
+
+    let cotaFundoJusante = cotaFundoMontante - t.declividadeMM * t.comprimentoM
+    const maximaJusante = cotaFundoMaximaEm(t.jusanteId, t.diametroM)
+    if (maximaJusante != null) cotaFundoJusante = Math.min(cotaFundoJusante, maximaJusante)
+    cotaFundoJusantePorTrecho.set(t.id, cotaFundoJusante)
+  }
+
+  const correcoes: CorrecaoRecobrimentoTrecho[] = []
+  for (const t of trechos) {
+    const cotaFundoMontante = cotaFundoMontantePorTrecho.get(t.id)
+    const cotaFundoJusante = cotaFundoJusantePorTrecho.get(t.id)
+    if (cotaFundoMontante == null || cotaFundoJusante == null) continue
+    const atualFundoMontante = t.cotaTopoMontante != null ? t.cotaTopoMontante - t.diametroM : null
+    const atualFundoJusante = t.cotaTopoJusante != null ? t.cotaTopoJusante - t.diametroM : null
+    const mudou =
+      atualFundoMontante == null ||
+      atualFundoJusante == null ||
+      Math.abs(atualFundoMontante - cotaFundoMontante) > TOLERANCIA_COTA_RECOBRIMENTO_M ||
+      Math.abs(atualFundoJusante - cotaFundoJusante) > TOLERANCIA_COTA_RECOBRIMENTO_M
+    if (!mudou) continue
+    correcoes.push({
+      trechoId: t.id,
+      cotaFundoMontante,
+      cotaFundoJusante,
+      cotaTopoMontante: cotaFundoMontante + t.diametroM,
+      cotaTopoJusante: cotaFundoJusante + t.diametroM,
+      declividadeMM: t.comprimentoM > 0 ? (cotaFundoMontante - cotaFundoJusante) / t.comprimentoM : t.declividadeMM,
+    })
+  }
+  return correcoes
+}
+
 export interface CaixaComTipo extends CaixaOrdenavel {
   tipo: string
 }

@@ -30,7 +30,7 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
-  corrigirRecobrimentoCabeceiras,
+  corrigirRecobrimentoRedeCompleta,
   identificarCaixasComMultiplasSaidas,
   identificarCaixasIsoladas,
   identificarCaixasSemJusante,
@@ -822,16 +822,18 @@ export function RedePluvialPage() {
       recobrimentoMinimoM
     ).sort((a, b) => a.recobrimentoM - b.recobrimentoM)
   }, [caixas, trechos, recobrimentoMinimoAlerta])
-  const violacoesRecobrimentoCabeceira = useMemo(() => violacoesRecobrimento.filter((v) => v.ehCabeceira), [violacoesRecobrimento])
   const [corrigindoRecobrimento, setCorrigindoRecobrimento] = useState(false)
 
-  const handleCorrigirRecobrimentoCabeceiras = async () => {
+  // Corrige a rede INTEIRA (não só cabeceiras) -- ver corrigirRecobrimentoRedeCompleta:
+  // cabeceira empurra a própria cota, o resto da rede aumenta a própria declividade onde
+  // precisar pra garantir o mínimo, herdando a cota mais funda em confluências.
+  const handleCorrigirRecobrimento = async () => {
     const recobrimentoMinimoM = Number(recobrimentoMinimoAlerta)
     if (!Number.isFinite(recobrimentoMinimoM)) return
     setCorrigindoRecobrimento(true)
     setError(null)
     try {
-      const correcoes = corrigirRecobrimentoCabeceiras(
+      const correcoes = corrigirRecobrimentoRedeCompleta(
         caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
         trechos.map((t) => ({
           id: t.id,
@@ -853,12 +855,13 @@ export function RedePluvialPage() {
             cota_fundo_jusante: c.cotaFundoJusante,
             cota_topo_montante: c.cotaTopoMontante,
             cota_topo_jusante: c.cotaTopoJusante,
+            declividade_m_m: c.declividadeMM,
           })
         )
       )
       await handleRecalcularAposEdicao()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao corrigir o recobrimento das cabeceiras.')
+      setError(err instanceof Error ? err.message : 'Erro ao corrigir o recobrimento da rede.')
     } finally {
       setCorrigindoRecobrimento(false)
     }
@@ -1448,7 +1451,6 @@ export function RedePluvialPage() {
               {violacoesRecobrimento.length > 0
                 ? `${violacoesRecobrimento.length} extremidade(s) de trecho com recobrimento insuficiente`
                 : 'Nenhuma extremidade com recobrimento insuficiente'}
-              {violacoesRecobrimentoCabeceira.length > 0 && ` (${violacoesRecobrimentoCabeceira.length} em cabeceira, corrigível automaticamente)`}
             </div>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-1 text-xs text-text-secondary">
@@ -1461,14 +1463,14 @@ export function RedePluvialPage() {
                   className="w-16 rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text-primary"
                 />
               </label>
-              {violacoesRecobrimentoCabeceira.length > 0 && (
+              {violacoesRecobrimento.length > 0 && (
                 <button
                   type="button"
-                  onClick={handleCorrigirRecobrimentoCabeceiras}
+                  onClick={handleCorrigirRecobrimento}
                   disabled={corrigindoRecobrimento}
                   className={SMALL_BTN}
                 >
-                  {corrigindoRecobrimento ? 'Corrigindo...' : 'Corrigir cabeceiras automaticamente'}
+                  {corrigindoRecobrimento ? 'Corrigindo...' : 'Corrigir recobrimento automaticamente'}
                 </button>
               )}
             </div>
@@ -1479,14 +1481,15 @@ export function RedePluvialPage() {
                 <li key={`${v.trechoId}-${v.extremidade}`}>
                   {v.nomeTrecho} ({v.extremidade} em {v.nomeCaixa}): recobrimento de {v.recobrimentoM.toFixed(2)} m
                   {v.recobrimentoM < 0 ? ' — tubo acima da cota de terreno (provável erro de importação do Civil 3D).' : ' — abaixo do mínimo configurado acima.'}
-                  {v.ehCabeceira ? ' Cabeceira — pode ser corrigida automaticamente empurrando a cota, mantendo a declividade.' : ' Fora de cabeceira — corrija manualmente (afeta o encaixe com o trecho de montante).'}
                 </li>
               ))}
             </ul>
           )}
           <div className="mt-1 text-xs text-text-secondary">
             Padrão (0 m) só acusa o caso impossível: tubo acima da cota de terreno. Suba o valor pra também flagar cobertura positiva
-            abaixo do mínimo de projeto da via/passeio.
+            abaixo do mínimo de projeto da via/passeio. "Corrigir recobrimento automaticamente" ajusta a rede inteira: empurra a cota
+            nas cabeceiras e aumenta a declividade onde precisar no resto da rede -- confira depois os critérios de velocidade e y/D,
+            já que declividades mais íngremes podem mudar esses resultados.
           </div>
         </div>
       )}
