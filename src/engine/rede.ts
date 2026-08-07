@@ -235,6 +235,15 @@ export function identificarTroncoRede(caixas: CaixaComEhTronco[], trechos: Trech
   return tronco
 }
 
+/** Caixa nomeada "JUS" (ex.: "JUS - 1", "JUS-01") é o ponto de ligação com a rede externa,
+ * declarado assim de propósito pelo engenheiro como fim de projeto — não é um vínculo quebrado,
+ * mesmo não tendo trecho de saída. `(?![a-z])` depois do "jus" evita bater com nomes que só
+ * começam parecido (ex.: uma eventual "Justino" ou "Juss..."), sem exigir separador específico
+ * (aceita "JUS1", "JUS - 1", "JUS_1" etc.). */
+export function ehCaixaDestinoExterno(nome: string): boolean {
+  return /^jus(?![a-z])/i.test(nome.trim())
+}
+
 /**
  * Toda caixa sem trecho de saída é, pra topologia, uma "saída da rede" (outfall) -- é assim que
  * identificarTroncoRede/ordenarTrechosPorFluxo decidem por onde começar a andar rio acima. Mas
@@ -243,11 +252,13 @@ export function identificarTroncoRede(caixas: CaixaComEhTronco[], trechos: Trech
  * do caminho sem ninguém perceber. Retorna os ids (já resolvidos -- funde pares Start/EndNullStruct,
  * então não aponta os dois lados de uma emenda sem estrutura como "sem jusante" por engano) de
  * toda caixa que RECEBE água (tem pelo menos 1 trecho de entrada) mas não tem trecho de saída --
- * candidatas a conferir manualmente se são a saída real do terreno ou um vínculo quebrado.
+ * candidatas a conferir manualmente se são a saída real do terreno ou um vínculo quebrado. Caixas
+ * "JUS" (ver ehCaixaDestinoExterno) nunca entram aqui — são a saída declarada de propósito.
  */
 export function identificarCaixasSemJusante(caixas: CaixaOrdenavel[], trechos: TrechoOrdenavel[]): string[] {
   const { entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
-  return outfalls.filter((id) => (entradasPorCaixa.get(id) ?? []).length > 0)
+  const nomePorId = new Map(caixas.map((c) => [c.id, c.nome]))
+  return outfalls.filter((id) => (entradasPorCaixa.get(id) ?? []).length > 0 && !ehCaixaDestinoExterno(nomePorId.get(id) ?? ''))
 }
 
 /**

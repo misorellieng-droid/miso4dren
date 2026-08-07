@@ -4,6 +4,7 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
+  ehCaixaDestinoExterno,
   GrafoCicloError,
   identificarCaixasComMultiplasSaidas,
   identificarCaixasIsoladas,
@@ -424,6 +425,36 @@ describe('identificarCaixasSemJusante', () => {
       { id: 't2', montanteId: 'C', jusanteId: 'D', nome: 'T2', diametroM: 0.3 },
     ]
     expect(identificarCaixasSemJusante(caixas, trechos).sort()).toEqual(['B', 'D'])
+  })
+
+  it('não acusa uma caixa "JUS" -- é a ligação declarada com a rede externa, fim de projeto de propósito', () => {
+    const caixas = [caixa('A'), { id: 'B', nome: 'JUS - 1' }]
+    const trechos = [{ id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }]
+    expect(identificarCaixasSemJusante(caixas, trechos)).toEqual([])
+  })
+
+  it('numa rede com mais de uma quebra, só a que NÃO é JUS aparece na lista', () => {
+    const caixas = ['A', 'C'].map(caixa).concat([{ id: 'B', nome: 'JUS - 1' }, { id: 'D', nome: 'D' }])
+    const trechos = [
+      { id: 't1', montanteId: 'A', jusanteId: 'B', nome: 'T1', diametroM: 0.3 }, // termina em JUS -- ok
+      { id: 't2', montanteId: 'C', jusanteId: 'D', nome: 'T2', diametroM: 0.3 }, // termina numa caixa qualquer -- suspeito
+    ]
+    expect(identificarCaixasSemJusante(caixas, trechos)).toEqual(['D'])
+  })
+})
+
+describe('ehCaixaDestinoExterno', () => {
+  it('reconhece variações comuns de nome da caixa JUS', () => {
+    expect(ehCaixaDestinoExterno('JUS - 1')).toBe(true)
+    expect(ehCaixaDestinoExterno('JUS-01')).toBe(true)
+    expect(ehCaixaDestinoExterno('jus 1')).toBe(true)
+    expect(ehCaixaDestinoExterno('JUS_1')).toBe(true)
+    expect(ehCaixaDestinoExterno('JUS1')).toBe(true)
+  })
+
+  it('não confunde com nomes que só começam parecido', () => {
+    expect(ehCaixaDestinoExterno('Justino - 1')).toBe(false)
+    expect(ehCaixaDestinoExterno('PV - 1')).toBe(false)
   })
 })
 
