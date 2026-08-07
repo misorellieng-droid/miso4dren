@@ -73,6 +73,15 @@ export function MemoriaCalculoModal({
   const nomePorId = new Map(caixas.map((c) => [c.id, nomeExibido(c.nome, c.rede_nome)]))
   const nomeMontante = nomePorId.get(trecho.caixa_montante_id) ?? '—'
   const nomeJusante = nomePorId.get(trecho.caixa_jusante_id) ?? '—'
+  const caixaMontante = caixas.find((c) => c.id === trecho.caixa_montante_id)
+  const caixaJusante = caixas.find((c) => c.id === trecho.caixa_jusante_id)
+  // Altura de escavação = cota de terreno − cota de fundo do tubo naquele ponto (profundidade
+  // da vala até o fundo do tubo, sem descontar berço/lastro -- só informativo aqui, o cálculo
+  // completo de volume de escavação com berço é feito em quantitativos.ts, no relatório).
+  const alturaEscavacaoMontante =
+    caixaMontante?.cota_terreno != null && trecho.cota_fundo_montante != null ? caixaMontante.cota_terreno - trecho.cota_fundo_montante : null
+  const alturaEscavacaoJusante =
+    caixaJusante?.cota_terreno != null && trecho.cota_fundo_jusante != null ? caixaJusante.cota_terreno - trecho.cota_fundo_jusante : null
   const nomeTrecho = nomeExibido(resultado?.trecho_nome ?? trecho.nome, trecho.rede_nome)
   const numeroRede = redePorTrecho.get(trecho.id)
   const trechoIdsDaRede = new Set(trechos.filter((t) => redePorTrecho.get(t.id) === numeroRede).map((t) => t.id))
@@ -391,8 +400,12 @@ export function MemoriaCalculoModal({
           <Linha label="Caixa montante" valor={nomeMontante} />
           <Linha label="Caixa jusante" valor={nomeJusante} />
           <Linha label="Comprimento (m)" valor={trecho.comprimento_m.toFixed(2)} />
+          <Linha label="Cota de terreno montante (m)" valor={caixaMontante?.cota_terreno?.toFixed(3) ?? '—'} />
           <Linha label="Cota de fundo montante (m)" valor={trecho.cota_fundo_montante?.toFixed(3) ?? '—'} />
+          <Linha label="Altura de escavação montante (m)" valor={alturaEscavacaoMontante?.toFixed(3) ?? '—'} />
+          <Linha label="Cota de terreno jusante (m)" valor={caixaJusante?.cota_terreno?.toFixed(3) ?? '—'} />
           <Linha label="Cota de fundo jusante (m)" valor={trecho.cota_fundo_jusante?.toFixed(3) ?? '—'} />
+          <Linha label="Altura de escavação jusante (m)" valor={alturaEscavacaoJusante?.toFixed(3) ?? '—'} />
           <Linha
             label="Origem do manning n"
             valor={trecho.manning_n_origem === 'manual' ? 'manual' : trecho.manning_n_origem === 'tabela_interna' ? 'tabela interna' : 'landxml'}
