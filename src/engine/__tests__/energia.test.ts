@@ -198,4 +198,74 @@ describe('calcularCotasPorEnergia', () => {
     const t2 = resultado.get('t2')!
     expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante, 6)
   })
+
+  describe('opcoes.apenasTroncoParaEnergia', () => {
+    it('ligado: ignora a troca de diâmetro quando a entrada é ramal (ex.: boca de lobo menor entrando num PV maior da rede tronco) -- degrau zero, mesmo com diâmetro diferente', () => {
+      const trechos = [
+        { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 10, declividadeMM: 0.01, diametroM: 0.3, ehTronco: false }, // ramal (boca de lobo)
+        { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005, diametroM: 0.6, ehTronco: true }, // tronco
+      ]
+      const cotaAtual = new Map([['t1', 100]])
+      const lamina = new Map([
+        ['t1', 0.1],
+        ['t2', 0.4],
+      ])
+      const velocidade = new Map([
+        ['t1', 3.0],
+        ['t2', 1.0],
+      ])
+      const resultado = calcularCotasPorEnergia(['A', 'B', 'C'], trechos, cotaAtual, lamina, velocidade, {
+        apenasTroncoParaEnergia: true,
+      })
+      const t1 = resultado.get('t1')!
+      const t2 = resultado.get('t2')!
+      // degrau zero -- a troca de diâmetro (ramal->tronco) foi ignorada
+      expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante, 6)
+    })
+
+    it('ligado: continua acionando o EGL quando a troca de diâmetro é ENTRE trechos tronco', () => {
+      const trechos = [
+        { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01, diametroM: 0.4, ehTronco: true },
+        { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005, diametroM: 0.6, ehTronco: true },
+      ]
+      const cotaAtual = new Map([['t1', 100]])
+      const lamina = new Map([
+        ['t1', 0.2],
+        ['t2', 0.4],
+      ])
+      const velocidade = new Map([
+        ['t1', 2.0],
+        ['t2', 1.0],
+      ])
+      const resultado = calcularCotasPorEnergia(['A', 'B', 'C'], trechos, cotaAtual, lamina, velocidade, {
+        apenasTroncoParaEnergia: true,
+      })
+      const t1 = resultado.get('t1')!
+      const t2 = resultado.get('t2')!
+      // mesmo resultado do teste "propaga o degrau de energia" (sem a opção) -- tronco->tronco
+      // continua acionando o EGL normalmente
+      expect(t2.cotaFundoMontante).toBeCloseTo(99.8 - 0.0471, 3)
+      expect(t2.cotaFundoMontante).not.toBeCloseTo(t1.cotaFundoJusante, 3)
+    })
+
+    it('desligado (padrão): aciona o EGL mesmo sem informação de ehTronco -- comportamento igual a antes da opção existir', () => {
+      const trechos = [
+        { id: 't1', montanteId: 'A', jusanteId: 'B', comprimentoM: 20, declividadeMM: 0.01, diametroM: 0.4 },
+        { id: 't2', montanteId: 'B', jusanteId: 'C', comprimentoM: 30, declividadeMM: 0.005, diametroM: 0.6 },
+      ]
+      const cotaAtual = new Map([['t1', 100]])
+      const lamina = new Map([
+        ['t1', 0.2],
+        ['t2', 0.4],
+      ])
+      const velocidade = new Map([
+        ['t1', 2.0],
+        ['t2', 1.0],
+      ])
+      const resultado = calcularCotasPorEnergia(['A', 'B', 'C'], trechos, cotaAtual, lamina, velocidade)
+      const t1 = resultado.get('t1')!
+      const t2 = resultado.get('t2')!
+      expect(t2.cotaFundoMontante).not.toBeCloseTo(t1.cotaFundoJusante, 3) // EGL acionado, não é degrau zero
+    })
+  })
 })

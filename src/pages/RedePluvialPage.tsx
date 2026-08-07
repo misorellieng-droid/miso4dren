@@ -194,6 +194,12 @@ const DEFAULT_LIMITES = {
   velMaxMs: 5,
   declMinMM: 0.003,
   declMaxMM: 0.15,
+  diametroMinTroncoM: 0.4,
+  diametroMinRamalM: 0.3,
+  /** Quando true, calcularCotasPorEnergia só aciona o cálculo por linha de energia (EGL) numa
+   * troca de diâmetro se TODOS os lados envolvidos forem rede tronco -- uma boca de lobo (ramal)
+   * menor entrando num PV maior da rede tronco continua com degrau zero simples. */
+  energiaSoTronco: false,
 }
 
 interface LinhaResultado extends ResultadoRedeRecord {
@@ -231,6 +237,13 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
 
   const caixaIds = caixas.map((c) => c.id)
   const trechosGrafo = trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id }))
+  // Rede tronco = trechos cuja caixa de MONTANTE é classificada como "rede tronco" (eh_tronco) --
+  // usada pro critério de conformidade de diâmetro mínimo por categoria e pra decidir quando o
+  // ajuste de cota por linha de energia entra em jogo (ver limites.energiaSoTronco).
+  const troncoIds = identificarTroncoRede(
+    caixas.map((c) => ({ id: c.id, nome: c.nome, ehTronco: c.eh_tronco })),
+    trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id, nome: t.nome, diametroM: t.diametro_m }))
+  )
   const trechosComComprimento = trechos.map((t) => ({
     id: t.id,
     montanteId: t.caixa_montante_id,
@@ -238,6 +251,7 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     comprimentoM: t.comprimento_m,
     declividadeMM: t.declividade_m_m,
     diametroM: t.diametro_m,
+    ehTronco: troncoIds.has(t.id),
   }))
 
   const baciaIdsCaptadas = new Set(captacoes.map((c) => c.bacia_id))
@@ -324,6 +338,10 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
       if (solver.velocidade > limites.velMaxMs) motivos.push(`velocidade (${solver.velocidade.toFixed(2)} m/s) acima da máxima`)
       if (t.declividade_m_m < limites.declMinMM) motivos.push('declividade abaixo da faixa mínima')
       if (t.declividade_m_m > limites.declMaxMM) motivos.push('declividade acima da faixa máxima')
+      const diametroMinCategoria = troncoIds.has(t.id) ? limites.diametroMinTroncoM : limites.diametroMinRamalM
+      if (t.diametro_m < diametroMinCategoria) {
+        motivos.push(`diâmetro abaixo do mínimo de ${troncoIds.has(t.id) ? 'rede tronco' : 'ramal'} (${diametroMinCategoria} m)`)
+      }
 
       linhas.push({
         trecho_id: t.id,
@@ -356,7 +374,8 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     trechosComComprimento,
     cotaFundoMontanteAtualPorTrecho,
     laminaFinalPorTrecho,
-    velocidadeFinalPorTrecho
+    velocidadeFinalPorTrecho,
+    { apenasTroncoParaEnergia: limites.energiaSoTronco }
   )
   const TOLERANCIA_COTA_M = 0.001
   let trechosComCotaAjustada = 0
@@ -1522,7 +1541,33 @@ export function RedePluvialPage() {
           <Field label="Decl. máx (m/m)">
             <input type="number" step="any" className={`${fieldInputClass} py-1.5`} value={limites.declMaxMM} onChange={(e) => setLimites({ ...limites, declMaxMM: Number(e.target.value) })} />
           </Field>
+          <Field label="Diâm. mín rede tronco (m)">
+            <input
+              type="number"
+              step="any"
+              className={`${fieldInputClass} py-1.5`}
+              value={limites.diametroMinTroncoM}
+              onChange={(e) => setLimites({ ...limites, diametroMinTroncoM: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Diâm. mín ramal (m)">
+            <input
+              type="number"
+              step="any"
+              className={`${fieldInputClass} py-1.5`}
+              value={limites.diametroMinRamalM}
+              onChange={(e) => setLimites({ ...limites, diametroMinRamalM: Number(e.target.value) })}
+            />
+          </Field>
         </div>
+        <label className="mt-3 flex items-center gap-2 text-xs text-text-secondary" title="Uma boca de lobo (ramal) menor entrando num PV maior da rede tronco não aciona o cálculo por linha de energia -- só continuação simples da cota (degrau zero). Só entra em jogo quando a troca de diâmetro é entre trechos da própria rede tronco.">
+          <input
+            type="checkbox"
+            checked={limites.energiaSoTronco}
+            onChange={(e) => setLimites({ ...limites, energiaSoTronco: e.target.checked })}
+          />
+          Linha de energia (EGL) só considera troca de diâmetro dentro da rede tronco
+        </label>
         <div className="mt-4 flex items-center gap-2">
           <button onClick={handleRodar} disabled={running || trechos.length === 0} className={PRIMARY_BTN}>
             {running ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} />}

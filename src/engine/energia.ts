@@ -30,6 +30,17 @@ export interface TrechoEnergia extends ArestaGrafo {
   comprimentoM: number
   declividadeMM: number
   diametroM: number
+  /** Classificação de rede tronco do trecho (ver identificarTroncoRede em rede.ts) -- só usada
+   * quando OpcoesCotasPorEnergia.apenasTroncoParaEnergia está ligado. */
+  ehTronco?: boolean
+}
+
+export interface OpcoesCotasPorEnergia {
+  /** Quando true, a troca de diâmetro só aciona o cálculo por linha de energia (EGL) se TODAS as
+   * entradas com diâmetro diferente E a própria saída forem rede tronco -- uma boca de lobo
+   * (ramal) menor entrando num PV maior da rede tronco continua com degrau zero simples, sem
+   * EGL. Default false: qualquer troca de diâmetro aciona o EGL, tronco ou ramal. */
+  apenasTroncoParaEnergia?: boolean
 }
 
 export interface CotaPorEnergia {
@@ -67,7 +78,8 @@ export function calcularCotasPorEnergia(
   trechos: TrechoEnergia[],
   cotaFundoMontanteAtualPorTrecho: Map<string, number>,
   laminaPorTrecho: Map<string, number>,
-  velocidadePorTrecho: Map<string, number>
+  velocidadePorTrecho: Map<string, number>,
+  opcoes: OpcoesCotasPorEnergia = {}
 ): Map<string, CotaPorEnergia> {
   const ordem = ordenarTopologicamente(caixaIds, trechos)
   const entradasPorCaixa = new Map<string, TrechoEnergia[]>(caixaIds.map((id) => [id, []]))
@@ -92,7 +104,10 @@ export function calcularCotasPorEnergia(
     if (entradas.length === 0) {
       cotaFundoMontante = cotaFundoMontanteAtualPorTrecho.get(saida.id) ?? 0
     } else {
-      const houveMudancaDiametro = entradas.some((e) => Math.abs(e.diametroM - saida.diametroM) > TOLERANCIA_DIAMETRO_ENERGIA_M)
+      const diferemDiametro = (e: TrechoEnergia) => Math.abs(e.diametroM - saida.diametroM) > TOLERANCIA_DIAMETRO_ENERGIA_M
+      const houveMudancaDiametro = opcoes.apenasTroncoParaEnergia
+        ? entradas.some((e) => diferemDiametro(e) && e.ehTronco && saida.ehTronco)
+        : entradas.some(diferemDiametro)
 
       if (!houveMudancaDiametro) {
         cotaFundoMontante = Math.min(...entradas.map((e) => cotaFundoJusantePorTrecho.get(e.id)!))
