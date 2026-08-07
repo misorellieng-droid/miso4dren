@@ -105,15 +105,15 @@ function tabelaIteracoesTc(doc: jsPDF, cursor: Cursor, resultado: ResultadoMetod
   autoTable(doc, {
     startY: cursor.y,
     margin: { left: MARGIN_X, right: MARGIN_X },
-    head: [['#', 'Tc (min)', 'i (mm/h)', 'L (m)', 'SL no braço (%)', 'Q (m³/s)', 'Qcap (m³/s)']],
+    head: [['#', 'Tc (min)', 'i (mm/h)', 'L (m)', 'SL no braço (%)', 'Q (L/s)', 'Qcap (L/s)']],
     body: resultado.historicoIteracoesTc.map((h) => [
       String(h.numero),
       fmt(h.tcMin, 2),
       fmt(h.intensidadeMmH, 1),
       fmt(h.comprimentoM, 2),
       fmt(h.declividadeLongitudinalMM * 100, 4),
-      fmt(h.vazaoM3s, 5),
-      fmt(h.vazaoCapacidadeM3s, 5),
+      fmt(h.vazaoM3s * 1000, 2),
+      fmt(h.vazaoCapacidadeM3s * 1000, 2),
     ]),
     styles: { fontSize: 7.5, cellPadding: 3 },
     headStyles: { fillColor: BRAND_RGB, fontSize: 7.5 },
@@ -296,7 +296,7 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, resultado: ResultadoMet
   doc.setFontSize(8.5)
   doc.setTextColor(60, 60, 60)
   doc.text(
-    `SL no braço = ${pct(resultado.declividadeLongitudinalMM, 4)}   Velocidade = ${fmt(resultado.velocidadeMs, 3)} m/s   Vazão = Qcap = ${fmt(resultado.vazaoM3s, 5)} m³/s`,
+    `SL no braço = ${pct(resultado.declividadeLongitudinalMM, 4)}   Velocidade = ${fmt(resultado.velocidadeMs, 3)} m/s   Vazão = Qcap = ${fmt(resultado.vazaoM3s * 1000, 2)} L/s`,
     MARGIN_X + 10,
     cursor.y + 31
   )
@@ -318,12 +318,12 @@ function blocoVazaoTotalCaixa(doc: jsPDF, cursor: Cursor, vazaoTotalCaixaM3s: nu
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9.5)
   doc.setTextColor(20, 20, 20)
-  doc.text(`Vazão total na caixa = ${fmt(vazaoTotalCaixaM3s, 5)} m³/s`, MARGIN_X + 10, cursor.y + 16)
+  doc.text(`Vazão total na caixa = ${fmt(vazaoTotalCaixaM3s * 1000, 2)} L/s`, MARGIN_X + 10, cursor.y + 16)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
   doc.setTextColor(60, 60, 60)
   const linhas = doc.splitTextToSize(
-    `Soma dos dois braços que chegam na caixa (uma crista de cada lado) -- 2 x vazao do braco (${fmt(vazaoBracoM3s, 5)} m3/s). Use este valor pra dimensionar a caixa e a tubulacao enterrada a jusante -- nao e a mesma grandeza que a capacidade do canal (sarjetao), ja verificada por braco acima.`,
+    `Soma dos dois braços que chegam na caixa (uma crista de cada lado) -- 2 x vazao do braco (${fmt(vazaoBracoM3s * 1000, 2)} L/s). Use este valor pra dimensionar a caixa e a tubulacao enterrada a jusante -- nao e a mesma grandeza que a capacidade do canal (sarjetao), ja verificada por braco acima.`,
     495
   )
   doc.text(linhas, MARGIN_X + 10, cursor.y + 29)

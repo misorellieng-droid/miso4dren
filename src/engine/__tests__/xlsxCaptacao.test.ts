@@ -12,7 +12,7 @@ function montarBuffer(linhas: (string | number)[][]): ArrayBuffer {
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
 }
 
-const COL_CONTRIB = 'Contribuição Q estimada (Tc=10min) m³/s'
+const COL_CONTRIB = 'Contribuição Q estimada (Tc=10min) L/s'
 
 describe('parsePlanilhaCaptacao', () => {
   it('lê vínculos e coeficientes C da planilha', () => {

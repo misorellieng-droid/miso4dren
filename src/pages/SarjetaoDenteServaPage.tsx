@@ -609,9 +609,11 @@ export function SarjetaoDenteServaPage() {
 
             <div className="mt-4 rounded-lg border border-border bg-elevated/40 p-4">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Vazão total na caixa</div>
-              <div className="font-sans text-xl font-bold text-text-primary">{resultado.vazaoTotalCaixaM3s.toFixed(5)} m³/s</div>
+              <div className="font-sans text-xl font-bold text-text-primary">{(resultado.vazaoTotalCaixaM3s * 1000).toFixed(2)} L/s</div>
               <p className="mt-1 text-[11px] leading-relaxed text-text-secondary">
-                Soma dos dois braços que chegam na caixa (uma crista de cada lado) — 2 × vazão do braço acima ({resultado.resultado.vazaoM3s.toFixed(5)} m³/s). Use este valor pra dimensionar a caixa e a tubulação enterrada a jusante — não é a mesma grandeza que a capacidade do canal (sarjetão), que já é verificada por braço.
+                Soma dos dois braços que chegam na caixa (uma crista de cada lado) — 2 × vazão do braço acima (
+                {(resultado.resultado.vazaoM3s * 1000).toFixed(2)} L/s). Use este valor pra dimensionar a caixa e a tubulação enterrada a
+                jusante — não é a mesma grandeza que a capacidade do canal (sarjetão), que já é verificada por braço.
               </p>
             </div>
 
@@ -707,7 +709,7 @@ function ResultadoCard({ resultado }: { resultado: ResultadoMetodoSarjetao }) {
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-secondary">
         <div>Velocidade no braço: {resultado.velocidadeMs.toFixed(3)} m/s</div>
-        <div>Vazão no braço: {resultado.vazaoM3s.toFixed(5)} m³/s</div>
+        <div>Vazão no braço: {(resultado.vazaoM3s * 1000).toFixed(2)} L/s</div>
         <div>Tc convergido: {resultado.tcConvergidoMin.toFixed(2)} min</div>
         <div>Intensidade: {resultado.intensidadeConvergidaMmH.toFixed(1)} mm/h</div>
         <div>Lâmina crítica: {resultado.laminaCriticaM.toFixed(3)} m</div>
@@ -847,8 +849,8 @@ function MemorialMetodo({
               <th className="py-1 pr-2 font-medium">i (mm/h)</th>
               <th className="py-1 pr-2 font-medium">L (m)</th>
               <th className="py-1 pr-2 font-medium">SL braço (%)</th>
-              <th className="py-1 pr-2 font-medium">Q (m³/s)</th>
-              <th className="py-1 font-medium">Qcap (m³/s)</th>
+              <th className="py-1 pr-2 font-medium">Q (L/s)</th>
+              <th className="py-1 font-medium">Qcap (L/s)</th>
             </tr>
           </thead>
           <tbody className="font-mono">
@@ -859,8 +861,8 @@ function MemorialMetodo({
                 <td className="py-1 pr-2">{h.intensidadeMmH.toFixed(1)}</td>
                 <td className="py-1 pr-2">{h.comprimentoM.toFixed(2)}</td>
                 <td className="py-1 pr-2">{(h.declividadeLongitudinalMM * 100).toFixed(4)}</td>
-                <td className="py-1 pr-2">{h.vazaoM3s.toFixed(5)}</td>
-                <td className="py-1">{h.vazaoCapacidadeM3s.toFixed(5)}</td>
+                <td className="py-1 pr-2">{(h.vazaoM3s * 1000).toFixed(2)}</td>
+                <td className="py-1">{(h.vazaoCapacidadeM3s * 1000).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
@@ -873,8 +875,8 @@ function MemorialMetodo({
         <MemorialItem label="Braço (crista → caixa)" value={`${bracoM.toFixed(2)} m`} />
         <MemorialItem label="Iterações (bisseção)" value={String(resultado.iteracoes)} />
         <MemorialItem label="Convergiu (bisseção / Tc)" value={`${resultado.convergiu ? 'Sim' : 'Não'} / ${resultado.convergiuTc ? 'Sim' : 'Não'}`} />
-        <MemorialItem label="Vazão de capacidade" value={`${resultado.vazaoCapacidadeM3s.toFixed(6)} m³/s`} />
-        <MemorialItem label="Vazão afluente" value={`${resultado.vazaoM3s.toFixed(6)} m³/s`} />
+        <MemorialItem label="Vazão de capacidade" value={`${(resultado.vazaoCapacidadeM3s * 1000).toFixed(2)} L/s`} />
+        <MemorialItem label="Vazão afluente" value={`${(resultado.vazaoM3s * 1000).toFixed(2)} L/s`} />
       </div>
     </div>
   )

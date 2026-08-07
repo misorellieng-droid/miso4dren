@@ -468,7 +468,7 @@ export function SarjetaCriticaPage() {
                 <th className="px-4 py-2 font-medium">Intensidade (mm/h)</th>
                 <th className="px-4 py-2 font-medium">Rh (m)</th>
                 <th className="px-4 py-2 font-medium">Velocidade (m/s)</th>
-                <th className="px-4 py-2 font-medium">Vazão (m³/s)</th>
+                <th className="px-4 py-2 font-medium">Vazão (L/s)</th>
                 <th className="px-4 py-2 font-medium">Comprimento crítico (m)</th>
                 <th className="px-4 py-2 font-medium">Ações</th>
               </tr>
@@ -480,7 +480,7 @@ export function SarjetaCriticaPage() {
                   <td className="px-4 py-2 text-text-secondary">{h.intensidade_mm_h.toFixed(2)}</td>
                   <td className="px-4 py-2 text-text-secondary">{h.raio_hidraulico_m?.toFixed(4) ?? '—'}</td>
                   <td className="px-4 py-2 text-text-secondary">{h.velocidade_ms?.toFixed(3) ?? '—'}</td>
-                  <td className="px-4 py-2 text-text-secondary">{h.vazao_m3s?.toFixed(5) ?? '—'}</td>
+                  <td className="px-4 py-2 text-text-secondary">{h.vazao_m3s != null ? (h.vazao_m3s * 1000).toFixed(2) : '—'}</td>
                   <td className="px-4 py-2 font-medium text-brand">{h.comprimento_critico_m?.toFixed(2)}</td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
@@ -556,7 +556,7 @@ function MemorialPontoAPonto({
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border bg-surface p-3 sm:grid-cols-3">
         <MemorialItem label="Rh^(2/3)" value={memorial.raioHidraulicoElevadoDoisTercos.toFixed(5)} />
         <MemorialItem label="Velocidade" value={`${memorial.velocidadeMs.toFixed(4)} m/s`} />
-        <MemorialItem label="Vazão da sarjeta" value={`${memorial.vazaoM3s.toFixed(6)} m³/s`} />
+        <MemorialItem label="Vazão da sarjeta" value={`${(memorial.vazaoM3s * 1000).toFixed(2)} L/s`} />
         <MemorialItem label="Intensidade" value={`${intensidadeMmH.toFixed(2)} mm/h`} />
         <MemorialItem label="Comprimento crítico" value={`${memorial.comprimentoCriticoM.toFixed(2)} m`} />
       </div>

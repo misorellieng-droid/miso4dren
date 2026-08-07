@@ -81,10 +81,10 @@ export function exportRelatorioPdf(data: RelatorioData): void {
   autoTable(doc, {
     startY: y + 6,
     margin: { left: marginX, right: marginX },
-    head: [['Trecho', 'Q projeto (m³/s)', 'Lâmina (m)', 'y/D (%)', 'Velocidade (m/s)', 'Conformidade']],
+    head: [['Trecho', 'Q projeto (L/s)', 'Lâmina (m)', 'y/D (%)', 'Velocidade (m/s)', 'Conformidade']],
     body: data.rede.map((r) => [
       r.trecho_nome,
-      fmt(r.q_projeto_m3s, 4),
+      fmt(r.q_projeto_m3s != null ? r.q_projeto_m3s * 1000 : null, 2),
       fmt(r.lamina_m, 3),
       fmt(r.y_sobre_d_pct, 0),
       fmt(r.velocidade_ms),

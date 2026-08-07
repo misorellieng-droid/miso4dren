@@ -218,7 +218,7 @@ function blocoResultadoFinal(doc: jsPDF, cursor: Cursor, memorial: MemorialCalcu
   doc.setFontSize(8.5)
   doc.setTextColor(60, 60, 60)
   doc.text(
-    `Rh = ${fmt(memorial.raioHidraulicoM, 5)} m   Velocidade = ${fmt(memorial.velocidadeMs, 4)} m/s   Vazão = ${fmt(memorial.vazaoM3s, 6)} m³/s`,
+    `Rh = ${fmt(memorial.raioHidraulicoM, 5)} m   Velocidade = ${fmt(memorial.velocidadeMs, 4)} m/s   Vazão = ${fmt(memorial.vazaoM3s * 1000, 2)} L/s`,
     MARGIN_X + 10,
     cursor.y + 31
   )

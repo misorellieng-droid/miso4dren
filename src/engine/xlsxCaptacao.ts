@@ -33,8 +33,8 @@ const TC_REFERENCIA_MIN = 10
  * propriedade `s` sem erro mas descarta silenciosamente na hora de escrever.
  *
  * Última coluna (só leitura, não reimporta): vazão de contribuição estimada de cada dispositivo,
- * Q = 2,78×10⁻⁷ × ΣC×A(bacias vinculadas, ponderado pelo % de cada uma) × i(Tc=10min) — usa a
- * equação IDF/tempo de retorno da revisão. Sem equação vinculada, fica em branco.
+ * em L/s: Q = 2,78×10⁻⁷ × ΣC×A(bacias vinculadas, ponderado pelo % de cada uma) × i(Tc=10min) ×
+ * 1000 — usa a equação IDF/tempo de retorno da revisão. Sem equação vinculada, fica em branco.
  */
 export function gerarPlanilhaCaptacao(
   bacias: BaciaRecord[],
@@ -53,7 +53,7 @@ export function gerarPlanilhaCaptacao(
   const intensidadeReferencia = equacaoIdf ? calcularIntensidadeIdf(equacaoIdf, tempoRetornoAnos, TC_REFERENCIA_MIN) : null
 
   const colContribuicao = baciasOrdenadas.length + 1
-  const cabecalhoContribuicao = `Contribuição Q estimada (Tc=${TC_REFERENCIA_MIN}min) m³/s`
+  const cabecalhoContribuicao = `Contribuição Q estimada (Tc=${TC_REFERENCIA_MIN}min) L/s`
 
   const linhas: (string | number)[][] = []
   linhas.push(['Dispositivo', ...baciasOrdenadas.map((b) => b.nome), cabecalhoContribuicao])
@@ -66,7 +66,7 @@ export function gerarPlanilhaCaptacao(
       const pct = percentualPorPar.get(`${b.id}|${d.id}`)
       if (pct && b.coef_c != null) caContribuicao += b.area_m2 * (pct / 100) * b.coef_c
     })
-    const contribuicaoQ = intensidadeReferencia != null ? RATIONAL_METHOD_K * caContribuicao * intensidadeReferencia : ''
+    const contribuicaoQ = intensidadeReferencia != null ? RATIONAL_METHOD_K * caContribuicao * intensidadeReferencia * 1000 : ''
     linhas.push([d.nome, ...baciasOrdenadas.map((b) => percentualPorPar.get(`${b.id}|${d.id}`) ?? ''), contribuicaoQ])
   }
 

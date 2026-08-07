@@ -402,12 +402,18 @@ export function MemoriaCalculoModal({
               <Linha label="ΣC×A acumulado (m²)" valor={resultado.ca_acumulado?.toFixed(2) ?? '—'} />
               <Linha label="Tc do sistema (min)" valor={resultado.tc_sistema_min?.toFixed(2) ?? '—'} />
               <Linha label="Intensidade (mm/h)" valor={resultado.intensidade_mm_h?.toFixed(2) ?? '—'} />
-              <Linha label="Q projeto = 2,78×10⁻⁷ × ΣCA × i (m³/s)" valor={resultado.q_projeto_m3s?.toFixed(4) ?? '—'} />
+              <Linha
+                label="Q projeto (L/s) = 2,78×10⁻⁷ × ΣCA × i × 1000"
+                valor={resultado.q_projeto_m3s != null ? (resultado.q_projeto_m3s * 1000).toFixed(2) : '—'}
+              />
               <Linha label="Lâmina (m)" valor={resultado.lamina_m?.toFixed(3) ?? '—'} />
               <Linha label="y/D" valor={resultado.y_sobre_d_pct != null ? `${resultado.y_sobre_d_pct.toFixed(0)}%` : '—'} />
               <Linha label="Raio hidráulico (m)" valor={resultado.raio_hidraulico_m?.toFixed(3) ?? '—'} />
               <Linha label="Velocidade (m/s)" valor={resultado.velocidade_ms?.toFixed(2) ?? '—'} />
-              <Linha label="Vazão de capacidade do tubo (m³/s)" valor={resultado.vazao_calculada_m3s?.toFixed(4) ?? '—'} />
+              <Linha
+                label="Vazão de capacidade do tubo (L/s)"
+                valor={resultado.vazao_calculada_m3s != null ? (resultado.vazao_calculada_m3s * 1000).toFixed(2) : '—'}
+              />
             </>
           )}
         </div>
