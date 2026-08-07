@@ -531,7 +531,8 @@ const TOLERANCIA_COTA_RECOBRIMENTO_M = 0.001
 export function corrigirRecobrimentoRedeCompleta(
   caixas: CaixaPerfil[],
   trechos: TrechoRecobrimento[],
-  recobrimentoMinimoM: number
+  recobrimentoMinimoM: number,
+  declividadeMinimaMM?: number
 ): CorrecaoRecobrimentoTrecho[] {
   const { resolve, entradasPorCaixa, outfalls } = montarEstruturaFluxo(caixas, trechos)
   const caixaPorId = new Map(caixas.map((c) => [c.id, c]))
@@ -555,11 +556,16 @@ export function corrigirRecobrimentoRedeCompleta(
   for (const outfallId of outfalls) emitir(outfallId)
   for (const t of trechos) if (!trechoVisitado.has(t.id)) ordem.push(t.id) // grafo com ciclo/desconexo -- não trava
 
+  // 1 mm de folga ao clampar numa cota-limite -- evita cair EXATAMENTE na borda do mínimo e
+  // depois "escorregar" pra não conforme por ruído de ponto flutuante numa conferência posterior.
+  const MARGEM_SEGURANCA_M = 0.001
+
   const cotaFundoMontantePorTrecho = new Map<string, number>()
   const cotaFundoJusantePorTrecho = new Map<string, number>()
+  const declividadeAplicadaPorTrecho = new Map<string, number>()
   const cotaFundoMaximaEm = (caixaId: string, diametroM: number): number | null => {
     const terreno = caixaPorId.get(caixaId)?.cotaTerreno
-    return terreno != null ? terreno - recobrimentoMinimoM - diametroM : null
+    return terreno != null ? terreno - recobrimentoMinimoM - diametroM - MARGEM_SEGURANCA_M : null
   }
 
   for (const trechoId of ordem) {
@@ -579,10 +585,33 @@ export function corrigirRecobrimentoRedeCompleta(
     const maximaMontante = cotaFundoMaximaEm(t.montanteId, t.diametroM)
     if (maximaMontante != null) cotaFundoMontante = Math.min(cotaFundoMontante, maximaMontante)
     cotaFundoMontantePorTrecho.set(t.id, cotaFundoMontante)
+    const atualFundoMontante = t.cotaTopoMontante != null ? t.cotaTopoMontante - t.diametroM : null
+    const montanteMudou = atualFundoMontante == null || Math.abs(atualFundoMontante - cotaFundoMontante) > TOLERANCIA_COTA_RECOBRIMENTO_M
 
-    let cotaFundoJusante = cotaFundoMontante - t.declividadeMM * t.comprimentoM
+    // declividade aplicada só se afasta da original (por SUBTRAÇÃO, que introduz ruído de ponto
+    // flutuante) quando de fato precisa descer mais pra vencer o recobrimento na jusante -- senão
+    // reaproveita o valor original tal como veio, evitando algo como um 0.003 exato virar
+    // 0.0029999999999987 e cair "não conforme" à toa só por ter passado pela conta.
+    let declividadeAplicada = t.declividadeMM
+    let cotaFundoJusante = cotaFundoMontante - declividadeAplicada * t.comprimentoM
     const maximaJusante = cotaFundoMaximaEm(t.jusanteId, t.diametroM)
-    if (maximaJusante != null) cotaFundoJusante = Math.min(cotaFundoJusante, maximaJusante)
+    let jusanteClampou = false
+    if (maximaJusante != null && cotaFundoJusante > maximaJusante) {
+      cotaFundoJusante = maximaJusante
+      jusanteClampou = true
+      if (t.comprimentoM > 0) declividadeAplicada = (cotaFundoMontante - cotaFundoJusante) / t.comprimentoM
+    }
+    // nunca deixa a declividade final ficar abaixo do mínimo de conformidade do projeto (quando
+    // informado) -- só sobe, nunca desce, e refaz a cota de fundo jusante coerente com o valor
+    // final, garantindo declividade mínima E recobrimento mínimo ao mesmo tempo. Só entra em jogo
+    // em trechos que este corretor JÁ está mexendo por outro motivo (cabeceira empurrada,
+    // recobrimento clampado): uma declividade baixa pré-existente num trecho não tocado é outro
+    // problema (tem correção própria na tela) e não deve virar escopo por tabela aqui.
+    if (declividadeMinimaMM != null && declividadeAplicada < declividadeMinimaMM && (montanteMudou || jusanteClampou)) {
+      declividadeAplicada = declividadeMinimaMM
+      cotaFundoJusante = cotaFundoMontante - declividadeAplicada * t.comprimentoM
+    }
+    declividadeAplicadaPorTrecho.set(t.id, declividadeAplicada)
     cotaFundoJusantePorTrecho.set(t.id, cotaFundoJusante)
   }
 
@@ -590,7 +619,8 @@ export function corrigirRecobrimentoRedeCompleta(
   for (const t of trechos) {
     const cotaFundoMontante = cotaFundoMontantePorTrecho.get(t.id)
     const cotaFundoJusante = cotaFundoJusantePorTrecho.get(t.id)
-    if (cotaFundoMontante == null || cotaFundoJusante == null) continue
+    const declividadeAplicada = declividadeAplicadaPorTrecho.get(t.id)
+    if (cotaFundoMontante == null || cotaFundoJusante == null || declividadeAplicada == null) continue
     const atualFundoMontante = t.cotaTopoMontante != null ? t.cotaTopoMontante - t.diametroM : null
     const atualFundoJusante = t.cotaTopoJusante != null ? t.cotaTopoJusante - t.diametroM : null
     const mudou =
@@ -605,7 +635,7 @@ export function corrigirRecobrimentoRedeCompleta(
       cotaFundoJusante,
       cotaTopoMontante: cotaFundoMontante + t.diametroM,
       cotaTopoJusante: cotaFundoJusante + t.diametroM,
-      declividadeMM: t.comprimentoM > 0 ? (cotaFundoMontante - cotaFundoJusante) / t.comprimentoM : t.declividadeMM,
+      declividadeMM: declividadeAplicada,
     })
   }
   return correcoes

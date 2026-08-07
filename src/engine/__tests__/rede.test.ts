@@ -776,6 +776,62 @@ describe('corrigirRecobrimentoRedeCompleta', () => {
     const trechos = [trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 98.5, cotaTopoJusante: 97.3, declividadeMM: 0.06 })]
     expect(corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)).toEqual([])
   })
+
+  it('não introduz ruído de ponto flutuante na declividade de um trecho tocado só porque a montante mudou (caso relatado: 0.003 virando 0.0029999999999987)', () => {
+    const caixas = [caixa('A', 99.5), caixa('B', 99.5), caixa('C', 99.5)]
+    const trechos = [
+      // cabeceira violando -- empurrada (mesmo caso do 1º teste do describe)
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 99.6, cotaTopoJusante: 99.5 }),
+      // herda a nova montante de t1, mas a própria jusante fica bem dentro do mínimo em C (sem
+      // clamp) -- só a montante mexeu, a declividade não deveria ter motivo pra mudar
+      trecho({
+        id: 't2',
+        nome: 'T2',
+        montanteId: 'B',
+        jusanteId: 'C',
+        cotaTopoMontante: 99.4, // original, ignorado (não é cabeceira -- herda de t1)
+        cotaTopoJusante: 99.2,
+        declividadeMM: 0.007,
+      }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2)
+    const t2 = correcoes.find((c) => c.trechoId === 't2')!
+    expect(t2).toBeDefined() // mudou (herdou nova montante de t1)
+    expect(t2.declividadeMM).toBe(0.007) // igualdade estrita -- reaproveitada, não recalculada por subtração
+  })
+
+  it('garante declividade mínima de conformidade num trecho já tocado pela correção (cabeceira empurrada com declividade original abaixo do mínimo)', () => {
+    const caixas = [caixa('A', 99.5), caixa('B', 150)] // B bem alto -- não entra clamp de recobrimento na jusante
+    const trechos = [
+      trecho({
+        id: 't1',
+        nome: 'T1',
+        montanteId: 'A',
+        jusanteId: 'B',
+        cotaTopoMontante: 99.6, // recobrimento -0.1 -- cabeceira violando, será empurrada
+        cotaTopoJusante: 99.58,
+        declividadeMM: 0.001, // abaixo do mínimo de conformidade (0.003)
+      }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2, 0.003)
+    expect(correcoes).toHaveLength(1)
+    expect(correcoes[0].declividadeMM).toBeCloseTo(0.003) // nunca fica abaixo do mínimo, mesmo remexendo a cota
+    expect(correcoes[0].declividadeMM).toBeGreaterThanOrEqual(0.003)
+    // cota de fundo montante segue o empurrão de sempre (terreno 99.5 - mínimo 1.2 - diâmetro 0.3, com 1mm de folga)
+    expect(correcoes[0].cotaFundoMontante).toBeCloseTo(98.0, 2)
+  })
+
+  it('não mexe na declividade de um trecho que a correção não tocaria por nenhum outro motivo, mesmo abaixo do mínimo de conformidade (fora de escopo -- tem correção própria na tela)', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100)]
+    // cabeceira sem violação de recobrimento (2.0 de sobra) e jusante também sem violação (2.01,
+    // terreno estável, não caindo) -- só a declividade em si (0.0005) é que já nasceu abaixo do
+    // mínimo, sem relação nenhuma com recobrimento. Dados consistentes: fundoMontante 97.7, drop
+    // 0.0005*20=0.01 -> fundoJusante 97.69, topoJusante 97.99.
+    const trechos = [
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 98, cotaTopoJusante: 97.99, declividadeMM: 0.0005 }),
+    ]
+    expect(corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2, 0.003)).toEqual([])
+  })
 })
 
 describe('calcularQEntradaBacia', () => {

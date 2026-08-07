@@ -846,7 +846,8 @@ export function RedePluvialPage() {
           cotaTopoMontante: t.cota_topo_montante,
           cotaTopoJusante: t.cota_topo_jusante,
         })),
-        recobrimentoMinimoM
+        recobrimentoMinimoM,
+        limites.declMinMM
       )
       await Promise.all(
         correcoes.map((c) =>
