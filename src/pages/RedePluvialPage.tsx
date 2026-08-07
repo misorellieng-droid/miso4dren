@@ -15,6 +15,7 @@ import {
   NotebookText,
   RefreshCw,
   RotateCcw,
+  Scale,
   XCircle,
 } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
@@ -24,6 +25,7 @@ import { MemoriaCalculoModal } from '../components/MemoriaCalculoModal'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { nomeSemRede } from '../lib/nomeRede'
 import { calcularIntensidadeIdf } from '../engine/idf'
+import { avaliarBalanceamentoRede } from '../engine/balanceamentoRede'
 import {
   acumularVazao,
   calcularQProjeto,
@@ -688,6 +690,34 @@ export function RedePluvialPage() {
   }, [caixas, trechos])
   const redePorTrecho = redesPorPvCabeceira.redePorTrecho
   const redesQueDesaguamPorCaixa = redesPorPvCabeceira.redesQueDesaguamPorCaixa
+
+  // Avaliação heurística de balanceamento entre sistemas (ver docstring de avaliarBalanceamentoRede
+  // em engine/balanceamentoRede.ts) -- não redesenha nada, só aponta confluências onde um Sistema
+  // deságua no outro com um degrau grande e sugere, quando existe uma caixa de outro "grupo final"
+  // por perto e morro abaixo, religar o ramal ali pra equilibrar a vazão entre as saídas JUS.
+  const vazaoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.q_projeto_m3s ?? 0])), [resultados])
+  const balanceamento = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0 || resultados.length === 0) {
+      return { saidasFinais: [], confluenciasSuspeitas: [] }
+    }
+    return avaliarBalanceamentoRede(
+      caixas.map((c) => ({ id: c.id, nome: c.nome, x: c.x, y: c.y, cotaFundo: c.cota_fundo })),
+      trechos.map((t) => ({
+        id: t.id,
+        nome: t.nome,
+        montanteId: t.caixa_montante_id,
+        jusanteId: t.caixa_jusante_id,
+        comprimentoM: t.comprimento_m,
+        cotaFundoMontante: t.cota_fundo_montante,
+        cotaFundoJusante: t.cota_fundo_jusante,
+      })),
+      redePorTrecho,
+      redesQueDesaguamPorCaixa,
+      vazaoPorTrecho,
+      caAcumuladoPorTrecho
+    )
+  }, [caixas, trechos, resultados, redePorTrecho, redesQueDesaguamPorCaixa, vazaoPorTrecho, caAcumuladoPorTrecho])
+  const [mostrarBalanceamento, setMostrarBalanceamento] = useState(false)
 
   useEffect(() => {
     if (redesPorPvCabeceira.erro) setError(redesPorPvCabeceira.erro)
@@ -1471,6 +1501,93 @@ export function RedePluvialPage() {
                   Cancelar
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {resultados.length > 0 && (balanceamento.saidasFinais.length > 0 || balanceamento.confluenciasSuspeitas.length > 0) && (
+        <div className="mb-6 rounded-lg border border-border bg-surface p-4">
+          <button onClick={() => setMostrarBalanceamento((v) => !v)} className="flex w-full items-center justify-between text-left">
+            <div className="flex items-center gap-2">
+              <Scale size={16} className="text-text-secondary" />
+              <span className="font-sans text-sm font-semibold text-text-primary">Balanceamento entre sistemas</span>
+              <span className="text-xs text-text-secondary">
+                ({balanceamento.saidasFinais.length} saída(s) JUS, {balanceamento.confluenciasSuspeitas.length} confluência(s) com degrau
+                relevante)
+              </span>
+            </div>
+            <span className="text-xs text-text-secondary">{mostrarBalanceamento ? 'Ocultar' : 'Mostrar'}</span>
+          </button>
+
+          {mostrarBalanceamento && (
+            <div className="mt-4">
+              <p className="mb-3 text-xs leading-relaxed text-text-secondary">
+                Sugestão heurística baseada em distância em linha reta e cota das caixas já cadastradas — não considera relevo real,
+                interferências nem propriedade. Aponta onde vale a pena ESTUDAR uma religação manual, não confirma que é executável;
+                confira sempre no Civil 3D antes de aplicar.
+              </p>
+
+              {balanceamento.saidasFinais.length > 1 && (
+                <div className="mb-4 overflow-x-auto rounded-md border border-border/60">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border/60 bg-elevated/50 text-left text-text-secondary">
+                        <th className="px-3 py-1.5 font-medium">Saída (JUS)</th>
+                        <th className="px-3 py-1.5 font-medium">Sistema</th>
+                        <th className="px-3 py-1.5 font-medium">Vazão (L/s)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...balanceamento.saidasFinais]
+                        .sort((a, b) => b.vazaoM3s - a.vazaoM3s)
+                        .map((s) => {
+                          const maiorVazao = Math.max(...balanceamento.saidasFinais.map((x) => x.vazaoM3s))
+                          const pct = maiorVazao > 0 ? (s.vazaoM3s / maiorVazao) * 100 : 100
+                          return (
+                            <tr key={s.trechoId} className="border-b border-border/40 last:border-0">
+                              <td className="px-3 py-1.5 text-text-primary">{s.nomeCaixaJus}</td>
+                              <td className="px-3 py-1.5 text-text-secondary">{formatSistema(s.sistema)}</td>
+                              <td className="px-3 py-1.5 text-text-secondary">
+                                {(s.vazaoM3s * 1000).toFixed(2)}
+                                {pct < 100 && <span className="ml-1 text-[10px] text-text-secondary/70">({pct.toFixed(0)}% da maior)</span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {balanceamento.confluenciasSuspeitas.length > 0 && (
+                <ul className="space-y-2">
+                  {balanceamento.confluenciasSuspeitas.map((c) => (
+                    <li key={`${c.caixaId}-${c.sistemaTributario}`} className="rounded-md border border-border/60 p-2.5 text-xs">
+                      <div className="text-text-primary">
+                        <span className="font-medium">{c.nomeCaixa}</span>: {formatSistema(c.sistemaTributario)} deságua em{' '}
+                        {formatSistema(c.sistemaPrincipal)} pelo trecho {c.nomeTrechoTributario} — degrau de {c.degrauM.toFixed(2)} m,{' '}
+                        {(c.vazaoTributariaM3s * 1000).toFixed(2)} L/s.
+                      </div>
+                      {c.candidatos.length > 0 ? (
+                        <ul className="mt-1.5 list-inside list-disc space-y-1 text-accent-blue">
+                          {c.candidatos.map((cand) => (
+                            <li key={cand.caixaDestinoId}>
+                              Estudar religar em <span className="font-medium">{cand.nomeCaixaDestino}</span> (grupo{' '}
+                              {cand.nomeGrupoDestino}), a {cand.distanciaM.toFixed(0)} m — declividade necessária{' '}
+                              {cand.declividadeNecessariaMM.toFixed(4)} m/m. Desbalanceamento cairia de{' '}
+                              {(cand.desbalanceamentoAtualM3s * 1000).toFixed(0)} pra {(cand.desbalanceamentoProjetadoM3s * 1000).toFixed(0)}{' '}
+                              L/s.
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="mt-1 text-text-secondary">Nenhuma caixa de outro grupo por perto, morro abaixo, melhoraria isso.</div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
