@@ -198,6 +198,54 @@ export async function updateTrechosManningEmLote(ids: string[], manningN: number
   if (error) throw error
 }
 
+export interface ResultadoRenomeMaterial {
+  trechosRenomeados: number
+  manningAtualizados: number
+}
+
+/**
+ * Renomeia o material de vários trechos de uma vez, dentro de uma revisão -- útil pra unificar
+ * grafias diferentes vindas do Civil 3D (ex.: "CONCRETO" e "Reinforced Concrete" acabam sem
+ * bater com o mesmo item da biblioteca de peças nem com a mesma linha de materiais_manning, por
+ * mais que sejam o mesmo material na prática) ou pra converter a rede inteira de uma vez pra um
+ * estudo alternativo (ex.: refazer em PEAD). `materialAntigo` null renomeia TODO trecho da
+ * revisão, independente do material atual; caso contrário casa por texto (case-insensitive,
+ * igual o resto do app).
+ *
+ * Também atualiza o manning_n dos trechos afetados cujo manning_n_origem NÃO é 'manual' (edição
+ * explícita do engenheiro é preservada) pro valor do material novo em `manningNovoMaterial`,
+ * quando informado -- senão o Manning ficaria "preso" no material antigo até rodar o cálculo de
+ * novo e mesmo assim não teria de onde vir o valor certo automaticamente.
+ */
+export async function renomearMaterialEmLote(
+  revisaoId: string,
+  materialAntigo: string | null,
+  materialNovo: string,
+  manningNovoMaterial: number | null
+): Promise<ResultadoRenomeMaterial> {
+  const client = requireSupabase()
+  let query = client.from('trechos').update({ material: materialNovo }).eq('revisao_id', revisaoId)
+  if (materialAntigo != null) query = query.ilike('material', materialAntigo)
+  const { data, error } = await query.select('id, manning_n_origem')
+  if (error) throw error
+  const afetados = (data ?? []) as { id: string; manning_n_origem: string }[]
+
+  let manningAtualizados = 0
+  if (manningNovoMaterial != null) {
+    const idsParaAtualizarManning = afetados.filter((t) => t.manning_n_origem !== 'manual').map((t) => t.id)
+    if (idsParaAtualizarManning.length > 0) {
+      const { error: errManning } = await client
+        .from('trechos')
+        .update({ manning_n: manningNovoMaterial, manning_n_origem: 'tabela_interna' })
+        .in('id', idsParaAtualizarManning)
+      if (errManning) throw errManning
+      manningAtualizados = idsParaAtualizarManning.length
+    }
+  }
+
+  return { trechosRenomeados: afetados.length, manningAtualizados }
+}
+
 /**
  * Grava o resultado de parseLandXml: insere as caixas primeiro, depois
  * resolve os nomes montante/jusante dos trechos para os ids recém-criados.

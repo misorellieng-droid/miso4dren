@@ -50,9 +50,11 @@ import { exportarTabelaRedePluvialPdf } from '../lib/exportRedePluvialPdf'
 import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { listEquacoesIdf, type EquacaoIdfRecord } from '../lib/idfStorage'
+import { listMateriaisManning, type MaterialManningRecord } from '../lib/materiaisStorage'
 import {
   listCaixas,
   listTrechos,
+  renomearMaterialEmLote,
   updateTrecho,
   updateTrechosPerfilEmLote,
   type CaixaRecord,
@@ -469,6 +471,10 @@ export function RedePluvialPage() {
   const [exportando, setExportando] = useState(false)
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
+  const [materiaisManning, setMateriaisManning] = useState<MaterialManningRecord[]>([])
+  const [materialOrigem, setMaterialOrigem] = useState<string>('__todos__')
+  const [materialDestino, setMaterialDestino] = useState('')
+  const [renomeandoMaterial, setRenomeandoMaterial] = useState(false)
   const [fonteCompacta, setFonteCompacta] = useState(false)
   const [colunasOcultas, setColunasOcultas] = useState<Set<ColunaMemorialKey>>(new Set())
   const [colunasOcultasNotaServico, setColunasOcultasNotaServico] = useState<Set<ColunaNotaServicoKey>>(new Set())
@@ -490,6 +496,11 @@ export function RedePluvialPage() {
       setBiblioteca(await listBibliotecaPecas())
     } catch {
       setBiblioteca([])
+    }
+    try {
+      setMateriaisManning(await listMateriaisManning())
+    } catch {
+      setMateriaisManning([])
     }
     // isolado de propósito: bacia_dispositivo é nova (migração 009) e pode
     // ainda não existir no banco — o resto da página continua funcionando
@@ -686,6 +697,44 @@ export function RedePluvialPage() {
       setError(err instanceof Error ? err.message : 'Erro ao aplicar o perfil recalculado.')
     } finally {
       setAplicandoPerfil(false)
+    }
+  }
+
+  // Materiais distintos já cadastrados nos trechos da revisão -- popula o seletor "material
+  // atual" do renomeador em lote (ex.: Civil 3D às vezes traz parte como "CONCRETO" e parte como
+  // "Reinforced Concrete", que não batem com o mesmo item da biblioteca de peças nem com a mesma
+  // linha de Manning apesar de serem o mesmo material na prática).
+  const materiaisDistintos = useMemo(
+    () => [...new Set(trechos.map((t) => t.material).filter((m): m is string => !!m?.trim()))].sort((a, b) => a.localeCompare(b)),
+    [trechos]
+  )
+  const qtdTrechosMaterialOrigem = useMemo(
+    () =>
+      materialOrigem === '__todos__'
+        ? trechos.length
+        : trechos.filter((t) => (t.material ?? '').toUpperCase() === materialOrigem.toUpperCase()).length,
+    [trechos, materialOrigem]
+  )
+
+  const handleRenomearMaterial = async () => {
+    if (!revisaoAtiva) return
+    const novo = materialDestino.trim()
+    if (!novo) {
+      setError('Informe o material novo.')
+      return
+    }
+    setRenomeandoMaterial(true)
+    setError(null)
+    try {
+      const manningNovoMaterial = materiaisManning.find((m) => m.material.toUpperCase() === novo.toUpperCase())?.manning_n ?? null
+      await renomearMaterialEmLote(revisaoAtiva.id, materialOrigem === '__todos__' ? null : materialOrigem, novo, manningNovoMaterial)
+      setMaterialDestino('')
+      setMaterialOrigem('__todos__')
+      await handleRecalcularAposEdicao()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao renomear o material em lote.')
+    } finally {
+      setRenomeandoMaterial(false)
     }
   }
 
@@ -1720,6 +1769,49 @@ export function RedePluvialPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {trechos.length > 0 && (
+        <div className="mb-6 rounded-lg border border-border bg-surface p-4">
+          <div className="mb-1 font-sans text-sm font-semibold text-text-primary">Renomear material em lote</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            Troca o texto do material de vários trechos de uma vez -- útil pra unificar grafias diferentes vindas do Civil 3D (ex.:
+            "CONCRETO" e "Reinforced Concrete" não batem com o mesmo item da biblioteca de peças nem da tabela de Manning, mesmo sendo o
+            mesmo material) ou pra converter a rede inteira pra um estudo alternativo (ex.: refazer em PEAD). Também atualiza o Manning n
+            dos trechos afetados que não foram editados manualmente, se o material novo já estiver cadastrado em Materiais e rugosidade.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label={`Material atual (${qtdTrechosMaterialOrigem} trecho(s))`}>
+              <select value={materialOrigem} onChange={(e) => setMaterialOrigem(e.target.value)} className={`${fieldInputClass} py-1.5`}>
+                <option value="__todos__">(todos os trechos)</option>
+                {materiaisDistintos.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Material novo">
+              <input
+                type="text"
+                value={materialDestino}
+                onChange={(e) => setMaterialDestino(e.target.value)}
+                placeholder="ex.: CONCRETO"
+                className={`${fieldInputClass} py-1.5`}
+              />
+            </Field>
+            <div className="flex items-end">
+              <button
+                onClick={handleRenomearMaterial}
+                disabled={renomeandoMaterial || !materialDestino.trim() || qtdTrechosMaterialOrigem === 0}
+                className={SECONDARY_BTN}
+              >
+                {renomeandoMaterial && <Loader2 size={14} className="animate-spin" />}
+                Aplicar a {qtdTrechosMaterialOrigem} trecho(s)
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
