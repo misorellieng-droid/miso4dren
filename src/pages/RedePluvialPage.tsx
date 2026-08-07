@@ -797,11 +797,14 @@ export function RedePluvialPage() {
 
   // Recobrimento insuficiente (às vezes negativo -- tubo literalmente acima da cota de terreno
   // cadastrada, normalmente cota de fundo errada importada do Civil 3D numa estrutura de
-  // captação) -- usa o mesmo campo "Recobrimento" já exposto no card de recálculo de perfil como
-  // referência mínima, pra não duplicar configuração.
+  // captação). Critério PRÓPRIO, independente do campo "Recobrimento" da ferramenta de recálculo
+  // de perfil (que é um parâmetro de ferramenta, não o mínimo de projeto) -- default 0 m, ou
+  // seja, só acusa o caso realmente impossível (recobrimento negativo). O engenheiro pode subir
+  // esse valor pra também flagar cobertura positiva mas abaixo do mínimo de projeto dele.
+  const [recobrimentoMinimoAlerta, setRecobrimentoMinimoAlerta] = useState('0')
   const violacoesRecobrimento = useMemo(() => {
     if (caixas.length === 0 || trechos.length === 0) return []
-    const recobrimentoMinimoM = Number(recobrimentoPerfil)
+    const recobrimentoMinimoM = Number(recobrimentoMinimoAlerta)
     if (!Number.isFinite(recobrimentoMinimoM)) return []
     return identificarRecobrimentoInsuficiente(
       caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
@@ -818,12 +821,12 @@ export function RedePluvialPage() {
       })),
       recobrimentoMinimoM
     ).sort((a, b) => a.recobrimentoM - b.recobrimentoM)
-  }, [caixas, trechos, recobrimentoPerfil])
+  }, [caixas, trechos, recobrimentoMinimoAlerta])
   const violacoesRecobrimentoCabeceira = useMemo(() => violacoesRecobrimento.filter((v) => v.ehCabeceira), [violacoesRecobrimento])
   const [corrigindoRecobrimento, setCorrigindoRecobrimento] = useState(false)
 
   const handleCorrigirRecobrimentoCabeceiras = async () => {
-    const recobrimentoMinimoM = Number(recobrimentoPerfil)
+    const recobrimentoMinimoM = Number(recobrimentoMinimoAlerta)
     if (!Number.isFinite(recobrimentoMinimoM)) return
     setCorrigindoRecobrimento(true)
     setError(null)
@@ -1438,33 +1441,53 @@ export function RedePluvialPage() {
         </div>
       )}
 
-      {violacoesRecobrimento.length > 0 && (
+      {(violacoesRecobrimento.length > 0 || Number(recobrimentoMinimoAlerta) > 0) && (
         <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
           <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-medium text-accent-red">
-              {violacoesRecobrimento.length} extremidade(s) de trecho com recobrimento abaixo de {recobrimentoPerfil} m
+              {violacoesRecobrimento.length > 0
+                ? `${violacoesRecobrimento.length} extremidade(s) de trecho com recobrimento insuficiente`
+                : 'Nenhuma extremidade com recobrimento insuficiente'}
               {violacoesRecobrimentoCabeceira.length > 0 && ` (${violacoesRecobrimentoCabeceira.length} em cabeceira, corrigível automaticamente)`}
             </div>
-            {violacoesRecobrimentoCabeceira.length > 0 && (
-              <button
-                type="button"
-                onClick={handleCorrigirRecobrimentoCabeceiras}
-                disabled={corrigindoRecobrimento}
-                className={SMALL_BTN}
-              >
-                {corrigindoRecobrimento ? 'Corrigindo...' : 'Corrigir cabeceiras automaticamente'}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1 text-xs text-text-secondary">
+                Mínimo p/ alertar (m)
+                <input
+                  type="number"
+                  step="0.05"
+                  value={recobrimentoMinimoAlerta}
+                  onChange={(e) => setRecobrimentoMinimoAlerta(e.target.value)}
+                  className="w-16 rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text-primary"
+                />
+              </label>
+              {violacoesRecobrimentoCabeceira.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleCorrigirRecobrimentoCabeceiras}
+                  disabled={corrigindoRecobrimento}
+                  className={SMALL_BTN}
+                >
+                  {corrigindoRecobrimento ? 'Corrigindo...' : 'Corrigir cabeceiras automaticamente'}
+                </button>
+              )}
+            </div>
           </div>
-          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-red">
-            {violacoesRecobrimento.map((v) => (
-              <li key={`${v.trechoId}-${v.extremidade}`}>
-                {v.nomeTrecho} ({v.extremidade} em {v.nomeCaixa}): recobrimento de {v.recobrimentoM.toFixed(2)} m
-                {v.recobrimentoM < 0 ? ' — tubo acima da cota de terreno (provável erro de importação do Civil 3D).' : '.'}
-                {v.ehCabeceira ? ' Cabeceira — pode ser corrigida automaticamente empurrando a cota, mantendo a declividade.' : ' Fora de cabeceira — corrija manualmente (afeta o encaixe com o trecho de montante).'}
-              </li>
-            ))}
-          </ul>
+          {violacoesRecobrimento.length > 0 && (
+            <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-red">
+              {violacoesRecobrimento.map((v) => (
+                <li key={`${v.trechoId}-${v.extremidade}`}>
+                  {v.nomeTrecho} ({v.extremidade} em {v.nomeCaixa}): recobrimento de {v.recobrimentoM.toFixed(2)} m
+                  {v.recobrimentoM < 0 ? ' — tubo acima da cota de terreno (provável erro de importação do Civil 3D).' : ' — abaixo do mínimo configurado acima.'}
+                  {v.ehCabeceira ? ' Cabeceira — pode ser corrigida automaticamente empurrando a cota, mantendo a declividade.' : ' Fora de cabeceira — corrija manualmente (afeta o encaixe com o trecho de montante).'}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-1 text-xs text-text-secondary">
+            Padrão (0 m) só acusa o caso impossível: tubo acima da cota de terreno. Suba o valor pra também flagar cobertura positiva
+            abaixo do mínimo de projeto da via/passeio.
+          </div>
         </div>
       )}
 
