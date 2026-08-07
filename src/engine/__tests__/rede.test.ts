@@ -821,16 +821,34 @@ describe('corrigirRecobrimentoRedeCompleta', () => {
     expect(correcoes[0].cotaFundoMontante).toBeCloseTo(98.0, 2)
   })
 
-  it('não mexe na declividade de um trecho que a correção não tocaria por nenhum outro motivo, mesmo abaixo do mínimo de conformidade (fora de escopo -- tem correção própria na tela)', () => {
+  it('corrige a declividade mínima na rede INTEIRA quando o parâmetro é informado, mesmo em trecho sem nenhuma violação de recobrimento -- evita ter que corrigir manualmente trecho a trecho, sempre empurrando o problema pro jusante', () => {
     const caixas = [caixa('A', 100), caixa('B', 100)]
     // cabeceira sem violação de recobrimento (2.0 de sobra) e jusante também sem violação (2.01,
     // terreno estável, não caindo) -- só a declividade em si (0.0005) é que já nasceu abaixo do
-    // mínimo, sem relação nenhuma com recobrimento. Dados consistentes: fundoMontante 97.7, drop
-    // 0.0005*20=0.01 -> fundoJusante 97.69, topoJusante 97.99.
+    // mínimo, sem relação nenhuma com recobrimento.
     const trechos = [
       trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 98, cotaTopoJusante: 97.99, declividadeMM: 0.0005 }),
     ]
-    expect(corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2, 0.003)).toEqual([])
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2, 0.003)
+    expect(correcoes).toHaveLength(1)
+    expect(correcoes[0].declividadeMM).toBe(0.003)
+  })
+
+  it('quando um trecho tem a declividade elevada pro mínimo, o trecho jusante também é corrigido na mesma passada -- não precisa rodar a correção de novo', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100), caixa('C', 100)]
+    const trechos = [
+      // t1: sem violação nenhuma, só declividade baixa (0.0005) -- vai virar 0.003
+      trecho({ id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', cotaTopoMontante: 98, cotaTopoJusante: 97.99, declividadeMM: 0.0005 }),
+      // t2: também nasceu com declividade baixa (0.0008) -- se a correção só olhasse pra quem já
+      // estava sendo mexido, dependeria de rodar de novo depois de t1 mudar; deve sair já corrigido
+      // na mesma passada, herdando a nova montante de t1 (97.64) E com declividade >= 0.003
+      trecho({ id: 't2', nome: 'T2', montanteId: 'B', jusanteId: 'C', cotaTopoMontante: 97.99, cotaTopoJusante: 97.97, declividadeMM: 0.0008 }),
+    ]
+    const correcoes = corrigirRecobrimentoRedeCompleta(caixas, trechos, 1.2, 0.003)
+    const t1 = correcoes.find((c) => c.trechoId === 't1')!
+    const t2 = correcoes.find((c) => c.trechoId === 't2')!
+    expect(t2.cotaFundoMontante).toBeCloseTo(t1.cotaFundoJusante) // herdou a cota corrigida de t1
+    expect(t2.declividadeMM).toBeGreaterThanOrEqual(0.003)
   })
 })
 

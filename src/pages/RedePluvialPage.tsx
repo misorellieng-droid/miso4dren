@@ -1488,9 +1488,10 @@ export function RedePluvialPage() {
           )}
           <div className="mt-1 text-xs text-text-secondary">
             Padrão (0 m) só acusa o caso impossível: tubo acima da cota de terreno. Suba o valor pra também flagar cobertura positiva
-            abaixo do mínimo de projeto da via/passeio. "Corrigir recobrimento automaticamente" ajusta a rede inteira: empurra a cota
-            nas cabeceiras e aumenta a declividade onde precisar no resto da rede -- confira depois os critérios de velocidade e y/D,
-            já que declividades mais íngremes podem mudar esses resultados.
+            abaixo do mínimo de projeto da via/passeio. "Corrigir recobrimento automaticamente" ajusta a rede inteira numa passada só:
+            empurra a cota nas cabeceiras, eleva toda declividade abaixo do mínimo cadastrado em Critérios de conformidade ({limites.declMinMM} m/m)
+            e aumenta ainda mais onde precisar pra vencer o recobrimento -- inclusive nos trechos jusante, sem precisar rodar de novo.
+            Confira depois os critérios de velocidade e y/D, já que declividades mais íngremes podem mudar esses resultados.
           </div>
         </div>
       )}

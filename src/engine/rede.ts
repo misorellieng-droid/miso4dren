@@ -506,19 +506,24 @@ export interface CorrecaoRecobrimentoTrecho {
 const TOLERANCIA_COTA_RECOBRIMENTO_M = 0.001
 
 /**
- * Corrige o recobrimento insuficiente da rede INTEIRA, não só cabeceiras -- generalização de
- * corrigirRecobrimentoCabeceiras. Percorre a rede na mesma ordem de fluxo de
- * ordenarTrechosPorFluxo (montante pra jusante, cabeceira primeiro) empurrando cota pra baixo
- * sempre que necessário:
- * - Cabeceira: empurra a própria cota de fundo montante, preservando a declividade própria do
- *   trecho (igual corrigirRecobrimentoCabeceiras).
+ * Corrige o recobrimento insuficiente E a declividade abaixo do mínimo da rede INTEIRA, não só
+ * cabeceiras -- generalização de corrigirRecobrimentoCabeceiras. Percorre a rede na mesma ordem
+ * de fluxo de ordenarTrechosPorFluxo (montante pra jusante, cabeceira primeiro), numa ÚNICA
+ * passada:
+ * - Cabeceira: empurra a própria cota de fundo montante o suficiente pra garantir o recobrimento.
  * - Qualquer outro trecho: herda a cota de fundo montante de quem chega nele (a mais restritiva,
  *   quando há confluência com mais de uma entrada) -- não é uma decisão nova, só reflete o que a
- *   caixa já vai receber depois que os trechos de montante forem corrigidos. Se mesmo assim faltar
- *   recobrimento na extremidade jusante, aumenta a PRÓPRIA declividade o suficiente pra garantir o
- *   mínimo ali (a montante não muda -- só a rampa fica mais íngreme).
- * Nunca deixa uma cota SUBIR, só descer -- por isso qualquer violação vira uma trincheira mais
- * funda, nunca um degrau pra cima que represaria água.
+ *   caixa já vai receber depois que os trechos de montante forem corrigidos.
+ * - `declividadeMinimaMM` (quando informado): a declividade de TODO trecho é elevada até esse
+ *   piso antes de qualquer outra conta -- nunca reaproveita um valor original abaixo dele. Sem
+ *   isso, corrigir um trecho isolado só empurra o problema pro trecho jusante (que herda a cota
+ *   mais funda mas mantém a própria declividade antiga, insuficiente pra manter o ritmo do
+ *   terreno) -- exigindo corrigir manualmente trecho a trecho, sempre um a mais adiante.
+ * - Se mesmo assim faltar recobrimento na extremidade jusante, aumenta a declividade ainda mais
+ *   (além do piso) o suficiente pra garantir o mínimo ali -- a montante não muda, só a rampa fica
+ *   mais íngreme.
+ * Nunca deixa uma cota SUBIR nem uma declividade DESCER -- por isso qualquer violação vira uma
+ * trincheira mais funda ou uma rampa mais íngreme, nunca um degrau pra cima que represaria água.
  *
  * A correção aqui usa continuidade simples (degrau zero / mais restritiva entre entradas), sem
  * linha de energia (EGL) -- essa é uma etapa de planejamento; o recálculo de verdade que roda
@@ -585,31 +590,24 @@ export function corrigirRecobrimentoRedeCompleta(
     const maximaMontante = cotaFundoMaximaEm(t.montanteId, t.diametroM)
     if (maximaMontante != null) cotaFundoMontante = Math.min(cotaFundoMontante, maximaMontante)
     cotaFundoMontantePorTrecho.set(t.id, cotaFundoMontante)
-    const atualFundoMontante = t.cotaTopoMontante != null ? t.cotaTopoMontante - t.diametroM : null
-    const montanteMudou = atualFundoMontante == null || Math.abs(atualFundoMontante - cotaFundoMontante) > TOLERANCIA_COTA_RECOBRIMENTO_M
 
     // declividade aplicada só se afasta da original (por SUBTRAÇÃO, que introduz ruído de ponto
-    // flutuante) quando de fato precisa descer mais pra vencer o recobrimento na jusante -- senão
-    // reaproveita o valor original tal como veio, evitando algo como um 0.003 exato virar
-    // 0.0029999999999987 e cair "não conforme" à toa só por ter passado pela conta.
+    // flutuante) quando de fato precisa mudar -- senão reaproveita o valor original tal como veio,
+    // evitando algo como um 0.003 exato virar 0.0029999999999987 e cair "não conforme" à toa só
+    // por ter passado pela conta.
     let declividadeAplicada = t.declividadeMM
+    // nunca deixa a declividade ficar abaixo do mínimo de conformidade do projeto (quando
+    // informado) -- aplica em TODA a rede, não só nos trechos que a correção de recobrimento já
+    // mexeria por outro motivo: sem isso, corrigir um trecho pra ficar conforme só empurra o
+    // problema pro trecho jusante (que herda a cota mais funda mas mantém a própria declividade
+    // antiga, insuficiente pra manter o ritmo) -- o usuário relatou exatamente isso, tendo que
+    // corrigir manualmente trecho a trecho, sempre um a mais adiante.
+    if (declividadeMinimaMM != null && declividadeAplicada < declividadeMinimaMM) declividadeAplicada = declividadeMinimaMM
     let cotaFundoJusante = cotaFundoMontante - declividadeAplicada * t.comprimentoM
     const maximaJusante = cotaFundoMaximaEm(t.jusanteId, t.diametroM)
-    let jusanteClampou = false
     if (maximaJusante != null && cotaFundoJusante > maximaJusante) {
       cotaFundoJusante = maximaJusante
-      jusanteClampou = true
       if (t.comprimentoM > 0) declividadeAplicada = (cotaFundoMontante - cotaFundoJusante) / t.comprimentoM
-    }
-    // nunca deixa a declividade final ficar abaixo do mínimo de conformidade do projeto (quando
-    // informado) -- só sobe, nunca desce, e refaz a cota de fundo jusante coerente com o valor
-    // final, garantindo declividade mínima E recobrimento mínimo ao mesmo tempo. Só entra em jogo
-    // em trechos que este corretor JÁ está mexendo por outro motivo (cabeceira empurrada,
-    // recobrimento clampado): uma declividade baixa pré-existente num trecho não tocado é outro
-    // problema (tem correção própria na tela) e não deve virar escopo por tabela aqui.
-    if (declividadeMinimaMM != null && declividadeAplicada < declividadeMinimaMM && (montanteMudou || jusanteClampou)) {
-      declividadeAplicada = declividadeMinimaMM
-      cotaFundoJusante = cotaFundoMontante - declividadeAplicada * t.comprimentoM
     }
     declividadeAplicadaPorTrecho.set(t.id, declividadeAplicada)
     cotaFundoJusantePorTrecho.set(t.id, cotaFundoJusante)
