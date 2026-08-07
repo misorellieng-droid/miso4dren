@@ -13,6 +13,7 @@ import {
   Loader2,
   Network,
   NotebookText,
+  RefreshCw,
   RotateCcw,
   XCircle,
 } from 'lucide-react'
@@ -391,6 +392,7 @@ export function RedePluvialPage() {
   const [limites, setLimites] = useState(DEFAULT_LIMITES)
   const [resultados, setResultados] = useState<LinhaResultado[]>([])
   const [running, setRunning] = useState(false)
+  const [atualizando, setAtualizando] = useState(false)
   // Serializa toda chamada de executarCalculoRede (botão "Rodar cálculo" E o recálculo
   // automático depois de editar um trecho na memória de cálculo) -- sem isso, duas chamadas
   // sobrepostas (duplo clique, ou editar um trecho enquanto o recálculo do anterior ainda não
@@ -456,6 +458,35 @@ export function RedePluvialPage() {
     load().catch((e) => setError(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revisaoAtiva])
+
+  // Reconsulta o banco sempre que a aba volta a ficar visível/em foco -- sem isso, se o cálculo
+  // rodou em outra aba/sessão (ou o próprio banco foi corrigido por fora) enquanto esta página
+  // ficou aberta parada, ela continua mostrando cota/resultado antigo até alguém recarregar a
+  // tela manualmente: o que aparece pode ficar diferente do que está gravado, mesmo o banco
+  // estando certo.
+  useEffect(() => {
+    const recarregar = () => {
+      if (document.visibilityState === 'visible') load().catch((e) => setError(e.message))
+    }
+    window.addEventListener('focus', recarregar)
+    document.addEventListener('visibilitychange', recarregar)
+    return () => {
+      window.removeEventListener('focus', recarregar)
+      document.removeEventListener('visibilitychange', recarregar)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revisaoAtiva])
+
+  const handleAtualizar = async () => {
+    setAtualizando(true)
+    try {
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao atualizar os dados.')
+    } finally {
+      setAtualizando(false)
+    }
+  }
 
   const handleRodar = async () => {
     if (!revisaoAtiva) return
@@ -1341,6 +1372,15 @@ export function RedePluvialPage() {
           <button onClick={handleRodar} disabled={running || trechos.length === 0} className={PRIMARY_BTN}>
             {running ? <Loader2 size={16} className="animate-spin" /> : <Droplets size={16} />}
             Rodar cálculo da rede
+          </button>
+          <button
+            onClick={handleAtualizar}
+            disabled={atualizando || !revisaoAtiva}
+            className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+            title="Rebusca caixas, trechos e resultados do banco -- útil se o cálculo rodou em outra aba/sessão ou se algo foi corrigido por fora enquanto esta tela ficou aberta."
+          >
+            {atualizando ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            Atualizar dados
           </button>
           {caixas.length > 0 && trechos.length > 0 && (
             <button
