@@ -397,6 +397,103 @@ export function recalcularPerfilRedeUniforme(
   return { patches, cabeceirasSemCotaTerreno: [...cabeceirasSemCotaTerreno] }
 }
 
+export interface TrechoRecobrimento extends TrechoOrdenavel {
+  comprimentoM: number
+  declividadeMM: number
+  cotaTopoMontante: number | null
+  cotaTopoJusante: number | null
+}
+
+export interface ViolacaoRecobrimento {
+  trechoId: string
+  nomeTrecho: string
+  extremidade: 'montante' | 'jusante'
+  caixaId: string
+  nomeCaixa: string
+  /** Pode ser negativo -- tubo literalmente acima da cota de terreno cadastrada. */
+  recobrimentoM: number
+  /** true quando a extremidade é montante E a caixa não tem nenhum trecho de entrada -- esse
+   * caso é corrigível diretamente (ver corrigirRecobrimentoCabeceiras), os outros não. */
+  ehCabeceira: boolean
+}
+
+/**
+ * Recobrimento = cota de terreno da caixa − cota de topo do tubo naquele ponto. Compara os dois
+ * lados (montante e jusante) de todo trecho contra um mínimo -- valores negativos (recobrimento
+ * < 0) significam o tubo literalmente acima da superfície cadastrada, fisicamente impossível;
+ * normalmente erro de cota de fundo importada errada do Civil 3D numa estrutura de captação
+ * (boca de lobo/bueiro simples), não do trecho em si.
+ */
+export function identificarRecobrimentoInsuficiente(
+  caixas: CaixaPerfil[],
+  trechos: TrechoRecobrimento[],
+  recobrimentoMinimoM: number
+): ViolacaoRecobrimento[] {
+  const { entradasPorCaixa, resolve } = montarEstruturaFluxo(caixas, trechos)
+  const caixaPorId = new Map(caixas.map((c) => [c.id, c]))
+
+  const violacoes: ViolacaoRecobrimento[] = []
+  for (const t of trechos) {
+    const montante = caixaPorId.get(t.montanteId)
+    if (montante?.cotaTerreno != null && t.cotaTopoMontante != null) {
+      const recobrimentoM = montante.cotaTerreno - t.cotaTopoMontante
+      if (recobrimentoM < recobrimentoMinimoM) {
+        const ehCabeceira = (entradasPorCaixa.get(resolve(t.montanteId)) ?? []).length === 0
+        violacoes.push({ trechoId: t.id, nomeTrecho: t.nome, extremidade: 'montante', caixaId: t.montanteId, nomeCaixa: montante.nome, recobrimentoM, ehCabeceira })
+      }
+    }
+    const jusante = caixaPorId.get(t.jusanteId)
+    if (jusante?.cotaTerreno != null && t.cotaTopoJusante != null) {
+      const recobrimentoM = jusante.cotaTerreno - t.cotaTopoJusante
+      if (recobrimentoM < recobrimentoMinimoM) {
+        violacoes.push({ trechoId: t.id, nomeTrecho: t.nome, extremidade: 'jusante', caixaId: t.jusanteId, nomeCaixa: jusante.nome, recobrimentoM, ehCabeceira: false })
+      }
+    }
+  }
+  return violacoes
+}
+
+export interface CorrecaoRecobrimentoCabeceira {
+  trechoId: string
+  cotaFundoMontante: number
+  cotaFundoJusante: number
+  cotaTopoMontante: number
+  cotaTopoJusante: number
+}
+
+/**
+ * Corrige só as cabeceiras (trecho que nasce numa caixa sem nenhuma entrada) com recobrimento
+ * insuficiente, empurrando a cota de fundo montante pra baixo até garantir o mínimo, preservando
+ * a declividade própria do trecho -- o resto da rede a jusante se ajusta sozinho na próxima vez
+ * que o cálculo rodar (calcularCotasPorEnergia já propaga a partir da nova âncora). Só mexe em
+ * cabeceira: um recobrimento insuficiente no MEIO do caminho pode ser sintoma de outra coisa
+ * (terreno caindo mais rápido que o tubo) e pede julgamento de engenharia, não é seguro
+ * sobrescrever sozinho.
+ */
+export function corrigirRecobrimentoCabeceiras(
+  caixas: CaixaPerfil[],
+  trechos: TrechoRecobrimento[],
+  recobrimentoMinimoM: number
+): CorrecaoRecobrimentoCabeceira[] {
+  const violacoes = identificarRecobrimentoInsuficiente(caixas, trechos, recobrimentoMinimoM)
+  const caixaPorId = new Map(caixas.map((c) => [c.id, c]))
+  const trechoPorId = new Map(trechos.map((t) => [t.id, t]))
+
+  const correcoes: CorrecaoRecobrimentoCabeceira[] = []
+  for (const v of violacoes) {
+    if (!v.ehCabeceira || v.extremidade !== 'montante') continue
+    const t = trechoPorId.get(v.trechoId)
+    const caixa = caixaPorId.get(v.caixaId)
+    if (!t || caixa?.cotaTerreno == null) continue
+    const cotaTopoMontante = caixa.cotaTerreno - recobrimentoMinimoM
+    const cotaFundoMontante = cotaTopoMontante - t.diametroM
+    const cotaFundoJusante = cotaFundoMontante - t.declividadeMM * t.comprimentoM
+    const cotaTopoJusante = cotaFundoJusante + t.diametroM
+    correcoes.push({ trechoId: t.id, cotaFundoMontante, cotaFundoJusante, cotaTopoMontante, cotaTopoJusante })
+  }
+  return correcoes
+}
+
 export interface CaixaComTipo extends CaixaOrdenavel {
   tipo: string
 }

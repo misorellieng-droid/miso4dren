@@ -30,9 +30,11 @@ import {
   acumularVazao,
   calcularQProjeto,
   calcularTcSistema,
+  corrigirRecobrimentoCabeceiras,
   identificarCaixasComMultiplasSaidas,
   identificarCaixasIsoladas,
   identificarCaixasSemJusante,
+  identificarRecobrimentoInsuficiente,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTrechosPorFluxo,
@@ -793,6 +795,72 @@ export function RedePluvialPage() {
       .sort((a, b) => a.nome.localeCompare(b.nome))
   }, [caixas, captacoes])
 
+  // Recobrimento insuficiente (às vezes negativo -- tubo literalmente acima da cota de terreno
+  // cadastrada, normalmente cota de fundo errada importada do Civil 3D numa estrutura de
+  // captação) -- usa o mesmo campo "Recobrimento" já exposto no card de recálculo de perfil como
+  // referência mínima, pra não duplicar configuração.
+  const violacoesRecobrimento = useMemo(() => {
+    if (caixas.length === 0 || trechos.length === 0) return []
+    const recobrimentoMinimoM = Number(recobrimentoPerfil)
+    if (!Number.isFinite(recobrimentoMinimoM)) return []
+    return identificarRecobrimentoInsuficiente(
+      caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
+      trechos.map((t) => ({
+        id: t.id,
+        nome: t.nome,
+        montanteId: t.caixa_montante_id,
+        jusanteId: t.caixa_jusante_id,
+        diametroM: t.diametro_m,
+        comprimentoM: t.comprimento_m,
+        declividadeMM: t.declividade_m_m,
+        cotaTopoMontante: t.cota_topo_montante,
+        cotaTopoJusante: t.cota_topo_jusante,
+      })),
+      recobrimentoMinimoM
+    ).sort((a, b) => a.recobrimentoM - b.recobrimentoM)
+  }, [caixas, trechos, recobrimentoPerfil])
+  const violacoesRecobrimentoCabeceira = useMemo(() => violacoesRecobrimento.filter((v) => v.ehCabeceira), [violacoesRecobrimento])
+  const [corrigindoRecobrimento, setCorrigindoRecobrimento] = useState(false)
+
+  const handleCorrigirRecobrimentoCabeceiras = async () => {
+    const recobrimentoMinimoM = Number(recobrimentoPerfil)
+    if (!Number.isFinite(recobrimentoMinimoM)) return
+    setCorrigindoRecobrimento(true)
+    setError(null)
+    try {
+      const correcoes = corrigirRecobrimentoCabeceiras(
+        caixas.map((c) => ({ id: c.id, nome: c.nome, cotaTerreno: c.cota_terreno })),
+        trechos.map((t) => ({
+          id: t.id,
+          nome: t.nome,
+          montanteId: t.caixa_montante_id,
+          jusanteId: t.caixa_jusante_id,
+          diametroM: t.diametro_m,
+          comprimentoM: t.comprimento_m,
+          declividadeMM: t.declividade_m_m,
+          cotaTopoMontante: t.cota_topo_montante,
+          cotaTopoJusante: t.cota_topo_jusante,
+        })),
+        recobrimentoMinimoM
+      )
+      await Promise.all(
+        correcoes.map((c) =>
+          updateTrecho(c.trechoId, {
+            cota_fundo_montante: c.cotaFundoMontante,
+            cota_fundo_jusante: c.cotaFundoJusante,
+            cota_topo_montante: c.cotaTopoMontante,
+            cota_topo_jusante: c.cotaTopoJusante,
+          })
+        )
+      )
+      await handleRecalcularAposEdicao()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao corrigir o recobrimento das cabeceiras.')
+    } finally {
+      setCorrigindoRecobrimento(false)
+    }
+  }
+
   // Sistema de quem CONTINUA a partir de cada caixa (o trecho de saída dali) -- permite marcar
   // o lado inverso da confluência: "sufixoRedesQueDesaguam" avisa na caixa montante quem chega
   // de fora, isso aqui avisa na caixa jusante de um trecho que ELE MESMO é quem deságua noutro
@@ -1364,6 +1432,36 @@ export function RedePluvialPage() {
               <li key={c.id}>
                 {c.nome} está marcada como "recebe vazão" mas não tem nenhuma bacia vinculada em Cadastros → Bacias — provavelmente falta
                 a captação, ou ela não devia estar marcada como "recebe vazão".
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {violacoesRecobrimento.length > 0 && (
+        <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3">
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-medium text-accent-red">
+              {violacoesRecobrimento.length} extremidade(s) de trecho com recobrimento abaixo de {recobrimentoPerfil} m
+              {violacoesRecobrimentoCabeceira.length > 0 && ` (${violacoesRecobrimentoCabeceira.length} em cabeceira, corrigível automaticamente)`}
+            </div>
+            {violacoesRecobrimentoCabeceira.length > 0 && (
+              <button
+                type="button"
+                onClick={handleCorrigirRecobrimentoCabeceiras}
+                disabled={corrigindoRecobrimento}
+                className={SMALL_BTN}
+              >
+                {corrigindoRecobrimento ? 'Corrigindo...' : 'Corrigir cabeceiras automaticamente'}
+              </button>
+            )}
+          </div>
+          <ul className="list-inside list-disc space-y-0.5 text-xs text-accent-red">
+            {violacoesRecobrimento.map((v) => (
+              <li key={`${v.trechoId}-${v.extremidade}`}>
+                {v.nomeTrecho} ({v.extremidade} em {v.nomeCaixa}): recobrimento de {v.recobrimentoM.toFixed(2)} m
+                {v.recobrimentoM < 0 ? ' — tubo acima da cota de terreno (provável erro de importação do Civil 3D).' : '.'}
+                {v.ehCabeceira ? ' Cabeceira — pode ser corrigida automaticamente empurrando a cota, mantendo a declividade.' : ' Fora de cabeceira — corrija manualmente (afeta o encaixe com o trecho de montante).'}
               </li>
             ))}
           </ul>

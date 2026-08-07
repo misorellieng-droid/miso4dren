@@ -4,11 +4,13 @@ import {
   calcularQEntradaBacia,
   calcularQProjeto,
   calcularTcSistema,
+  corrigirRecobrimentoCabeceiras,
   ehCaixaDestinoExterno,
   GrafoCicloError,
   identificarCaixasComMultiplasSaidas,
   identificarCaixasIsoladas,
   identificarCaixasSemJusante,
+  identificarRecobrimentoInsuficiente,
   identificarRedesPorPvCabeceira,
   identificarTroncoRede,
   ordenarTopologicamente,
@@ -565,6 +567,99 @@ describe('recalcularPerfilRedeUniforme', () => {
     const { patches, cabeceirasSemCotaTerreno } = recalcularPerfilRedeUniforme(caixas, trechos, 0.01, 1.2)
     expect(cabeceirasSemCotaTerreno).toEqual(['A'])
     expect(patches).toEqual([])
+  })
+})
+
+describe('identificarRecobrimentoInsuficiente', () => {
+  const caixa = (id: string, cotaTerreno: number | null) => ({ id, nome: id, cotaTerreno })
+  const trecho = (over: Partial<ReturnType<typeof trechoBase>>) => ({ ...trechoBase(), ...over })
+  const trechoBase = () => ({
+    id: 't1',
+    nome: 'T1',
+    montanteId: 'A',
+    jusanteId: 'B',
+    diametroM: 0.3,
+    comprimentoM: 20,
+    declividadeMM: 0.005,
+    cotaTopoMontante: 99,
+    cotaTopoJusante: 98.9,
+  })
+
+  it('acusa recobrimento negativo (tubo acima da cota de terreno) na cabeceira -- o caso relatado (BS acima da superfície)', () => {
+    // cabeceira (A sem entrada nenhuma): terreno 99.5, topo do tubo 99.6 -> recobrimento -0.1 m.
+    // B com terreno bem acima do topo jusante (98.9), só pra essa violação não disparar junto.
+    const caixas = [caixa('A', 99.5), caixa('B', 100.5)]
+    const trechos = [trecho({ cotaTopoMontante: 99.6 })]
+    const violacoes = identificarRecobrimentoInsuficiente(caixas, trechos, 1.2)
+    expect(violacoes).toHaveLength(1)
+    expect(violacoes[0]).toMatchObject({ trechoId: 't1', extremidade: 'montante', caixaId: 'A', ehCabeceira: true })
+    expect(violacoes[0].recobrimentoM).toBeCloseTo(-0.1)
+  })
+
+  it('não acusa quando o recobrimento está dentro do mínimo', () => {
+    const caixas = [caixa('A', 100), caixa('B', 95)]
+    const trechos = [trecho({ cotaTopoMontante: 98.5, cotaTopoJusante: 93 })] // recobrimento 1.5 e 2.0, acima do mínimo 1.2
+    expect(identificarRecobrimentoInsuficiente(caixas, trechos, 1.2)).toEqual([])
+  })
+
+  it('marca ehCabeceira=false quando a violação é no meio do caminho (caixa com entrada)', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100), caixa('C', 95)]
+    const trechos = [
+      trecho({ id: 't0', montanteId: 'Z', jusanteId: 'B', cotaTopoMontante: 98, cotaTopoJusante: 96 }), // dá entrada em B
+      trecho({ id: 't1', montanteId: 'B', jusanteId: 'C', cotaTopoMontante: 99.5, cotaTopoJusante: 94 }), // B agora TEM entrada
+    ]
+    const caixasComZ = [...caixas, caixa('Z', 100)]
+    const violacoes = identificarRecobrimentoInsuficiente(caixasComZ, trechos, 1.2)
+    const violacaoMontanteT1 = violacoes.find((v) => v.trechoId === 't1' && v.extremidade === 'montante')
+    expect(violacaoMontanteT1?.ehCabeceira).toBe(false)
+  })
+})
+
+describe('corrigirRecobrimentoCabeceiras', () => {
+  const caixa = (id: string, cotaTerreno: number | null) => ({ id, nome: id, cotaTerreno })
+
+  it('empurra a cota de fundo da cabeceira pra baixo até garantir o recobrimento mínimo, preservando a declividade', () => {
+    const caixas = [caixa('A', 99.5), caixa('B', 95)]
+    const trechos = [
+      {
+        id: 't1',
+        nome: 'T1',
+        montanteId: 'A',
+        jusanteId: 'B',
+        diametroM: 0.3,
+        comprimentoM: 20,
+        declividadeMM: 0.005,
+        cotaTopoMontante: 99.6, // recobrimento -0.1 m (acima do terreno) -- o caso relatado
+        cotaTopoJusante: 99.5,
+      },
+    ]
+    const correcoes = corrigirRecobrimentoCabeceiras(caixas, trechos, 1.2)
+    expect(correcoes).toHaveLength(1)
+    const c = correcoes[0]
+    // terreno 99.5 - recobrimento 1.2 = topo 98.3; fundo = topo - diâmetro 0.3 = 98.0
+    expect(c.cotaTopoMontante).toBeCloseTo(98.3)
+    expect(c.cotaFundoMontante).toBeCloseTo(98.0)
+    // declividade preservada: fundo jusante = 98.0 - 0.005*20 = 97.9
+    expect(c.cotaFundoJusante).toBeCloseTo(97.9)
+    expect(c.cotaTopoJusante).toBeCloseTo(97.9 + 0.3)
+  })
+
+  it('não mexe em violação que não é de cabeceira', () => {
+    const caixas = [caixa('A', 100), caixa('B', 100), caixa('C', 95)]
+    const trechos = [
+      { id: 't0', nome: 'T0', montanteId: 'Z', jusanteId: 'B', diametroM: 0.3, comprimentoM: 10, declividadeMM: 0.005, cotaTopoMontante: 98, cotaTopoJusante: 96 },
+      { id: 't1', nome: 'T1', montanteId: 'B', jusanteId: 'C', diametroM: 0.3, comprimentoM: 20, declividadeMM: 0.005, cotaTopoMontante: 99.5, cotaTopoJusante: 94 },
+    ]
+    const caixasComZ = [...caixas, caixa('Z', 100)]
+    expect(corrigirRecobrimentoCabeceiras(caixasComZ, trechos, 1.2)).toEqual([])
+  })
+
+  it('não corrige cabeceira cuja caixa não tem cota de terreno cadastrada', () => {
+    const caixas = [caixa('A', null), caixa('B', 90)]
+    const trechos = [
+      { id: 't1', nome: 'T1', montanteId: 'A', jusanteId: 'B', diametroM: 0.3, comprimentoM: 20, declividadeMM: 0.005, cotaTopoMontante: 91, cotaTopoJusante: 89 },
+    ]
+    expect(corrigirRecobrimentoCabeceiras(caixas, trechos, 1.2)).toEqual([])
   })
 })
 
