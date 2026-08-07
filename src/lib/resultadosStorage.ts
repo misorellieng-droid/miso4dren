@@ -97,8 +97,13 @@ export async function listResultadosSarjetaArquivados(): Promise<ResultadoSarjet
   }))
 }
 
+/** Upsert por trecho_id (precisa da constraint unique de 024_dedupe_resultados_rede.sql) --
+ * defesa extra contra duplicata além do delete-antes-de-inserir em deleteResultadosRedeByTrechoIds
+ * e do lock de serialização em RedePluvialPage.tsx: mesmo que as duas escapem (ex.: corrida
+ * entre duas chamadas concorrentes), uma segunda gravação do mesmo trecho SUBSTITUI a primeira
+ * em vez de criar uma segunda linha. */
 export async function saveResultadoRede(input: Omit<ResultadoRedeRecord, 'id'>): Promise<ResultadoRedeRecord> {
-  const { data, error } = await requireSupabase().from('resultados_rede').insert(input).select().single()
+  const { data, error } = await requireSupabase().from('resultados_rede').upsert(input, { onConflict: 'trecho_id' }).select().single()
   if (error) throw error
   return data as ResultadoRedeRecord
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Boxes,
@@ -391,6 +391,19 @@ export function RedePluvialPage() {
   const [limites, setLimites] = useState(DEFAULT_LIMITES)
   const [resultados, setResultados] = useState<LinhaResultado[]>([])
   const [running, setRunning] = useState(false)
+  // Serializa toda chamada de executarCalculoRede (botão "Rodar cálculo" E o recálculo
+  // automático depois de editar um trecho na memória de cálculo) -- sem isso, duas chamadas
+  // sobrepostas (duplo clique, ou editar um trecho enquanto o recálculo do anterior ainda não
+  // tinha terminado) corriam em paralelo, cada uma com seu próprio delete-então-insere sobre
+  // TODOS os trechos, e dependendo do timing da corrida alguns trechos acabavam com duas linhas
+  // de resultado em vez de uma. Uma promise encadeada (não um booleano) porque precisa GARANTIR
+  // que a segunda chamada só comece depois que a primeira terminar de vez, não só bloquear.
+  const filaCalculoRef = useRef<Promise<void>>(Promise.resolve())
+  const executarCalculoSerializado = (fn: () => Promise<void>): Promise<void> => {
+    const proxima = filaCalculoRef.current.then(fn, fn)
+    filaCalculoRef.current = proxima.catch(() => {})
+    return proxima
+  }
   const [error, setError] = useState<string | null>(null)
   const [avisos, setAvisos] = useState<string[]>([])
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
@@ -454,9 +467,11 @@ export function RedePluvialPage() {
     }
     setRunning(true)
     try {
-      const { avisos: novosAvisos } = await executarCalculoRede({ revisaoAtiva, equacao, caixas, trechos, bacias, captacoes, limites })
-      setAvisos(novosAvisos)
-      await load()
+      await executarCalculoSerializado(async () => {
+        const { avisos: novosAvisos } = await executarCalculoRede({ revisaoAtiva, equacao, caixas, trechos, bacias, captacoes, limites })
+        setAvisos(novosAvisos)
+        await load()
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao calcular a rede.')
     } finally {
@@ -514,21 +529,23 @@ export function RedePluvialPage() {
   // no estado do componente, que ainda não foi re-renderizado) e roda o cálculo de novo.
   const handleRecalcularAposEdicao = async () => {
     if (!revisaoAtiva || !equacao) return
-    const [caixasFrescas, trechosFrescos] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id)])
-    setCaixas(caixasFrescas)
-    setTrechos(trechosFrescos)
-    const { avisos: novosAvisos } = await executarCalculoRede({
-      revisaoAtiva,
-      equacao,
-      caixas: caixasFrescas,
-      trechos: trechosFrescos,
-      bacias,
-      captacoes,
-      limites,
+    await executarCalculoSerializado(async () => {
+      const [caixasFrescas, trechosFrescos] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id)])
+      setCaixas(caixasFrescas)
+      setTrechos(trechosFrescos)
+      const { avisos: novosAvisos } = await executarCalculoRede({
+        revisaoAtiva,
+        equacao,
+        caixas: caixasFrescas,
+        trechos: trechosFrescos,
+        bacias,
+        captacoes,
+        limites,
+      })
+      setAvisos(novosAvisos)
+      const existentes = await listResultadosRedeByRevisao(revisaoAtiva.id)
+      setResultados(existentes)
     })
-    setAvisos(novosAvisos)
-    const existentes = await listResultadosRedeByRevisao(revisaoAtiva.id)
-    setResultados(existentes)
   }
 
   // Calcula (sem gravar ainda) o resultado de aplicar uma declividade + recobrimento uniformes
