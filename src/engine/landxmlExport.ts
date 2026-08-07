@@ -1,4 +1,5 @@
 import type { CaixaRecord, TrechoRecord } from '../lib/redeStorage'
+import { cotaFundoEstruturaConectada } from './landxmlCotas'
 
 // "Structure" de propósito pra caixa_passagem: inferirTipoCaixa (landxml.ts) só reconhece
 // inlet/catchbasin/boca -> boca_de_lobo e junction/manhole/pv -> pv: não existe uma palavra-
@@ -73,7 +74,8 @@ export function exportarRedeLandXml(caixas: CaixaRecord[], trechos: TrechoRecord
         .map((c) => {
           const type = TIPO_PARA_TYPE[c.tipo] ?? 'Junction'
           const elevRim = c.cota_terreno != null ? ` elevRim="${fmt(c.cota_terreno)}"` : ''
-          const elevSump = c.cota_fundo != null ? ` elevSump="${fmt(c.cota_fundo)}"` : ''
+          const cotaFundoReal = cotaFundoEstruturaConectada(c.id, c.cota_fundo, trechosRede)
+          const elevSump = cotaFundoReal != null ? ` elevSump="${fmt(cotaFundoReal)}"` : ''
           // "N E" (Northing Easting), mesma ordem que parseLandXml espera de volta (ver
           // comentário de parsePos em landxml.ts) -- y (Northing) primeiro, x (Easting) depois.
           const center = c.x != null && c.y != null ? `\n          <Center>${fmt(c.y)} ${fmt(c.x)}</Center>` : ''

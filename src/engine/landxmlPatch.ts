@@ -1,5 +1,6 @@
 import type { ItemBiblioteca } from '../lib/bibliotecaStorage'
 import type { CaixaRecord, TrechoRecord } from '../lib/redeStorage'
+import { cotaFundoEstruturaConectada } from './landxmlCotas'
 
 const TOLERANCIA_DIAMETRO_M = 0.001
 
@@ -109,7 +110,8 @@ export function patchXmlOriginal(
     if (!caixa) continue
 
     if (caixa.cota_terreno != null) setCota(s, 'elevRim', 'Rim', caixa.cota_terreno)
-    if (caixa.cota_fundo != null) setCota(s, 'elevSump', 'Sump', caixa.cota_fundo)
+    const cotaFundoReal = cotaFundoEstruturaConectada(caixa.id, caixa.cota_fundo, trechos)
+    if (cotaFundoReal != null) setCota(s, 'elevSump', 'Sump', cotaFundoReal)
     if (caixa.x != null && caixa.y != null) setCenterTexto(s, caixa.x, caixa.y)
 
     for (const inv of Array.from(s.getElementsByTagName('Invert'))) {

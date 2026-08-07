@@ -63,7 +63,10 @@ describe('exportarRedeLandXml', () => {
     const pv = caixas.find((c) => c.nome === 'PV-01')!
     expect(pv.tipo).toBe('pv')
     expect(pv.cotaTerreno).toBeCloseTo(850.5)
-    expect(pv.cotaFundo).toBeCloseTo(847.2)
+    // cota de fundo exportada vem do invert do trecho conectado (jusante de t1 = 846.3),
+    // não do campo cota_fundo isolado da caixa (847.2, desatualizado nesse fixture) --
+    // ver cotaFundoEstruturaConectada
+    expect(pv.cotaFundo).toBeCloseTo(846.3)
 
     const tubo = trechos.find((t) => t.nome === 'TUBO-5')!
     expect(tubo.caixaMontanteNome).toBe('BLCS-06')
@@ -84,6 +87,32 @@ describe('exportarRedeLandXml', () => {
     const t = trechos.find((x) => x.nome === 'T1')!
     expect(t.cotaFundoMontante).toBeCloseTo(100.1)
     expect(t.cotaFundoJusante).toBeCloseTo(99.4)
+  })
+
+  it('usa o invert do trecho conectado como elevSump, ignorando cota_fundo desatualizada da caixa -- caso do BS "acima do terreno" (recobrimento negativo) reportado após cascata de recálculo', () => {
+    const c1 = caixa({ id: 'c1', nome: 'A', cota_fundo: 999 }) // stale: cascata já moveu o invert, mas cota_fundo da caixa não foi ressincronizada
+    const c2 = caixa({ id: 'c2', nome: 'B', cota_fundo: 999 })
+    const t1 = trecho({
+      id: 't1',
+      nome: 'T1',
+      caixa_montante_id: 'c1',
+      caixa_jusante_id: 'c2',
+      cota_fundo_montante: 100.1,
+      cota_fundo_jusante: 99.4,
+    })
+
+    const xml = exportarRedeLandXml([c1, c2], [t1])
+    const { caixas } = parseLandXml(xml, new Map())
+
+    expect(caixas.find((c) => c.nome === 'A')!.cotaFundo).toBeCloseTo(100.1)
+    expect(caixas.find((c) => c.nome === 'B')!.cotaFundo).toBeCloseTo(99.4)
+  })
+
+  it('cai pro cota_fundo cadastrado quando a caixa não tem nenhum trecho conectado com invert conhecido', () => {
+    const c1 = caixa({ id: 'c1', nome: 'ISOLADA', cota_fundo: 500.5 })
+    const xml = exportarRedeLandXml([c1], [])
+    const { caixas } = parseLandXml(xml, new Map())
+    expect(caixas.find((c) => c.nome === 'ISOLADA')!.cotaFundo).toBeCloseTo(500.5)
   })
 
   it('agrupa por rede_nome em blocos <PipeNetwork> separados', () => {

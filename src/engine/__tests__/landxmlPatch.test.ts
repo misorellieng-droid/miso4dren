@@ -94,6 +94,18 @@ describe('patchXmlOriginal', () => {
     expect(xmlPatched).toContain('<CircStruct diameter="1500." material="CONCRETO"')
   })
 
+  it('usa o invert do trecho conectado como elevSump, ignorando cota_fundo desatualizada da caixa (cascata de recálculo não ressincroniza cota_fundo)', () => {
+    const c1 = caixa({ id: 'c1', nome: 'PV-01', cota_fundo: 999 }) // stale: não bate com o invert real do trecho
+    const c2 = caixa({ id: 'c2', nome: 'PV-02', x: 150, y: 210, cota_terreno: 848, cota_fundo: 999 })
+    const t1 = trecho({ cota_fundo_montante: 846.9, cota_fundo_jusante: 845.5 })
+
+    const xmlPatched = patchXmlOriginal(FIXTURE_XML, [c1, c2], [t1])
+    const { caixas } = parseLandXml(xmlPatched, new Map())
+
+    expect(caixas.find((c) => c.nome === 'PV-01')!.cotaFundo).toBeCloseTo(846.9)
+    expect(caixas.find((c) => c.nome === 'PV-02')!.cotaFundo).toBeCloseTo(845.5)
+  })
+
   it('reimporta o XML corrigido com parseLandXml e confere os valores novos', () => {
     const c1 = caixa({ id: 'c1', nome: 'PV-01', cota_fundo: 846.9 })
     const c2 = caixa({ id: 'c2', nome: 'PV-02', x: 150, y: 210, cota_terreno: 848, cota_fundo: 846.7 })
