@@ -434,6 +434,7 @@ export function RedePluvialPage() {
   const [mostrarDiagrama, setMostrarDiagrama] = useState(false)
   const [visaoDiagrama, setVisaoDiagrama] = useState<'completa' | 'tronco'>('completa')
   const [redeSelecionada, setRedeSelecionada] = useState<number | 'todas'>('todas')
+  const [apenasNaoConformes, setApenasNaoConformes] = useState(false)
   const [trechoModalId, setTrechoModalId] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
   const [gerandoRelatorio, setGerandoRelatorio] = useState(false)
@@ -941,11 +942,11 @@ export function RedePluvialPage() {
   // Sistema separava esse ramal pra um bloco totalmente à parte, longe de onde ele realmente
   // se conecta fisicamente.
   const resultadosOrdenados = useMemo(() => {
-    const base = resultados.filter((r) => passaFiltros(r.trecho_id))
+    const base = resultados.filter((r) => passaFiltros(r.trecho_id) && (!apenasNaoConformes || !r.conforme))
     const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
     return [...base].sort((a, b) => posicao(a) - posicao(b))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
+  }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada, apenasNaoConformes])
 
   // Mesma ordem/filtro de resultadosOrdenados, mas a partir de `trechos` direto (não depende
   // de ter rodado o cálculo) — usado pelas abas Nota de Serviço e Quantidade.
@@ -957,6 +958,14 @@ export function RedePluvialPage() {
   }, [trechos, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
 
   const conformidadePorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.conforme])), [resultados])
+
+  // Conta os não conformes já dentro do filtro de rede tronco/sistema ativo (mas ignorando o
+  // próprio filtro "só não conformes"), pra mostrar quantos existem mesmo com o checkbox desligado.
+  const naoConformesCount = useMemo(
+    () => resultados.filter((r) => passaFiltros(r.trecho_id) && !r.conforme).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [resultados, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada]
+  )
 
   const trechosDiagrama = useMemo(() => {
     const filtrados = trechos.filter((t) => passaFiltros(t.id))
@@ -1358,15 +1367,22 @@ export function RedePluvialPage() {
   const trechoModal = trechoModalId ? (trechos.find((t) => t.id === trechoModalId) ?? null) : null
   const sugestaoModal = trechoModalId ? (sugestoesPorTrecho.get(trechoModalId) ?? null) : null
 
-  // Navegação anterior/próximo no modal segue a mesma ordem de fluxo da tabela (tronco
-  // primeiro em cada confluência, ver ordenarTrechosPorFluxo) — respeita o filtro "só rede
-  // tronco" ativo no momento, já que resultadosOrdenados já vem filtrado por ele.
-  const indiceModalNaOrdem = trechoModalId ? resultadosOrdenados.findIndex((r) => r.trecho_id === trechoModalId) : -1
+  // Navegação anterior/próximo no modal segue a mesma ordem de fluxo da tabela (tronco primeiro
+  // em cada confluência, ver ordenarTrechosPorFluxo) — respeita os filtros ativos no momento
+  // (rede tronco/sistema/só não conformes), já que resultadosOrdenados já vem filtrado por eles.
+  // Usa a POSIÇÃO do trecho aberto (não o índice dele dentro do array já filtrado) pra achar
+  // vizinho — assim, se editar o trecho aberto fizer ele ficar conforme e sair da lista (com "só
+  // não conformes" ligado), "Próximo" ainda acha o não conforme seguinte em vez de travar.
+  const posicaoModal = trechoModalId ? (ordemTrechos.get(trechoModalId) ?? -1) : -1
   const trechoAnteriorId =
-    indiceModalNaOrdem > 0 ? resultadosOrdenados[indiceModalNaOrdem - 1].trecho_id : null
+    posicaoModal >= 0
+      ? (resultadosOrdenados
+          .filter((r) => (ordemTrechos.get(r.trecho_id) ?? -1) < posicaoModal)
+          .at(-1)?.trecho_id ?? null)
+      : null
   const trechoProximoId =
-    indiceModalNaOrdem >= 0 && indiceModalNaOrdem < resultadosOrdenados.length - 1
-      ? resultadosOrdenados[indiceModalNaOrdem + 1].trecho_id
+    posicaoModal >= 0
+      ? (resultadosOrdenados.find((r) => (ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER) > posicaoModal)?.trecho_id ?? null)
       : null
 
   if (!supabase || !revisaoAtiva) {
@@ -1878,6 +1894,17 @@ export function RedePluvialPage() {
                 Clique numa linha pra ver a memória de cálculo do trecho (e editar diâmetro/declividade).
               </div>
               <div className="flex items-center gap-3">
+                {aba === 'memorial' && (
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={apenasNaoConformes}
+                      onChange={(e) => setApenasNaoConformes(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border"
+                    />
+                    Só não conformes ({naoConformesCount})
+                  </label>
+                )}
                 <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
                   <input
                     type="checkbox"
