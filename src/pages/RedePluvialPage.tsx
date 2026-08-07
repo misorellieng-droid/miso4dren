@@ -810,16 +810,16 @@ export function RedePluvialPage() {
   const passaFiltros = (trechoId: string) =>
     (visaoDiagrama !== 'tronco' || troncoIds.has(trechoId)) && (redeSelecionada === 'todas' || redePorTrecho.get(trechoId) === redeSelecionada)
 
-  // Ordena primeiro por Sistema (pra não intercalar trechos de sistemas diferentes que por
-  // acaso caem perto na ordem de fluxo GLOBAL) e só depois pela ordem de fluxo dentro de cada
-  // Sistema -- assim, olhando a tabela inteira ou filtrada num Sistema só, ela sempre começa no
-  // PV de cabeceira daquele Sistema e segue rio abaixo, em vez de misturar com outro Sistema
-  // que só se conecta mais adiante.
+  // Ordem pura de fluxo (ordenarTrechosPorFluxo, já ciente da classificação de rede tronco) --
+  // NÃO agrupa por Sistema primeiro: quando um Sistema deságua no meio do caminho de outro
+  // (ex.: uma rede inteira desaguando no PV-11 antes de seguir pro PV-12), esse ramal precisa
+  // aparecer bem ali, avaliado ANTES de continuar pro próximo trecho do tronco -- agrupar por
+  // Sistema separava esse ramal pra um bloco totalmente à parte, longe de onde ele realmente
+  // se conecta fisicamente.
   const resultadosOrdenados = useMemo(() => {
     const base = resultados.filter((r) => passaFiltros(r.trecho_id))
-    const chave = (r: LinhaResultado) =>
-      (redePorTrecho.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER) * 1e9 + (ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER)
-    return [...base].sort((a, b) => chave(a) - chave(b))
+    const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
+    return [...base].sort((a, b) => posicao(a) - posicao(b))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
 
@@ -827,9 +827,8 @@ export function RedePluvialPage() {
   // de ter rodado o cálculo) — usado pelas abas Nota de Serviço e Quantidade.
   const trechosOrdenados = useMemo(() => {
     const base = trechos.filter((t) => passaFiltros(t.id))
-    const chave = (t: TrechoRecord) =>
-      (redePorTrecho.get(t.id) ?? Number.MAX_SAFE_INTEGER) * 1e9 + (ordemTrechos.get(t.id) ?? Number.MAX_SAFE_INTEGER)
-    return [...base].sort((a, b) => chave(a) - chave(b))
+    const posicao = (t: TrechoRecord) => ordemTrechos.get(t.id) ?? Number.MAX_SAFE_INTEGER
+    return [...base].sort((a, b) => posicao(a) - posicao(b))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trechos, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada])
 
