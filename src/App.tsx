@@ -10,6 +10,7 @@ import { SarjetaCriticaPage } from './pages/SarjetaCriticaPage'
 import { SarjetaoDenteServaPage } from './pages/SarjetaoDenteServaPage'
 import { RedePluvialPage } from './pages/RedePluvialPage'
 import { EscadasHidraulicasPage } from './pages/EscadasHidraulicasPage'
+import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
 import { ConformidadePage } from './pages/ConformidadePage'
 import { RelatoriosPage } from './pages/RelatoriosPage'
 import { EquacoesIdfPage } from './pages/EquacoesIdfPage'
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="materiais" element={<MateriaisPage />} />
         <Route path="biblioteca-pecas" element={<BibliotecaPecasPage />} />
         <Route path="arquivo" element={<ArquivoPage />} />
+        <Route path="configuracoes" element={<ConfiguracoesPage />} />
         <Route path="manual" element={<PlaceholderPage title="Manual / Ajuda" />} />
       </Route>
     </Routes>

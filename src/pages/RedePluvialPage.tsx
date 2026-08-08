@@ -74,6 +74,9 @@ import { listResultadosSarjetao } from '../lib/resultadosSarjetaoStorage'
 import { construirMemorialSarjetaCritica } from './SarjetaCriticaPage'
 import { parametrosExibicaoDoRegistroSarjetao, recalcularSarjetaoDoRegistro } from './SarjetaoDenteServaPage'
 import { gerarSvgDiagrama, rasterizarSvgParaPngDataUrl } from '../lib/diagramaSvg'
+import { getProjetoDetail } from '../lib/projetosStorage'
+import { carregarLogoParaPdf } from '../lib/configuracoesStorage'
+import { ALTURA_FLUXO_MAXIMA_M, ALTURA_FLUXO_MINIMA_M, larguraMinimaEscadaM } from '../engine/escadaHidraulica'
 import { gerarRelatorioCompletoPdf } from '../lib/exportRelatorioCompletoPdf'
 import { updateCriteriosConformidade, type RevisaoComProjeto } from '../lib/revisoesStorage'
 import { supabase } from '../lib/supabase'
@@ -1602,19 +1605,45 @@ export function RedePluvialPage() {
         trechosTronco.map((t) => ({ id: t.id, caixa_montante_id: t.caixa_montante_id, caixa_jusante_id: t.caixa_jusante_id })),
         conformidadePorTrecho
       )
-      const [diagramaCompleto, diagramaTronco] = await Promise.all([
+      const alturaFluxoPadraoM = (ALTURA_FLUXO_MINIMA_M + ALTURA_FLUXO_MAXIMA_M) / 2
+      const qProjetoPorTrecho = new Map(resultados.map((r) => [r.trecho_id, r.q_projeto_m3s]))
+      const escadasHidraulicas = trechos
+        .filter((t) => t.eh_escada_hidraulica)
+        .map((t) => {
+          const item = acharItemBiblioteca(biblioteca, t.material, t.diametro_m)
+          const diametroExternoM = item?.espessura_parede_m != null ? t.diametro_m + 2 * item.espessura_parede_m : t.diametro_m
+          return {
+            nomeTrecho: nomeTrechoPorId.get(t.id) ?? t.nome,
+            caixaMontante: nomeCaixaPorId.get(t.caixa_montante_id) ?? '—',
+            caixaJusante: nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—',
+            larguraM: t.escada_largura_m ?? larguraMinimaEscadaM(diametroExternoM),
+            alturaFluxoM: t.escada_altura_fluxo_m ?? alturaFluxoPadraoM,
+            diametroExternoTuboChegadaM: diametroExternoM,
+            qProjetoM3s: qProjetoPorTrecho.get(t.id) ?? null,
+          }
+        })
+
+      const [diagramaCompleto, diagramaTronco, clienteNome, logo] = await Promise.all([
         svgCompleto ? rasterizarSvgParaPngDataUrl(svgCompleto) : Promise.resolve(null),
         svgTronco ? rasterizarSvgParaPngDataUrl(svgTronco) : Promise.resolve(null),
+        revisaoAtiva.projeto_id
+          ? getProjetoDetail(revisaoAtiva.projeto_id)
+              .then((p) => p.cliente_nome)
+              .catch(() => null)
+          : Promise.resolve(null),
+        carregarLogoParaPdf(),
       ])
 
       gerarRelatorioCompletoPdf({
+        clienteNome,
         projetoNome: revisaoAtiva.projeto_nome ?? 'Sem projeto',
         revisaoNome: revisaoAtiva.nome,
-        equacaoNome: equacao?.nome ?? null,
+        equacaoIdf: equacao,
         tempoRetornoAnos: revisaoAtiva.tempo_retorno_anos ?? 10,
         qtdCaixas: caixas.length,
         qtdTrechos: trechos.length,
         qtdBacias: bacias.length,
+        logo,
         diagramaTronco,
         diagramaCompleto,
         memorial,
@@ -1634,6 +1663,7 @@ export function RedePluvialPage() {
         },
         materiaisManning,
         bibliotecaPecas: biblioteca,
+        escadasHidraulicas,
         sarjetasCriticas,
         sarjetoes,
       })

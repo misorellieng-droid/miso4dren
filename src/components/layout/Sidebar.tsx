@@ -122,13 +122,18 @@ export function Sidebar() {
       </nav>
 
       <div className="flex flex-col gap-1 border-t border-white/15 p-2">
-        <button
-          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/85 hover:bg-white/10 hover:text-white"
+        <NavLink
+          to="/configuracoes"
+          className={({ isActive }) =>
+            `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              isActive ? 'bg-white text-brand' : 'text-white/85 hover:bg-white/10 hover:text-white'
+            }`
+          }
           title={collapsed ? 'Configurações' : undefined}
         >
           <Settings size={18} className="shrink-0" />
           {!collapsed && <span>Configurações</span>}
-        </button>
+        </NavLink>
         <button
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/85 hover:bg-white/10 hover:text-white"
           title={collapsed ? 'Sair' : undefined}

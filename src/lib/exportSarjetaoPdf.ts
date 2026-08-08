@@ -522,6 +522,7 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf, docExistente?: jsPDF):
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
     doc.text(`${data.nomeTrecho} — Sarjetão em Dente de Serra`, MARGIN_X, 825)
+    doc.text('Desenvolvido com miso4dren', 297.5, 825, { align: 'center' })
     doc.text(`Página ${i - paginaInicial + 1} de ${totalPaginas - paginaInicial + 1}`, 555, 825, { align: 'right' })
   }
 

@@ -1,8 +1,10 @@
 import { Bell, ChevronDown, EyeOff, Search, Settings, UserCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useRevisaoContext } from '../../lib/RevisaoContext'
 
 export function Header() {
   const { revisoes, revisaoAtivaId, setRevisaoAtivaId, ocultarNomeRede, setOcultarNomeRede } = useRevisaoContext()
+  const navigate = useNavigate()
 
   const projetos = Array.from(new Set(revisoes.map((r) => r.projeto_nome ?? 'Sem projeto')))
 
@@ -60,7 +62,7 @@ export function Header() {
         <button aria-label="Usuário" className="hover:text-brand">
           <UserCircle size={22} />
         </button>
-        <button aria-label="Configurações" className="hover:text-brand">
+        <button aria-label="Configurações" onClick={() => navigate('/configuracoes')} className="hover:text-brand">
           <Settings size={20} />
         </button>
       </div>
