@@ -137,6 +137,18 @@ function desenharImagem(doc: jsPDF, cursor: Cursor, imagem: ImagemRasterizada, l
   return alturaDisp
 }
 
+/** Corta o texto (com "…" no fim) até caber em `larguraMaxima` pt, usando a largura REAL do
+ * texto na fonte/tamanho já selecionados no doc -- evita que um cabeçalho de rodapé comprido
+ * (nome de cliente/projeto/revisão longo) encavale a marca central ou o número da página. */
+function truncarParaCaber(doc: jsPDF, texto: string, larguraMaxima: number): string {
+  if (doc.getTextWidth(texto) <= larguraMaxima) return texto
+  let resultado = texto
+  while (resultado.length > 1 && doc.getTextWidth(resultado + '…') > larguraMaxima) {
+    resultado = resultado.slice(0, -1)
+  }
+  return resultado + '…'
+}
+
 /** Rodapé de "Desenvolvido com miso4dren" + página/nome, aplicado depois de tudo pronto (só
  * então dá pra saber o total de páginas de cada trecho do PDF). */
 function rodapePaginas(doc: jsPDF, cabecalho: string, dePagina: number, atePagina: number) {
@@ -146,9 +158,16 @@ function rodapePaginas(doc: jsPDF, cabecalho: string, dePagina: number, atePagin
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
-    doc.text(cabecalho, MARGIN_X, RODAPE_Y)
-    doc.text('Desenvolvido com miso4dren', PAGE_WIDTH_PT / 2, RODAPE_Y, { align: 'center' })
-    doc.text(`Página ${i - dePagina + 1} de ${total}`, PAGE_WIDTH_PT - MARGIN_X, RODAPE_Y, { align: 'right' })
+    const textoCentro = 'Desenvolvido com miso4dren'
+    const textoPagina = `Página ${i - dePagina + 1} de ${total}`
+    const GAP = 12
+    const inicioCentro = PAGE_WIDTH_PT / 2 - doc.getTextWidth(textoCentro) / 2
+    const fimCentro = PAGE_WIDTH_PT / 2 + doc.getTextWidth(textoCentro) / 2
+    const larguraMaxEsquerda = inicioCentro - GAP - MARGIN_X
+    const larguraMaxDireita = PAGE_WIDTH_PT - MARGIN_X - doc.getTextWidth(textoPagina) - GAP - fimCentro
+    doc.text(truncarParaCaber(doc, cabecalho, Math.max(larguraMaxEsquerda, 40)), MARGIN_X, RODAPE_Y)
+    if (larguraMaxDireita > 0) doc.text(textoCentro, PAGE_WIDTH_PT / 2, RODAPE_Y, { align: 'center' })
+    doc.text(textoPagina, PAGE_WIDTH_PT - MARGIN_X, RODAPE_Y, { align: 'right' })
     doc.setTextColor(20, 20, 20)
   }
 }

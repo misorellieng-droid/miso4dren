@@ -52,6 +52,17 @@ interface Cursor {
   y: number
 }
 
+/** Corta o texto (com "…" no fim) até caber em `larguraMaxima` pt na fonte/tamanho já
+ * selecionados no doc -- evita que o cabeçalho do rodapé encavale a marca central. */
+function truncarParaCaber(doc: jsPDF, texto: string, larguraMaxima: number): string {
+  if (doc.getTextWidth(texto) <= larguraMaxima) return texto
+  let resultado = texto
+  while (resultado.length > 1 && doc.getTextWidth(resultado + '…') > larguraMaxima) {
+    resultado = resultado.slice(0, -1)
+  }
+  return resultado + '…'
+}
+
 function garantirEspaco(doc: jsPDF, cursor: Cursor, necessarioPt: number) {
   if (cursor.y + necessarioPt > PAGE_HEIGHT_PT - MARGIN_BOTTOM) {
     doc.addPage()
@@ -521,9 +532,17 @@ export function exportSarjetaoPdf(data: DadosSarjetaoPdf, docExistente?: jsPDF):
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(140, 140, 140)
-    doc.text(`${data.nomeTrecho} — Sarjetão em Dente de Serra`, MARGIN_X, 825)
-    doc.text('Desenvolvido com miso4dren', 297.5, 825, { align: 'center' })
-    doc.text(`Página ${i - paginaInicial + 1} de ${totalPaginas - paginaInicial + 1}`, 555, 825, { align: 'right' })
+    const cabecalhoRodape = `${data.nomeTrecho} — Sarjetão em Dente de Serra`
+    const textoCentro = 'Desenvolvido com miso4dren'
+    const textoPagina = `Página ${i - paginaInicial + 1} de ${totalPaginas - paginaInicial + 1}`
+    const GAP = 12
+    const inicioCentro = 297.5 - doc.getTextWidth(textoCentro) / 2
+    const fimCentro = 297.5 + doc.getTextWidth(textoCentro) / 2
+    const larguraMaxEsquerda = inicioCentro - GAP - MARGIN_X
+    const larguraMaxDireita = 555 - doc.getTextWidth(textoPagina) - GAP - fimCentro
+    doc.text(truncarParaCaber(doc, cabecalhoRodape, Math.max(larguraMaxEsquerda, 40)), MARGIN_X, 825)
+    if (larguraMaxDireita > 0) doc.text(textoCentro, 297.5, 825, { align: 'center' })
+    doc.text(textoPagina, 555, 825, { align: 'right' })
   }
 
   if (!docExistente) {
