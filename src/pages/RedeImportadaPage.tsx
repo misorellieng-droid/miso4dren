@@ -15,6 +15,7 @@ import {
   updateCaixasRecebeVazaoEmLote,
   updateCaixasTipoEmLote,
   updateTrecho,
+  updateTrechosEhEscadaHidraulicaEmLote,
   updateTrechosManningEmLote,
   type CaixaRecord,
   type TrechoRecord,
@@ -209,6 +210,20 @@ export function RedeImportadaPage() {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao aplicar manning em lote.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleAplicarEscadaHidraulicaLote = async (ehEscadaHidraulica: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await updateTrechosEhEscadaHidraulicaEmLote([...selecionadosTrechos], ehEscadaHidraulica)
+      setSelecionadosTrechos(new Set())
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao aplicar escada hidráulica em lote.')
     } finally {
       setBusy(false)
     }
@@ -671,6 +686,17 @@ export function RedeImportadaPage() {
                 {busy && <Loader2 size={14} className="animate-spin" />}
                 Aplicar manning n aos selecionados
               </button>
+              <button onClick={() => handleAplicarEscadaHidraulicaLote(true)} disabled={busy} className={SMALL_BTN}>
+                {busy && <Loader2 size={14} className="animate-spin" />}
+                Marcar como escada hidráulica
+              </button>
+              <button
+                onClick={() => handleAplicarEscadaHidraulicaLote(false)}
+                disabled={busy}
+                className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary disabled:opacity-60"
+              >
+                Desmarcar escada hidráulica
+              </button>
               <button onClick={() => setSelecionadosTrechos(new Set())} className="text-xs text-text-secondary hover:text-text-primary">
                 Limpar seleção
               </button>
@@ -699,6 +725,9 @@ export function RedeImportadaPage() {
                   <th className="px-3 py-2 font-medium">Material</th>
                   <th className="px-3 py-2 font-medium">Manning n</th>
                   <th className="px-3 py-2 font-medium">Origem manning</th>
+                  <th className="px-3 py-2 font-medium" title="Dissipador em degraus -- não é um tubo circular, sai do memorial justificativo e é dimensionado à parte em Escadas Hidráulicas.">
+                    Escada hidráulica
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -778,12 +807,25 @@ export function RedeImportadaPage() {
                         />
                       </td>
                       <td className="px-3 py-1.5 text-text-secondary">{t.manning_n_origem}</td>
+                      <td className="px-3 py-1.5">
+                        <button
+                          onClick={() => handleEditTrecho(t.id, { eh_escada_hidraulica: !t.eh_escada_hidraulica })}
+                          className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition ${
+                            t.eh_escada_hidraulica
+                              ? 'bg-accent-blue/10 text-accent-blue'
+                              : 'bg-elevated text-text-secondary hover:text-text-primary'
+                          }`}
+                          title="Clique pra alternar"
+                        >
+                          {t.eh_escada_hidraulica ? 'Sim' : 'Não'}
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
                 {trechosFiltrados.length === 0 && (
                   <tr>
-                    <td colSpan={redesDisponiveis.length > 1 ? 11 : 10} className="px-3 py-6 text-center text-text-secondary">
+                    <td colSpan={redesDisponiveis.length > 1 ? 12 : 11} className="px-3 py-6 text-center text-text-secondary">
                       Nenhum tubo encontrado.
                     </td>
                   </tr>

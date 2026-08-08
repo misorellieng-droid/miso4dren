@@ -12,6 +12,7 @@ import {
   FileBarChart,
   FolderKanban,
   FolderOpen,
+  Layers,
   LogOut,
   Mountain,
   Package,
@@ -52,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/sarjeta-critica', label: 'Sarjeta Crítica', icon: Waves },
       { to: '/sarjetao-dente-serra', label: 'Sarjetão Dente de Serra', icon: Mountain },
       { to: '/rede-pluvial', label: 'Rede Pluvial', icon: Droplets },
+      { to: '/escadas-hidraulicas', label: 'Escadas Hidráulicas', icon: Layers },
     ],
   },
   {

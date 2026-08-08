@@ -37,6 +37,12 @@ export interface TrechoRecord {
   cota_fundo_jusante: number | null
   rede_nome: string | null
   importacao_id: string | null
+  /** Escada hidráulica (dissipador em degraus) -- não é um tubo circular, hidráulica própria (ver
+   * engine/escadaHidraulica.ts e a página Escadas Hidráulicas), fora do memorial justificativo.
+   * Ver migração 027_escada_hidraulica.sql. */
+  eh_escada_hidraulica: boolean
+  escada_largura_m: number | null
+  escada_altura_fluxo_m: number | null
 }
 
 function requireSupabase() {
@@ -128,6 +134,15 @@ export interface TrechoPatch {
   cota_fundo_jusante?: number
   cota_topo_montante?: number
   cota_topo_jusante?: number
+  eh_escada_hidraulica?: boolean
+  escada_largura_m?: number | null
+  escada_altura_fluxo_m?: number | null
+}
+
+export async function updateTrechosEhEscadaHidraulicaEmLote(ids: string[], ehEscadaHidraulica: boolean): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await requireSupabase().from('trechos').update({ eh_escada_hidraulica: ehEscadaHidraulica }).in('id', ids)
+  if (error) throw error
 }
 
 export async function updateTrecho(id: string, patch: TrechoPatch): Promise<void> {

@@ -325,6 +325,31 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
       const intensidade = calcularIntensidadeIdf(equacao, tempoRetorno, tcSistema)
       const qProjeto = calcularQProjeto(ca, intensidade)
 
+      // Escada hidráulica não é um tubo circular -- a hidráulica de Manning/y-D/velocidade de
+      // autolimpeza não se aplica (fisicamente outro fenômeno, degrau em queda livre). Fica de
+      // fora do solver e da checagem de conformidade "de tubo" (o dimensionamento próprio dela é
+      // feito à parte, ver src/engine/escadaHidraulica.ts e a página Escadas Hidráulicas) -- só
+      // continua carregando ΣC×A/Q adiante pra não quebrar a cascata de vazão da rede.
+      if (t.eh_escada_hidraulica) {
+        if (!ultimaPassada) continue
+        linhas.push({
+          trecho_id: t.id,
+          q_entrada_m3s: null,
+          ca_acumulado: ca,
+          q_projeto_m3s: qProjeto,
+          tc_sistema_min: tcSistema,
+          intensidade_mm_h: intensidade,
+          lamina_m: null,
+          y_sobre_d_pct: null,
+          raio_hidraulico_m: null,
+          velocidade_ms: null,
+          vazao_calculada_m3s: null,
+          conforme: true,
+          motivo_nao_conformidade: null,
+        })
+        continue
+      }
+
       if (t.manning_n == null) {
         if (ultimaPassada) avisos.push(`Trecho ${t.nome}: sem manning_n definido — não calculado. Revise em Cadastros → Bacias.`)
         continue
@@ -1026,6 +1051,12 @@ export function RedePluvialPage() {
   const passaFiltros = (trechoId: string) =>
     (visaoDiagrama !== 'tronco' || troncoIds.has(trechoId)) && (redeSelecionada === 'todas' || redePorTrecho.get(trechoId) === redeSelecionada)
 
+  // Escada hidráulica (dissipador em degraus) não é um tubo circular -- sai do memorial
+  // justificativo (dimensionamento próprio na página Escadas Hidráulicas, ver
+  // engine/escadaHidraulica.ts). Continua aparecendo normalmente em Nota de Serviço e
+  // Quantidade (ainda é uma estrutura física com cotas/volume de escavação).
+  const idsEscadaHidraulica = useMemo(() => new Set(trechos.filter((t) => t.eh_escada_hidraulica).map((t) => t.id)), [trechos])
+
   // Ordem pura de fluxo (ordenarTrechosPorFluxo, já ciente da classificação de rede tronco) --
   // NÃO agrupa por Sistema primeiro: quando um Sistema deságua no meio do caminho de outro
   // (ex.: uma rede inteira desaguando no PV-11 antes de seguir pro PV-12), esse ramal precisa
@@ -1033,11 +1064,13 @@ export function RedePluvialPage() {
   // Sistema separava esse ramal pra um bloco totalmente à parte, longe de onde ele realmente
   // se conecta fisicamente.
   const resultadosOrdenados = useMemo(() => {
-    const base = resultados.filter((r) => passaFiltros(r.trecho_id) && (!apenasNaoConformes || !r.conforme))
+    const base = resultados.filter(
+      (r) => passaFiltros(r.trecho_id) && (!apenasNaoConformes || !r.conforme) && !idsEscadaHidraulica.has(r.trecho_id)
+    )
     const posicao = (r: LinhaResultado) => ordemTrechos.get(r.trecho_id) ?? Number.MAX_SAFE_INTEGER
     return [...base].sort((a, b) => posicao(a) - posicao(b))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada, apenasNaoConformes])
+  }, [resultados, ordemTrechos, troncoIds, redePorTrecho, visaoDiagrama, redeSelecionada, apenasNaoConformes, idsEscadaHidraulica])
 
   // Mesma ordem/filtro de resultadosOrdenados, mas a partir de `trechos` direto (não depende
   // de ter rodado o cálculo) — usado pelas abas Nota de Serviço e Quantidade.
@@ -1509,7 +1542,11 @@ export function RedePluvialPage() {
       }
 
       const posicao = (id: string) => ordemTrechos.get(id) ?? Number.MAX_SAFE_INTEGER
-      const resultadosCompletos = [...resultados].sort((a, b) => posicao(a.trecho_id) - posicao(b.trecho_id))
+      // Escada hidráulica sai do memorial (mesmo critério da tela, ver idsEscadaHidraulica) --
+      // continua em nota de serviço e quantidade normalmente.
+      const resultadosCompletos = [...resultados]
+        .filter((r) => !idsEscadaHidraulica.has(r.trecho_id))
+        .sort((a, b) => posicao(a.trecho_id) - posicao(b.trecho_id))
       const trechosCompletos = [...trechos].sort((a, b) => posicao(a.id) - posicao(b.id))
 
       const memorial = {

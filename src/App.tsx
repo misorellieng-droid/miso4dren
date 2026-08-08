@@ -9,6 +9,7 @@ import { RedeImportadaPage } from './pages/RedeImportadaPage'
 import { SarjetaCriticaPage } from './pages/SarjetaCriticaPage'
 import { SarjetaoDenteServaPage } from './pages/SarjetaoDenteServaPage'
 import { RedePluvialPage } from './pages/RedePluvialPage'
+import { EscadasHidraulicasPage } from './pages/EscadasHidraulicasPage'
 import { ConformidadePage } from './pages/ConformidadePage'
 import { RelatoriosPage } from './pages/RelatoriosPage'
 import { EquacoesIdfPage } from './pages/EquacoesIdfPage'
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="sarjeta-critica" element={<SarjetaCriticaPage />} />
         <Route path="sarjetao-dente-serra" element={<SarjetaoDenteServaPage />} />
         <Route path="rede-pluvial" element={<RedePluvialPage />} />
+        <Route path="escadas-hidraulicas" element={<EscadasHidraulicasPage />} />
         <Route path="conformidade" element={<ConformidadePage />} />
         <Route path="relatorios" element={<RelatoriosPage />} />
         <Route path="equacoes-idf" element={<EquacoesIdfPage />} />

@@ -74,6 +74,9 @@ function trecho(over: Partial<TrechoRecord> = {}): TrechoRecord {
     cota_fundo_jusante: 846.7,
     rede_nome: 'Rede-1',
     importacao_id: null,
+    eh_escada_hidraulica: false,
+    escada_largura_m: null,
+    escada_altura_fluxo_m: null,
     ...over,
   }
 }
