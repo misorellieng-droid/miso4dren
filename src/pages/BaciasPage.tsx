@@ -8,6 +8,7 @@ import { parseBaciasCsv } from '../engine/csvBacias'
 import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
 import { gerarPlanilhaCaptacao, parsePlanilhaCaptacao } from '../engine/xlsxCaptacao'
+import { gerarRelatorioResumoBacias } from '../engine/xlsxResumoBacias'
 import { nomeSemRede } from '../lib/nomeRede'
 import { ImportacaoDiffModal } from '../components/ImportacaoDiffModal'
 import {
@@ -266,6 +267,22 @@ export function BaciasPage() {
       setBusy(false)
       if (parcelXmlInputRef.current) parcelXmlInputRef.current.value = ''
     }
+  }
+
+  const handleExportarResumoBacias = () => {
+    if (!revisaoAtiva) return
+    if (bacias.length === 0) {
+      setError('Nenhuma bacia cadastrada ainda.')
+      return
+    }
+    gerarRelatorioResumoBacias(bacias, revisaoAtiva.nome)
+    const semCoefC = bacias.filter((b) => b.coef_c == null).length
+    setMessage(
+      semCoefC > 0
+        ? `Resumo de bacias baixado — ${semCoefC} bacia(s) sem C informado entram com C×A = 0 no acumulado, ajuste antes de usar o relatório.`
+        : 'Resumo de bacias baixado.'
+    )
+    setError(null)
   }
 
   const handleExportarPlanilhaCaptacao = () => {
@@ -613,9 +630,21 @@ export function BaciasPage() {
 
       {/* Lista geral de bacias */}
       <div className="rounded-lg border border-border bg-surface p-4">
-        <div className="mb-3 flex items-center gap-2 font-sans text-sm font-semibold text-text-primary">
-          <FolderOpen size={16} className="text-brand" />
-          Bacias cadastradas
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-sans text-sm font-semibold text-text-primary">
+            <FolderOpen size={16} className="text-brand" />
+            Bacias cadastradas
+          </div>
+          {bacias.length > 0 && (
+            <button
+              onClick={handleExportarResumoBacias}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary shadow-sm transition hover:text-text-primary"
+              title="Excel com nome, área e C de cada bacia, e sumário de área total / ΣC×A / C médio."
+            >
+              <Download size={13} />
+              Exportar resumo (Excel)
+            </button>
+          )}
         </div>
         {bacias.length === 0 ? (
           <div className="text-sm text-text-secondary">Nenhuma bacia importada ainda.</div>
