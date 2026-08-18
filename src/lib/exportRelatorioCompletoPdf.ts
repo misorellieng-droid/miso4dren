@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { exportSarjetaCriticaPdf, type DadosSarjetaCriticaPdf } from './exportSarjetaCriticaPdf'
 import { exportSarjetaoPdf, type DadosSarjetaoPdf } from './exportSarjetaoPdf'
-import { verificarEscadaHidraulica } from '../engine/escadaHidraulica'
+import { ALTURA_FLUXO_MAXIMA_M, ALTURA_FLUXO_MINIMA_M, verificarEscadaHidraulica } from '../engine/escadaHidraulica'
 import type { ImagemRasterizada } from './diagramaSvg'
 import type { MaterialManningRecord } from './materiaisStorage'
 import type { ItemBiblioteca } from './bibliotecaStorage'
@@ -222,7 +222,10 @@ function desenharMemoriaEscada(doc: jsPDF, cursor: Cursor, e: DadosEscadaRelator
         parametro: 'B — largura útil adotada',
         valor: `${fmt(e.larguraM, 3)} m (mínimo admissível: ${verificacao ? fmt(verificacao.larguraMinimaM, 3) : '—'} m)`,
       },
-      { parametro: 'H — altura do fluxo adotada', valor: `${fmt(e.alturaFluxoM, 3)} m (faixa admitida: 0,30–0,60 m)` },
+      {
+        parametro: 'H — altura do fluxo adotada',
+        valor: `${fmt(e.alturaFluxoM, 3)} m (faixa admitida: ${ALTURA_FLUXO_MINIMA_M.toFixed(2)}–${ALTURA_FLUXO_MAXIMA_M.toFixed(2)} m)`,
+      },
       { parametro: 'Q de projeto (chegando na escada)', valor: e.qProjetoM3s != null ? `${(e.qProjetoM3s * 1000).toFixed(2)} L/s` : '—' },
       { parametro: 'Q de capacidade da escada', valor: verificacao ? `${(verificacao.vazaoCapacidadeM3s * 1000).toFixed(2)} L/s` : '—' },
     ],
@@ -231,7 +234,9 @@ function desenharMemoriaEscada(doc: jsPDF, cursor: Cursor, e: DadosEscadaRelator
   if (verificacao) {
     const motivos: string[] = []
     if (verificacao.larguraAbaixoDoMinimo) motivos.push('largura B abaixo do mínimo admissível')
-    if (verificacao.alturaForaDaFaixa) motivos.push('altura H fora da faixa admitida (30–60 cm)')
+    if (verificacao.alturaForaDaFaixa) {
+      motivos.push(`altura H fora da faixa admitida (${(ALTURA_FLUXO_MINIMA_M * 100).toFixed(0)}–${(ALTURA_FLUXO_MAXIMA_M * 100).toFixed(0)} cm)`)
+    }
     if (verificacao.vazaoInsuficiente) motivos.push('vazão de capacidade menor que a vazão de projeto')
 
     doc.setFont('helvetica', 'bold')

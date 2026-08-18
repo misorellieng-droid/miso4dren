@@ -10,7 +10,7 @@ import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStora
 import { supabase } from '../lib/supabase'
 
 const TOLERANCIA_DIAMETRO_BIBLIOTECA_M = 0.001
-/** Altura de fluxo padrão sugerida ao marcar um trecho como escada, sem nenhum valor ainda salvo — meio da faixa admitida (30–60cm). */
+/** Altura de fluxo padrão sugerida ao marcar um trecho como escada, sem nenhum valor ainda salvo — meio da faixa admitida (ver ALTURA_FLUXO_MINIMA_M/MAXIMA_M). */
 const ALTURA_FLUXO_PADRAO_M = (ALTURA_FLUXO_MINIMA_M + ALTURA_FLUXO_MAXIMA_M) / 2
 
 function acharEspessuraParedeM(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): number | null {

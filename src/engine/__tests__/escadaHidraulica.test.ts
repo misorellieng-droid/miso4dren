@@ -32,7 +32,7 @@ describe('larguraMinimaEscadaM', () => {
 })
 
 describe('verificarEscadaHidraulica', () => {
-  it('conforme quando largura ≥ mínimo, altura entre 30 e 60cm, e vazão de capacidade ≥ vazão de projeto', () => {
+  it('conforme quando largura ≥ mínimo, altura entre 30 e 100cm, e vazão de capacidade ≥ vazão de projeto', () => {
     const B = 0.8
     const H = 0.5
     const vazaoProjeto = calcularVazaoCapacidadeEscadaM3s(B, H) * 0.8 // deixa margem
@@ -50,10 +50,11 @@ describe('verificarEscadaHidraulica', () => {
     expect(r.conforme).toBe(false)
   })
 
-  it('acusa altura de fluxo fora da faixa 30-60cm', () => {
+  it('acusa altura de fluxo fora da faixa 30-100cm', () => {
     expect(verificarEscadaHidraulica(0.8, 0.2, 0.05, null).alturaForaDaFaixa).toBe(true)
-    expect(verificarEscadaHidraulica(0.8, 0.7, 0.05, null).alturaForaDaFaixa).toBe(true)
+    expect(verificarEscadaHidraulica(0.8, 1.1, 0.05, null).alturaForaDaFaixa).toBe(true)
     expect(verificarEscadaHidraulica(0.8, 0.45, 0.05, null).alturaForaDaFaixa).toBe(false)
+    expect(verificarEscadaHidraulica(0.8, 1.0, 0.05, null).alturaForaDaFaixa).toBe(false)
   })
 
   it('acusa vazão insuficiente quando a capacidade não atende a vazão de projeto', () => {

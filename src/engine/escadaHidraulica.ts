@@ -1,6 +1,6 @@
 export const LARGURA_MINIMA_ESCADA_M = 0.6
 export const ALTURA_FLUXO_MINIMA_M = 0.3
-export const ALTURA_FLUXO_MAXIMA_M = 0.6
+export const ALTURA_FLUXO_MAXIMA_M = 1.0
 
 /**
  * Vazão de capacidade de uma escada hidráulica (dissipador em degraus), fórmula empírica
@@ -26,7 +26,7 @@ export interface VerificacaoEscadaHidraulica {
   larguraMinimaM: number
   /** true quando B está abaixo do mínimo admissível (600mm ou diâmetro externo do tubo de chegada). */
   larguraAbaixoDoMinimo: boolean
-  /** true quando H está fora da faixa 30–60 cm adotada pro dimensionamento. */
+  /** true quando H está fora da faixa 30–100 cm adotada pro dimensionamento. */
   alturaForaDaFaixa: boolean
   /** true quando a vazão de capacidade não atende a vazão de projeto que chega na escada. */
   vazaoInsuficiente: boolean
@@ -35,7 +35,7 @@ export interface VerificacaoEscadaHidraulica {
 
 /**
  * Verifica se uma escada dimensionada (B, H) atende a vazão de projeto que chega nela, dentro
- * dos limites adotados (B ≥ mínimo admissível, H entre 30 e 60 cm).
+ * dos limites adotados (B ≥ mínimo admissível, H entre 30 e 100 cm).
  */
 export function verificarEscadaHidraulica(
   larguraM: number,
