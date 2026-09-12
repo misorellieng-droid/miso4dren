@@ -242,7 +242,7 @@ export function SarjetaoDenteServaPage() {
     }
   }
 
-  const handleSalvar = async () => {
+  const handleSalvar = async (arquivarDireto: boolean) => {
     if (!revisaoAtiva || !resultado || !form.nomeTrecho.trim()) {
       setError('Informe o nome do trecho antes de salvar.')
       return
@@ -282,7 +282,7 @@ export function SarjetaoDenteServaPage() {
         declividade_longitudinal_m_m: resultado.resultado.declividadeLongitudinalMM,
         tc_convergido_min: resultado.resultado.tcConvergidoMin,
         intensidade_mm_h: resultado.resultado.intensidadeConvergidaMmH,
-        arquivado: false,
+        arquivado: arquivarDireto,
       })
       setHistorico(await listResultadosSarjetao(revisaoAtiva.id))
     } catch (err) {
@@ -583,9 +583,20 @@ export function SarjetaoDenteServaPage() {
             Calcular
           </button>
           {resultado && (
-            <button onClick={handleSalvar} disabled={saving} className={PRIMARY_BTN}>
+            <button onClick={() => handleSalvar(false)} disabled={saving} className={PRIMARY_BTN}>
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Salvar resultado
+            </button>
+          )}
+          {resultado && (
+            <button
+              onClick={() => handleSalvar(true)}
+              disabled={saving}
+              className={SECONDARY_BTN}
+              title="Salva já como finalizado, direto na pasta Arquivo (todas as revisões do projeto) — sem precisar arquivar depois."
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} />}
+              Salvar como finalizado (Arquivo)
             </button>
           )}
           {resultado && (

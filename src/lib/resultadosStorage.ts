@@ -34,6 +34,7 @@ export interface ResultadoSarjetaRecord {
 /** Registro arquivado com o nome do projeto/revisão já resolvidos — pra listagem global fora do contexto de uma revisão. */
 export interface ResultadoSarjetaArquivadoRecord extends ResultadoSarjetaRecord {
   revisao_nome: string
+  projeto_id: string | null
   projeto_nome: string | null
 }
 
@@ -85,7 +86,7 @@ export async function arquivarResultadoSarjeta(id: string, arquivado: boolean): 
 export async function listResultadosSarjetaArquivados(): Promise<ResultadoSarjetaArquivadoRecord[]> {
   const { data, error } = await requireSupabase()
     .from('resultados_sarjeta')
-    .select('*, revisoes(nome, projetos(nome))')
+    .select('*, revisoes(nome, projeto_id, projetos(nome))')
     .eq('arquivado', true)
     .order('created_at', { ascending: false })
   if (error) throw error
@@ -93,6 +94,7 @@ export async function listResultadosSarjetaArquivados(): Promise<ResultadoSarjet
   return (data as any[]).map((r) => ({
     ...r,
     revisao_nome: r.revisoes?.nome ?? '—',
+    projeto_id: r.revisoes?.projeto_id ?? null,
     projeto_nome: r.revisoes?.projetos?.nome ?? null,
   }))
 }

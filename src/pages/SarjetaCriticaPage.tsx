@@ -161,7 +161,7 @@ export function SarjetaCriticaPage() {
     }
   }
 
-  const handleSalvar = async () => {
+  const handleSalvar = async (arquivarDireto: boolean) => {
     if (!revisaoAtiva || !memorial || intensidade == null || !form.nomeVia.trim()) {
       setError('Informe o nome da via antes de salvar.')
       return
@@ -195,7 +195,7 @@ export function SarjetaCriticaPage() {
         vazao_m3s: memorial.vazaoM3s,
         comprimento_critico_m: memorial.comprimentoCriticoM,
         tc_min: Number(form.tcMin),
-        arquivado: false,
+        arquivado: arquivarDireto,
       })
       setHistorico(await listResultadosSarjeta(revisaoAtiva.id))
     } catch (err) {
@@ -395,9 +395,20 @@ export function SarjetaCriticaPage() {
             Calcular
           </button>
           {memorial && (
-            <button onClick={handleSalvar} disabled={saving} className={PRIMARY_BTN}>
+            <button onClick={() => handleSalvar(false)} disabled={saving} className={PRIMARY_BTN}>
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Salvar resultado
+            </button>
+          )}
+          {memorial && (
+            <button
+              onClick={() => handleSalvar(true)}
+              disabled={saving}
+              className={SECONDARY_BTN}
+              title="Salva já como finalizado, direto na pasta Arquivo (todas as revisões do projeto) — sem precisar arquivar depois."
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} />}
+              Salvar como finalizado (Arquivo)
             </button>
           )}
           {memorial && (
