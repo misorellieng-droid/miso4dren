@@ -62,6 +62,9 @@ export interface BaciaImportadaLandXml {
    * composto (união de sub-parcels, ex.: "6_union_1"/"6_union_2" dentro de um <Parcels>
    * aninhado no Civil 3D). Ponto-em-polígono testa contra qualquer um dos anéis (OR). */
   poligonos: { x: number; y: number }[][]
+  /** Coeficiente de deflúvio, só presente quando o Parcel veio do plugin MISO4Dren pro Civil 3D
+   * (desc="MISO4Dren C=0.65") — um Parcel nativo do Civil 3D não traz esse dado. */
+  coefC?: number
 }
 
 function textOf(el: Element | null | undefined): string | undefined {
@@ -337,6 +340,14 @@ function extrairAneisDoParcel(p: Element): { x: number; y: number }[][] {
  * raiz (filhos diretos do <Parcels> do documento, não de um <Parcel>) contam
  * como bacia — os sub-Parcels da união viram os anéis extras dessa bacia.
  */
+/** Lê "MISO4Dren C=0.65" (ou variações de espaço) do atributo desc do Parcel — undefined se não achar. */
+function extrairCoefCDoDesc(desc: string | null): number | undefined {
+  const match = desc?.match(/C\s*=\s*([\d.,]+)/i)
+  if (!match) return undefined
+  const c = Number(match[1].replace(',', '.'))
+  return Number.isFinite(c) && c >= 0 && c <= 1 ? c : undefined
+}
+
 export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLandXml[] } {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
@@ -358,7 +369,7 @@ export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLa
     const poligonos = extrairAneisDoParcel(p)
     if (poligonos.length === 0) continue // sem contorno utilizável — ignora o Parcel
 
-    bacias.push({ nome, areaM2, poligonos })
+    bacias.push({ nome, areaM2, poligonos, coefC: extrairCoefCDoDesc(p.getAttribute('desc')) })
   }
 
   return { bacias }

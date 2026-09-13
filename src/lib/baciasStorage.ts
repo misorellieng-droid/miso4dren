@@ -124,8 +124,10 @@ export interface ResumoImportacaoBaciasLandXml {
 
 /**
  * Importa bacias a partir de Parcels do LandXML (engine/landxml.ts): área vem
- * pronta do Civil 3D, coef_c fica null (editável manualmente depois — Parcel
- * não traz esse dado). O vínculo com a rede é geométrico — ponto-em-polígono
+ * pronta do Civil 3D. coef_c vem preenchido só quando o Parcel foi gerado pelo
+ * plugin MISO4Dren pro Civil 3D (desc="MISO4Dren C=..."); um Parcel nativo do
+ * Civil 3D não traz esse dado, fica null (editável manualmente depois). O
+ * vínculo com a rede é geométrico — ponto-em-polígono
  * contra as caixas aptas a receber vazão (recebe_vazao=true), em vez de
  * distância até um pour point único:
  * - 1 caixa dentro do polígono → vincula 100% nela.
@@ -170,7 +172,7 @@ export async function importarBaciasLandXml(
             revisao_id: revisaoId,
             nome: b.nome,
             area_m2: b.areaM2,
-            coef_c: null,
+            coef_c: b.coefC ?? null,
             pour_point_x: centro?.x ?? 0,
             pour_point_y: centro?.y ?? 0,
             poligonos: b.poligonos,

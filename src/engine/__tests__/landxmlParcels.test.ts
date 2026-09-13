@@ -167,4 +167,21 @@ describe('parseLandXmlParcels', () => {
   it('lança erro para XML inválido', () => {
     expect(() => parseLandXmlParcels('<not-xml')).toThrow()
   })
+
+  it('extrai o C do desc quando o Parcel veio do plugin MISO4Dren ("MISO4Dren C=0.65")', () => {
+    const xml = `<LandXML><Parcels><Parcel name="B-01" area="100" desc="MISO4Dren C=0.65">
+      <CoordGeom>
+        <Line><Start>0 0</Start><End>0 10</End></Line>
+        <Line><Start>0 10</Start><End>10 10</End></Line>
+        <Line><Start>10 10</Start><End>0 0</End></Line>
+      </CoordGeom>
+    </Parcel></Parcels></LandXML>`
+    const { bacias } = parseLandXmlParcels(xml)
+    expect(bacias[0].coefC).toBeCloseTo(0.65)
+  })
+
+  it('não define coefC quando o desc está vazio (Parcel nativo do Civil 3D)', () => {
+    const { bacias } = parseLandXmlParcels(FIXTURE_XML_REAL)
+    expect(bacias[0].coefC).toBeUndefined()
+  })
 })
