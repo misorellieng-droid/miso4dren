@@ -77,7 +77,6 @@ function trecho(over: Partial<TrechoRecord> = {}): TrechoRecord {
     eh_escada_hidraulica: false,
     escada_largura_m: null,
     escada_altura_fluxo_m: null,
-    escada_diametro_externo_m: null,
     ...over,
   }
 }

@@ -43,9 +43,6 @@ export interface TrechoRecord {
   eh_escada_hidraulica: boolean
   escada_largura_m: number | null
   escada_altura_fluxo_m: number | null
-  /** Sobrescreve manualmente o diâmetro externo calculado (tubo + 2× espessura de parede da
-   * biblioteca) -- null mantém o cálculo automático. Ver migração 029_escada_diametro_externo_manual.sql. */
-  escada_diametro_externo_m: number | null
 }
 
 function requireSupabase() {
@@ -128,7 +125,6 @@ export async function updateCaixasEhTroncoEmLote(ids: string[], ehTronco: boolea
 }
 
 export interface TrechoPatch {
-  nome?: string
   diametro_m?: number
   declividade_m_m?: number
   material?: string | null
@@ -141,7 +137,6 @@ export interface TrechoPatch {
   eh_escada_hidraulica?: boolean
   escada_largura_m?: number | null
   escada_altura_fluxo_m?: number | null
-  escada_diametro_externo_m?: number | null
 }
 
 export async function updateTrechosEhEscadaHidraulicaEmLote(ids: string[], ehEscadaHidraulica: boolean): Promise<void> {
