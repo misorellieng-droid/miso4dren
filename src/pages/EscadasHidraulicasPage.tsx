@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Layers, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, Layers, Loader2, Plus, Trash2, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { ALTURA_FLUXO_MAXIMA_M, ALTURA_FLUXO_MINIMA_M, larguraMinimaEscadaM, verificarEscadaHidraulica } from '../engine/escadaHidraulica'
-import { listCaixas, listTrechos, updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
+import { listCaixas, listTrechos, updateTrecho, type CaixaRecord, type TrechoPatch, type TrechoRecord } from '../lib/redeStorage'
 import { listResultadosRedeByRevisao, type ResultadoRedeRecord } from '../lib/resultadosStorage'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
 import { supabase } from '../lib/supabase'
@@ -29,6 +29,7 @@ export function EscadasHidraulicasPage() {
   const [biblioteca, setBiblioteca] = useState<ItemBiblioteca[]>([])
   const [error, setError] = useState<string | null>(null)
   const [salvandoId, setSalvandoId] = useState<string | null>(null)
+  const [trechoParaIncluir, setTrechoParaIncluir] = useState('')
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -55,8 +56,12 @@ export function EscadasHidraulicasPage() {
   const nomeCaixaPorId = useMemo(() => new Map(caixas.map((c) => [c.id, c.nome])), [caixas])
   const qProjetoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.q_projeto_m3s])), [resultados])
   const escadas = useMemo(() => trechos.filter((t) => t.eh_escada_hidraulica).sort((a, b) => a.nome.localeCompare(b.nome)), [trechos])
+  const trechosDisponiveis = useMemo(
+    () => trechos.filter((t) => !t.eh_escada_hidraulica).sort((a, b) => a.nome.localeCompare(b.nome)),
+    [trechos]
+  )
 
-  const handleEditar = async (id: string, patch: { escada_largura_m?: number | null; escada_altura_fluxo_m?: number | null }) => {
+  const handleEditar = async (id: string, patch: TrechoPatch) => {
     setSalvandoId(id)
     setError(null)
     try {
@@ -67,6 +72,16 @@ export function EscadasHidraulicasPage() {
     } finally {
       setSalvandoId(null)
     }
+  }
+
+  const handleIncluir = async () => {
+    if (!trechoParaIncluir) return
+    await handleEditar(trechoParaIncluir, { eh_escada_hidraulica: true })
+    setTrechoParaIncluir('')
+  }
+
+  const handleRemover = async (id: string) => {
+    await handleEditar(id, { eh_escada_hidraulica: false })
   }
 
   if (!supabase) {
@@ -107,16 +122,43 @@ export function EscadasHidraulicasPage() {
 
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
 
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3">
+        <label className="text-sm text-text-secondary" htmlFor="trecho-para-incluir">
+          Incluir trecho como escada hidráulica:
+        </label>
+        <select
+          id="trecho-para-incluir"
+          value={trechoParaIncluir}
+          onChange={(e) => setTrechoParaIncluir(e.target.value)}
+          className={`${fieldInputClass} max-w-xs py-1`}
+        >
+          <option value="">Selecione um trecho...</option>
+          {trechosDisponiveis.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.nome} ({nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'} → {nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'})
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleIncluir}
+          disabled={!trechoParaIncluir || salvandoId != null}
+          className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+        >
+          <Plus size={14} /> Incluir
+        </button>
+      </div>
+
       {escadas.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-text-secondary">
-          Nenhum trecho marcado como escada hidráulica nesta revisão. Marque em Rede Importada → aba Tubos, coluna "Escada hidráulica".
+          Nenhum trecho marcado como escada hidráulica nesta revisão.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
           {escadas.map((t) => {
             const qProjetoM3s = qProjetoPorTrecho.get(t.id) ?? null
             const espessuraM = acharEspessuraParedeM(biblioteca, t.material, t.diametro_m)
-            const diametroExternoM = espessuraM != null ? t.diametro_m + 2 * espessuraM : t.diametro_m
+            const diametroExternoCalculadoM = espessuraM != null ? t.diametro_m + 2 * espessuraM : t.diametro_m
+            const diametroExternoM = t.escada_diametro_externo_m ?? diametroExternoCalculadoM
             const larguraMinimaM = larguraMinimaEscadaM(diametroExternoM)
             const larguraM = t.escada_largura_m ?? larguraMinimaM
             const alturaFluxoM = t.escada_altura_fluxo_m ?? ALTURA_FLUXO_PADRAO_M
@@ -128,19 +170,39 @@ export function EscadasHidraulicasPage() {
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Layers size={16} className="text-text-secondary" />
-                    <span className="font-sans text-sm font-semibold text-text-primary">{t.nome}</span>
+                    <input
+                      type="text"
+                      defaultValue={t.nome}
+                      disabled={salvandoId === t.id}
+                      onBlur={(e) => {
+                        const v = e.target.value.trim()
+                        if (v && v !== t.nome) handleEditar(t.id, { nome: v })
+                        else e.target.value = t.nome
+                      }}
+                      className={`${fieldInputClass} w-40 py-1 text-sm font-semibold`}
+                    />
                     <span className="text-xs text-text-secondary">
                       {nomeCaixaPorId.get(t.caixa_montante_id) ?? '—'} → {nomeCaixaPorId.get(t.caixa_jusante_id) ?? '—'}
                     </span>
                   </div>
-                  {verificacao && (
-                    <span
-                      className={`flex items-center gap-1.5 text-sm font-medium ${verificacao.conforme ? 'text-accent-green' : 'text-accent-red'}`}
+                  <div className="flex items-center gap-3">
+                    {verificacao && (
+                      <span
+                        className={`flex items-center gap-1.5 text-sm font-medium ${verificacao.conforme ? 'text-accent-green' : 'text-accent-red'}`}
+                      >
+                        {verificacao.conforme ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                        {verificacao.conforme ? 'Conforme' : 'Não conforme'}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleRemover(t.id)}
+                      disabled={salvandoId === t.id}
+                      title="Remover desta lista (o trecho continua na Rede Importada como tubo comum)"
+                      className="flex items-center gap-1 text-xs font-medium text-accent-red hover:underline disabled:opacity-50"
                     >
-                      {verificacao.conforme ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-                      {verificacao.conforme ? 'Conforme' : 'Não conforme'}
-                    </span>
-                  )}
+                      <Trash2 size={13} /> Remover
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -151,10 +213,34 @@ export function EscadasHidraulicasPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wide text-text-secondary" title="Diâmetro do tubo de chegada + 2× espessura de parede (biblioteca de peças), quando cadastrada -- senão usa o diâmetro do próprio trecho.">
+                    <div
+                      className="text-[10px] uppercase tracking-wide text-text-secondary"
+                      title="Diâmetro do tubo de chegada + 2× espessura de parede (biblioteca de peças), quando cadastrada -- senão usa o diâmetro do próprio trecho. Deixe em branco pra voltar ao cálculo automático."
+                    >
                       Diâm. externo tubo chegada (m)
                     </div>
-                    <div className="mt-1 py-1 text-sm text-text-primary">{diametroExternoM.toFixed(3)}</div>
+                    <input
+                      type="number"
+                      step="any"
+                      defaultValue={diametroExternoM}
+                      disabled={salvandoId === t.id}
+                      placeholder={diametroExternoCalculadoM.toFixed(3)}
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim()
+                        if (raw === '') {
+                          if (t.escada_diametro_externo_m != null) handleEditar(t.id, { escada_diametro_externo_m: null })
+                          return
+                        }
+                        const n = Number(raw)
+                        if (Number.isFinite(n) && n > 0 && n !== t.escada_diametro_externo_m) {
+                          handleEditar(t.id, { escada_diametro_externo_m: n })
+                        }
+                      }}
+                      className={`${fieldInputClass} mt-1 py-1`}
+                    />
+                    {t.escada_diametro_externo_m == null && (
+                      <div className="mt-0.5 text-[10px] text-text-secondary">automático (biblioteca)</div>
+                    )}
                   </div>
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-text-secondary">B — largura útil (m)</div>
