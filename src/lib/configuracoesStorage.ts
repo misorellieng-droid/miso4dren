@@ -1,25 +1,43 @@
 import { supabase } from './supabase'
 
-const BUCKET = 'assets'
-const LOGO_PATH = 'logo'
+// Bucket do dren no banco do hub: uma pasta por conta (<account_id>/logo),
+// para cada empresa ter o próprio logotipo. O banco só deixa enviar/apagar
+// na pasta da própria conta.
+const BUCKET = 'dren-assets'
+
+let pastaConta: string | null = null
+
+/** Pasta da conta de quem está logado (lida uma vez do hub). */
+async function carregarPastaConta(): Promise<string | null> {
+  if (pastaConta || !supabase) return pastaConta
+  const { data } = await supabase.schema('public').rpc('minha_conta')
+  pastaConta = typeof data === 'string' ? data : null
+  return pastaConta
+}
+
+function logoPath(conta: string) {
+  return `${conta}/logo`
+}
 
 function requireSupabase() {
   if (!supabase) throw new Error('Supabase não configurado — defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.')
   return supabase
 }
 
-/** URL pública do logotipo -- sempre o mesmo path fixo (upload novo sobrescreve o anterior, ver
- * migração 028_bucket_assets_logo.sql). Não confirma que o arquivo existe de fato, só monta a
- * URL -- use `logoExiste` pra checar antes de exibir/embutir. */
+/** URL pública do logotipo da conta -- sempre o mesmo path fixo (upload novo sobrescreve o
+ * anterior). Não confirma que o arquivo existe de fato, só monta a URL -- use `logoExiste` pra
+ * checar antes de exibir/embutir. Devolve null até a conta ter sido carregada (logoExiste,
+ * carregarLogoParaPdf e uploadLogo carregam). */
 export function getLogoUrl(): string | null {
-  if (!supabase) return null
-  return supabase.storage.from(BUCKET).getPublicUrl(LOGO_PATH).data.publicUrl
+  if (!supabase || !pastaConta) return null
+  return supabase.storage.from(BUCKET).getPublicUrl(logoPath(pastaConta)).data.publicUrl
 }
 
 /** Confirma se o logotipo foi de fato cadastrado (existe objeto no bucket nesse path) --
  * `cache: 'no-store'` pra não ficar preso num 404 antigo em cache do browser logo depois de um
  * upload novo. */
 export async function logoExiste(): Promise<boolean> {
+  await carregarPastaConta()
   const url = getLogoUrl()
   if (!url) return false
   try {
@@ -40,6 +58,7 @@ export interface ImagemLogo {
  * relatório completo -- `null` quando não há logotipo cadastrado ou algo falha (o relatório
  * simplesmente sai sem logo nesse caso, nunca bloqueia a geração por causa disso). */
 export async function carregarLogoParaPdf(): Promise<ImagemLogo | null> {
+  await carregarPastaConta()
   const url = getLogoUrl()
   if (!url) return null
   try {
@@ -65,13 +84,17 @@ export async function carregarLogoParaPdf(): Promise<ImagemLogo | null> {
 }
 
 export async function uploadLogo(file: File): Promise<void> {
+  const conta = await carregarPastaConta()
+  if (!conta) throw new Error('Conta não identificada. Abra o app pelo MISO4Apps.')
   const { error } = await requireSupabase()
     .storage.from(BUCKET)
-    .upload(LOGO_PATH, file, { upsert: true, contentType: file.type || 'image/png' })
+    .upload(logoPath(conta), file, { upsert: true, contentType: file.type || 'image/png' })
   if (error) throw error
 }
 
 export async function removerLogo(): Promise<void> {
-  const { error } = await requireSupabase().storage.from(BUCKET).remove([LOGO_PATH])
+  const conta = await carregarPastaConta()
+  if (!conta) throw new Error('Conta não identificada. Abra o app pelo MISO4Apps.')
+  const { error } = await requireSupabase().storage.from(BUCKET).remove([logoPath(conta)])
   if (error) throw error
 }

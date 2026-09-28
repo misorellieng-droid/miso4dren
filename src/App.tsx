@@ -18,11 +18,14 @@ import { MateriaisPage } from './pages/MateriaisPage'
 import { BibliotecaPecasPage } from './pages/BibliotecaPecasPage'
 import { ArquivoPage } from './pages/ArquivoPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
+import { SSOPage } from './pages/SSOPage'
+import { RequireHubLogin } from './components/RequireHubLogin'
 
 export default function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
+      <Route path="sso" element={<SSOPage />} />
+      <Route element={<RequireHubLogin><AppLayout /></RequireHubLogin>}>
         <Route index element={<DashboardPage />} />
         <Route path="clientes" element={<ClientesPage />} />
         <Route path="projetos" element={<ProjetosPage />} />
