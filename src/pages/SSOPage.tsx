@@ -48,7 +48,7 @@ export function SSOPage() {
       .then((outcome) => {
         if (!outcome.success) { setError(outcome.error); return }
         setStatus('Redirecionando...')
-        window.location.href = '/'
+        window.location.href = import.meta.env.BASE_URL
       })
       .catch(() => setError('Erro inesperado. Tente novamente.'))
   }, [])

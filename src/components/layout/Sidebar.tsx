@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   Archive,
   BarChart2,
   Beaker,
@@ -23,6 +24,15 @@ import {
 import { NavLink } from 'react-router-dom'
 import { useState } from 'react'
 import { DrenLogo } from '../icons/DrenLogo'
+import { supabase } from '../../lib/supabase'
+import { HUB_URL } from '../../lib/hub'
+
+// Sair encerra a sessão só neste aparelho (a mesma do hub, pois o dren mora
+// no endereço do MISO4Apps) e volta para a página inicial do hub.
+async function sair() {
+  await supabase?.auth.signOut({ scope: 'local' })
+  window.location.href = HUB_URL
+}
 
 interface NavItem {
   to: string
@@ -81,6 +91,15 @@ export function Sidebar() {
     <aside
       className={`flex shrink-0 flex-col overflow-y-auto bg-brand transition-all ${collapsed ? 'w-16' : 'w-60'}`}
     >
+      <a
+        href={`${HUB_URL}/dashboard`}
+        className={`flex items-center gap-2 border-b border-white/15 px-4 py-2.5 text-xs font-medium text-white/75 hover:bg-white/10 hover:text-white ${collapsed ? 'justify-center px-2' : ''}`}
+        title={collapsed ? 'Voltar ao MISO4Apps' : undefined}
+      >
+        <ArrowLeft size={16} className="shrink-0" />
+        {!collapsed && <span>MISO4Apps</span>}
+      </a>
+
       <div className={`flex items-center gap-2 px-4 py-5 ${collapsed ? 'justify-center px-2' : ''}`}>
         <DrenLogo size={26} light />
         {!collapsed && (
@@ -135,6 +154,7 @@ export function Sidebar() {
           {!collapsed && <span>Configurações</span>}
         </NavLink>
         <button
+          onClick={sair}
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/85 hover:bg-white/10 hover:text-white"
           title={collapsed ? 'Sair' : undefined}
         >
