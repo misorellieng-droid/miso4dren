@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Archive,
   BarChart2,
+  Bell,
   Beaker,
   BookOpen,
   Building2,
@@ -72,6 +73,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/conformidade', label: 'Conformidade', icon: ClipboardCheck },
       { to: '/relatorios', label: 'Relatórios', icon: FileBarChart },
       { to: '/arquivo', label: 'Arquivo', icon: Archive },
+      { to: '/notificacoes', label: 'Notificações', icon: Bell },
     ],
   },
   {

@@ -19,6 +19,7 @@ import { BibliotecaPecasPage } from './pages/BibliotecaPecasPage'
 import { ArquivoPage } from './pages/ArquivoPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { SSOPage } from './pages/SSOPage'
+import { NotificacoesPage } from './pages/NotificacoesPage'
 import { RequireHubLogin } from './components/RequireHubLogin'
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="biblioteca-pecas" element={<BibliotecaPecasPage />} />
         <Route path="arquivo" element={<ArquivoPage />} />
         <Route path="configuracoes" element={<ConfiguracoesPage />} />
+        <Route path="notificacoes" element={<NotificacoesPage />} />
         <Route path="manual" element={<PlaceholderPage title="Manual / Ajuda" />} />
       </Route>
     </Routes>
