@@ -15,6 +15,9 @@ describe('projetosOcultos', () => {
   it('mostra todos com o controle ligado', () => {
     expect(filtrarProjetosVisiveis(lista, true)).toHaveLength(4)
   })
+  it('oculta concluídos', () => {
+    expect(projetoOculto({ ativo: true, status_central: 'concluida' })).toBe(true)
+  })
   it('pausada não é oculta', () => {
     expect(projetoOculto({ ativo: true, status_central: 'pausada' })).toBe(false)
   })
