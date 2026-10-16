@@ -1,7 +1,12 @@
 import { supabase } from './supabase'
+import { filtrarProjetosVisiveis } from './projetosOcultos'
 
 export interface ProjetoSummary {
   id: string
+  /** false = excluído no cadastro do hub */
+  ativo?: boolean
+  /** status original do hub (planejada, em_andamento, pausada, concluida, cancelada) */
+  status_central?: string | null
   nome: string
   descricao: string | null
   created_at: string
@@ -23,18 +28,21 @@ function requireSupabase() {
   return supabase
 }
 
-export async function listProjetos(): Promise<ProjetoSummary[]> {
+/** Por padrão oculta cancelados e excluídos; `mostrarOcultos` traz todos. */
+export async function listProjetos(mostrarOcultos = false): Promise<ProjetoSummary[]> {
   if (!supabase) return []
 
   const { data, error } = await supabase
     .from('projetos')
-    .select('id, nome, descricao, created_at, cliente_id, clientes(nome), revisoes(count)')
+    .select('id, nome, descricao, created_at, cliente_id, ativo, status_central, clientes(nome), revisoes(count)')
     .order('created_at', { ascending: false })
   if (error) throw error
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((p: any) => ({
+  const lista: ProjetoSummary[] = (data ?? []).map((p: any) => ({
     id: p.id,
+    ativo: p.ativo ?? true,
+    status_central: p.status_central ?? null,
     nome: p.nome,
     descricao: p.descricao,
     created_at: p.created_at,
@@ -42,6 +50,7 @@ export async function listProjetos(): Promise<ProjetoSummary[]> {
     cliente_nome: p.clientes?.nome ?? null,
     revisoesCount: p.revisoes?.[0]?.count ?? 0,
   }))
+  return filtrarProjetosVisiveis(lista, mostrarOcultos)
 }
 
 export async function getProjetoDetail(id: string): Promise<ProjetoDetail> {

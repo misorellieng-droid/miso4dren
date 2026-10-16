@@ -17,6 +17,7 @@ export function ProjetosPage() {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mostrarOcultos, setMostrarOcultos] = useState(false)
 
   const load = async () => {
     if (!supabase) {
@@ -26,7 +27,7 @@ export function ProjetosPage() {
     setLoading(true)
     setError(null)
     try {
-      const [p, c] = await Promise.all([listProjetos(), listClientes()])
+      const [p, c] = await Promise.all([listProjetos(mostrarOcultos), listClientes()])
       setProjetos(p)
       setClientes(c)
     } catch (err) {
@@ -38,7 +39,8 @@ export function ProjetosPage() {
 
   useEffect(() => {
     load()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarOcultos])
 
   // ── Modal: Novo projeto ─────────────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false)
@@ -111,6 +113,11 @@ export function ProjetosPage() {
         </button>
       </div>
 
+      <label className="mb-4 flex w-fit cursor-pointer items-center gap-2 text-sm text-text-secondary">
+        <input type="checkbox" checked={mostrarOcultos} onChange={(e) => setMostrarOcultos(e.target.checked)} />
+        Mostrar cancelados e excluídos
+      </label>
+
       {error && <div className="mb-4 rounded-md border border-accent-red/40 bg-accent-red/10 p-3 text-sm text-accent-red">{error}</div>}
       {!supabase && (
         <div className="mb-4 rounded-md border border-accent-amber/40 bg-accent-amber/10 p-3 text-sm text-accent-amber">
@@ -137,7 +144,14 @@ export function ProjetosPage() {
               <div className="flex items-center gap-3">
                 <FolderOpen size={20} className="text-brand" />
                 <div>
-                  <div className="font-sans text-sm font-semibold text-text-primary">{p.nome}</div>
+                  <div className="font-sans text-sm font-semibold text-text-primary">
+                    {p.nome}
+                    {p.ativo === false ? (
+                      <span className="ml-2 rounded bg-accent-red/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-red">Excluído</span>
+                    ) : p.status_central === "cancelada" ? (
+                      <span className="ml-2 rounded bg-accent-red/10 px-1.5 py-0.5 text-[10px] font-medium text-accent-red">Cancelado</span>
+                    ) : null}
+                  </div>
                   {p.cliente_nome && <div className="text-xs text-text-secondary">Cliente: {p.cliente_nome}</div>}
                   {p.descricao && <div className="text-xs text-text-secondary">{p.descricao}</div>}
                 </div>
