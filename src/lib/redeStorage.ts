@@ -329,6 +329,9 @@ export async function importarRedeLandXml(
       cota_topo_jusante: t.cotaTopoJusante ?? null,
       cota_fundo_jusante: t.cotaFundoJusante ?? null,
       rede_nome: t.redeNome ?? null,
+      eh_escada_hidraulica: t.ehEscadaHidraulica ?? false,
+      escada_largura_m: t.escadaLarguraM ?? null,
+      escada_altura_fluxo_m: t.escadaAlturaFluxoM ?? null,
       importacao_id: importacaoId,
     }))
 
@@ -446,6 +449,9 @@ export async function aplicarReimportacao(
       cota_topo_jusante: t.novo.cotaTopoJusante ?? null,
       cota_fundo_jusante: t.novo.cotaFundoJusante ?? null,
       rede_nome: t.novo.redeNome ?? null,
+      eh_escada_hidraulica: t.novo.ehEscadaHidraulica ?? false,
+      escada_largura_m: t.novo.escadaLarguraM ?? null,
+      escada_altura_fluxo_m: t.novo.escadaAlturaFluxoM ?? null,
       importacao_id: importacaoId,
     }))
   if (trechosParaInserir.length > 0) {

@@ -4,6 +4,7 @@ import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { parseLandXml, parseLandXmlParcels, type ResultadoImportLandXml } from '../engine/landxml'
+import { aplicarContratoIda, lerContratoIda } from '../engine/contratoCivil'
 import { parseBaciasCsv } from '../engine/csvBacias'
 import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
@@ -152,7 +153,20 @@ export function BaciasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revisaoAtiva])
 
-  const handleImportLandXml = async (file: File) => {
+  /** Aceita o .xml sozinho ou junto com o .json complementar do plugin MISO4Dren Desenho (selecione os dois na mesma janela). */
+  const handleSelecionarArquivosRede = (lista: FileList) => {
+    const arquivos = Array.from(lista)
+    const xml = arquivos.find((f) => f.name.toLowerCase().endsWith('.xml'))
+    const json = arquivos.find((f) => f.name.toLowerCase().endsWith('.json'))
+    if (!xml) {
+      setError('Selecione o arquivo .xml do Pipe Network (e, se tiver, o .json complementar do plugin).')
+      if (landXmlInputRef.current) landXmlInputRef.current.value = ''
+      return
+    }
+    handleImportLandXml(xml, json)
+  }
+
+  const handleImportLandXml = async (file: File, contratoFile?: File) => {
     if (!revisaoAtiva) return
     setBusy(true)
     setError(null)
@@ -160,7 +174,15 @@ export function BaciasPage() {
     try {
       const text = await file.text()
       const materiais = await listMateriaisManning()
-      const resultado = parseLandXml(text, toMateriaisManningMap(materiais))
+      let resultado = parseLandXml(text, toMateriaisManningMap(materiais))
+      let avisoContrato = ''
+      if (contratoFile) {
+        const aplicado = aplicarContratoIda(resultado, lerContratoIda(await contratoFile.text()))
+        resultado = aplicado.resultado
+        const tipos = Object.entries(aplicado.contagemPorTipo).map(([t, n]) => `${n} ${t}`).join(', ')
+        avisoContrato = ` Arquivo do plugin aplicado: ${tipos}${aplicado.escadas > 0 ? `; ${aplicado.escadas} escada(s)` : ''}.` +
+          (aplicado.avisos.length > 0 ? ` Avisos: ${aplicado.avisos.slice(0, 3).join(' | ')}${aplicado.avisos.length > 3 ? ` (+${aplicado.avisos.length - 3})` : ''}` : '')
+      }
 
       // Se ainda não há nada cadastrado na revisão, é primeira importação —
       // não há o que comparar, importa direto sem abrir a tela de diff.
@@ -173,7 +195,7 @@ export function BaciasPage() {
         } catch {
           // não bloqueia a importação se isso falhar (ex.: migração 019 ainda não aplicada)
         }
-        setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).`)
+        setMessage(`Rede importada: ${resultado.caixas.length} caixa(s), ${resultado.trechos.length} trecho(s).${avisoContrato}`)
         await load()
         return
       }
@@ -469,11 +491,11 @@ export function BaciasPage() {
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-4">
           <div className="mb-2 font-sans text-sm font-semibold text-text-primary">1. Importar rede (LandXML)</div>
-          <p className="mb-3 text-xs text-text-secondary">Exportado do Pipe Network do Civil 3D — caixas e trechos.</p>
-          <input ref={landXmlInputRef} type="file" accept=".xml" className="hidden" onChange={(e) => e.target.files?.[0] && handleImportLandXml(e.target.files[0])} />
+          <p className="mb-3 text-xs text-text-secondary">Exportado do Pipe Network do Civil 3D — caixas e trechos. Do plugin MISO4Dren Desenho, selecione também o .json (tipos de caixa e escadas).</p>
+          <input ref={landXmlInputRef} type="file" multiple accept=".xml,.json" className="hidden" onChange={(e) => e.target.files && e.target.files.length > 0 && handleSelecionarArquivosRede(e.target.files)} />
           <button onClick={() => landXmlInputRef.current?.click()} disabled={busy} className={PRIMARY_BTN}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-            Selecionar arquivo .xml
+            Selecionar .xml (e .json do plugin)
           </button>
           <div className="mt-2 text-xs text-text-secondary">{caixas.length} caixa(s) · {trechos.length} trecho(s) cadastrados</div>
         </div>

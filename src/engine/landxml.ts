@@ -47,6 +47,10 @@ export interface TrechoImportado {
   cotaTopoJusante?: number
   cotaFundoJusante?: number
   redeNome?: string
+  /** Só vêm do arquivo complementar do plugin Civil (engine/contratoCivil.ts); o LandXML sozinho não sabe o que é escada. */
+  ehEscadaHidraulica?: boolean
+  escadaLarguraM?: number | null
+  escadaAlturaFluxoM?: number | null
 }
 
 export interface ResultadoImportLandXml {

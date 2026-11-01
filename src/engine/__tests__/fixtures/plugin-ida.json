@@ -1,0 +1,116 @@
+{
+  "versao": 1,
+  "projeto": "Projeto Teste",
+  "pvPvMaximoM": 60,
+  "dispositivos": [
+    {
+      "handle": "1A",
+      "nome": "BS-01",
+      "tipo": "BS",
+      "alinhamentoId": "ALINH",
+      "estaca": 10
+    },
+    {
+      "handle": "1B",
+      "nome": "PV-01",
+      "tipo": "PV",
+      "alinhamentoId": "ALINH",
+      "estaca": 20
+    },
+    {
+      "handle": "1C",
+      "nome": "CT-01",
+      "tipo": "CT",
+      "alinhamentoId": null,
+      "estaca": null
+    },
+    {
+      "handle": "1D",
+      "nome": "CE-01",
+      "tipo": "CE",
+      "alinhamentoId": null,
+      "estaca": null
+    },
+    {
+      "handle": "1E",
+      "nome": "CE-02",
+      "tipo": "CE",
+      "alinhamentoId": null,
+      "estaca": null
+    },
+    {
+      "handle": "1F",
+      "nome": "PV-02",
+      "tipo": "PV",
+      "alinhamentoId": "ALINH",
+      "estaca": 70
+    },
+    {
+      "handle": "1G",
+      "nome": "JUS-01",
+      "tipo": "JUS",
+      "alinhamentoId": "ALINH",
+      "estaca": 120
+    }
+  ],
+  "trechos": [
+    {
+      "handle": "2A",
+      "nome": "TUBO-001",
+      "tipo": "Normal",
+      "montante": "1A",
+      "jusante": "1B",
+      "material": "Concreto",
+      "caso": null,
+      "larguraB": null,
+      "alturaH": null
+    },
+    {
+      "handle": "2B",
+      "nome": "TUBO-002",
+      "tipo": "Normal",
+      "montante": "1B",
+      "jusante": "1F",
+      "material": "Concreto",
+      "caso": null,
+      "larguraB": null,
+      "alturaH": null
+    },
+    {
+      "handle": "2C",
+      "nome": "ESC-01",
+      "tipo": "ESC",
+      "montante": "1D",
+      "jusante": "1E",
+      "material": "Concreto",
+      "caso": "Corte",
+      "larguraB": 0.9,
+      "alturaH": 0.5
+    },
+    {
+      "handle": "2D",
+      "nome": "TUBO-003",
+      "tipo": "Normal",
+      "montante": "1E",
+      "jusante": "1F",
+      "material": "Concreto",
+      "caso": null,
+      "larguraB": null,
+      "alturaH": null
+    },
+    {
+      "handle": "2E",
+      "nome": "TUBO-004",
+      "tipo": "Normal",
+      "montante": "1F",
+      "jusante": "1G",
+      "material": "Concreto",
+      "caso": null,
+      "larguraB": null,
+      "alturaH": null
+    }
+  ],
+  "espacamentoBsBsPorAlinhamento": {
+    "ALINH": 38
+  }
+}

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Units>
+    <Metric areaUnit="squareMeter" linearUnit="meter" diameterUnit="millimeter"></Metric>
+  </Units>
+  <PipeNetworks>
+    <PipeNetwork name="REDE - 01">
+      <Structs>
+        <Struct name="BS-01" type="Inlet" desc="BS-01" elevRim="110" elevSump="100">
+          <Center>103 100</Center>
+          <Invert elev="100" flowDir="out" refPipe="TUBO-001"></Invert>
+        </Struct>
+        <Struct name="PV-01" type="Junction" desc="PV-01" elevRim="110" elevSump="99">
+          <Center>100 100</Center>
+          <Invert elev="100" flowDir="out" refPipe="TUBO-002"></Invert>
+          <Invert elev="99" flowDir="in" refPipe="TUBO-001"></Invert>
+        </Struct>
+        <Struct name="CT-01" type="Structure" desc="CT-01" elevRim="109">
+          <Center>90 130</Center>
+        </Struct>
+        <Struct name="CE-01" type="Structure" desc="CE-01" elevRim="120" elevSump="100">
+          <Center>100 160</Center>
+          <Invert elev="100" flowDir="out" refPipe="ESC-01"></Invert>
+        </Struct>
+        <Struct name="CE-02" type="Structure" desc="CE-02" elevRim="108" elevSump="99">
+          <Center>140 160</Center>
+          <Invert elev="100" flowDir="out" refPipe="TUBO-003"></Invert>
+          <Invert elev="99" flowDir="in" refPipe="ESC-01"></Invert>
+        </Struct>
+        <Struct name="PV-02" type="Junction" desc="PV-02" elevRim="107" elevSump="99">
+          <Center>150 150</Center>
+          <Invert elev="100" flowDir="out" refPipe="TUBO-004"></Invert>
+          <Invert elev="99" flowDir="in" refPipe="TUBO-002"></Invert>
+          <Invert elev="99" flowDir="in" refPipe="TUBO-003"></Invert>
+        </Struct>
+        <Struct name="JUS-01" type="Structure" desc="JUS-01" elevRim="100" elevSump="99">
+          <Center>150 200</Center>
+          <Invert elev="99" flowDir="in" refPipe="TUBO-004"></Invert>
+        </Struct>
+      </Structs>
+      <Pipes>
+        <Pipe name="TUBO-001" refStart="BS-01" refEnd="PV-01" desc="TUBO-001" length="25" slope="0.01">
+          <CircPipe diameter="300" material="CONCRETO"></CircPipe>
+        </Pipe>
+        <Pipe name="TUBO-002" refStart="PV-01" refEnd="PV-02" desc="TUBO-002" length="25" slope="0.01">
+          <CircPipe diameter="600" material="CONCRETO"></CircPipe>
+        </Pipe>
+        <Pipe name="ESC-01" refStart="CE-01" refEnd="CE-02" desc="ESC-01" length="25" slope="0.01">
+          <CircPipe diameter="600" material="CONCRETO"></CircPipe>
+        </Pipe>
+        <Pipe name="TUBO-003" refStart="CE-02" refEnd="PV-02" desc="TUBO-003" length="25" slope="0.01">
+          <CircPipe diameter="400" material="CONCRETO"></CircPipe>
+        </Pipe>
+        <Pipe name="TUBO-004" refStart="PV-02" refEnd="JUS-01" desc="TUBO-004" length="25" slope="0.01">
+          <CircPipe diameter="800" material="CONCRETO"></CircPipe>
+        </Pipe>
+      </Pipes>
+    </PipeNetwork>
+  </PipeNetworks>
+</LandXML>
