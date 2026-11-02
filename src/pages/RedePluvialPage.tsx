@@ -46,6 +46,7 @@ import { calcularCotaMontantePorEnergia, calcularCotasPorEnergia, calcularLinhaE
 import { agruparQuantidadesPorItem, calcularVolumesTrecho, type ParametrosEscavacao } from '../engine/quantitativos'
 import { resolverLamina } from '../engine/bissecao'
 import { sugerirDeclividade, sugerirDiametro } from '../engine/sugestao'
+import { aplicarDiametroMinimo, type ResultadoDiametroMinimo } from '../engine/diametroMinimo'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import { exportarTabelaRedePluvialPdf } from '../lib/exportRedePluvialPdf'
 import { baixarRelatorioDiametros } from '../lib/relatorioDiametros'
@@ -58,6 +59,7 @@ import {
   renomearMaterialEmLote,
   updateTrecho,
   updateTrechosPerfilEmLote,
+  updateTrechosDiametroEmLote,
   type CaixaRecord,
   type TrechoRecord,
 } from '../lib/redeStorage'
@@ -524,6 +526,8 @@ export function RedePluvialPage() {
   const [recobrimentoPerfil, setRecobrimentoPerfil] = useState('1.20')
   const [perfilPendente, setPerfilPendente] = useState<{ patches: PatchPerfilRede[]; cabeceirasSemCotaTerreno: string[] } | null>(null)
   const [aplicandoPerfil, setAplicandoPerfil] = useState(false)
+  const [diametroMinPendente, setDiametroMinPendente] = useState<ResultadoDiametroMinimo | null>(null)
+  const [aplicandoDiametroMin, setAplicandoDiametroMin] = useState(false)
 
   const load = async () => {
     if (!revisaoAtiva) return
@@ -737,6 +741,44 @@ export function RedePluvialPage() {
       setError(err instanceof Error ? err.message : 'Erro ao aplicar o perfil recalculado.')
     } finally {
       setAplicandoPerfil(false)
+    }
+  }
+
+  // Aplicar o diâmetro mínimo: o cálculo só confere o mínimo (marca "não conforme"); aqui o engenheiro vê o que mudaria e confirma.
+  const handleCalcularDiametroMinimo = () => {
+    setError(null)
+    setDiametroMinPendente(
+      aplicarDiametroMinimo(
+        trechos.map((t) => ({
+          id: t.id,
+          caixaMontanteId: t.caixa_montante_id,
+          caixaJusanteId: t.caixa_jusante_id,
+          diametroM: t.diametro_m,
+          cotaFundoMontante: t.cota_fundo_montante,
+          cotaFundoJusante: t.cota_fundo_jusante,
+          ehEscadaHidraulica: t.eh_escada_hidraulica,
+        })),
+        troncoIds,
+        limites.diametroMinTroncoM,
+        limites.diametroMinRamalM
+      )
+    )
+  }
+
+  const handleAplicarDiametroMinimo = async () => {
+    if (!diametroMinPendente || diametroMinPendente.patches.length === 0) return
+    setAplicandoDiametroMin(true)
+    setError(null)
+    try {
+      await updateTrechosDiametroEmLote(
+        diametroMinPendente.patches.map((p) => ({ id: p.id, diametroM: p.diametroM, cotaTopoMontante: p.cotaTopoMontante, cotaTopoJusante: p.cotaTopoJusante }))
+      )
+      setDiametroMinPendente(null)
+      await handleRecalcularAposEdicao() // refaz o cálculo e a linha de energia com os diâmetros novos
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao aplicar o diâmetro mínimo.')
+    } finally {
+      setAplicandoDiametroMin(false)
     }
   }
 
@@ -2007,6 +2049,59 @@ export function RedePluvialPage() {
                   Aplicar
                 </button>
                 <button onClick={() => setPerfilPendente(null)} className="text-xs text-text-secondary hover:text-text-primary">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {trechos.length > 0 && (
+        <div className="mb-6 rounded-lg border border-border bg-surface p-4">
+          <div className="mb-1 font-sans text-sm font-semibold text-text-primary">Aplicar diâmetro mínimo</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            O cálculo da rede só confere o diâmetro mínimo (marca "não conforme"); não troca diâmetro. Aqui você sobe para o mínimo —{' '}
+            {limites.diametroMinTroncoM} m na rede tronco e {limites.diametroMinRamalM} m no ramal — todo trecho abaixo dele. A subida passa
+            para jusante, porque o diâmetro não diminui de montante para jusante. As cotas de fundo ficam como estão e o cálculo da rede roda
+            em seguida para refazer a linha de energia. Escadas hidráulicas ficam de fora.
+          </p>
+          <button onClick={handleCalcularDiametroMinimo} className={SECONDARY_BTN}>
+            Ver o que muda
+          </button>
+
+          {diametroMinPendente && diametroMinPendente.patches.length === 0 && (
+            <div className="mt-3 flex items-center gap-3 text-xs text-text-secondary">
+              Todos os trechos já atendem ao diâmetro mínimo: nada a alterar.
+              <button onClick={() => setDiametroMinPendente(null)} className="hover:text-text-primary">
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {diametroMinPendente && diametroMinPendente.patches.length > 0 && (
+            <div className="mt-3 rounded-md border border-accent-amber/40 bg-accent-amber/5 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-text-primary">
+                <AlertTriangle size={16} className="text-accent-amber shrink-0" />
+                {diametroMinPendente.patches.length} trecho(s) vão subir de diâmetro: {diametroMinPendente.subidosPeloMinimo} por estarem abaixo do
+                mínimo e {diametroMinPendente.subidosPorPropagacao} por propagação para jusante. Não tem desfazer automático — exportar/reimportar o
+                LandXML original é o jeito de voltar atrás.
+              </div>
+              <div className="mb-2 max-h-40 overflow-y-auto text-xs text-text-secondary">
+                {diametroMinPendente.patches.slice(0, 30).map((p) => (
+                  <div key={p.id}>
+                    {trechos.find((t) => t.id === p.id)?.nome ?? p.id}: {p.diametroAnteriorM.toFixed(3)} → {p.diametroM.toFixed(3)} m (
+                    {p.motivo === 'minimo' ? 'abaixo do mínimo' : 'propagação'})
+                  </div>
+                ))}
+                {diametroMinPendente.patches.length > 30 && <div>... e mais {diametroMinPendente.patches.length - 30}.</div>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleAplicarDiametroMinimo} disabled={aplicandoDiametroMin} className={SMALL_BTN}>
+                  {aplicandoDiametroMin && <Loader2 size={14} className="animate-spin" />}
+                  Aplicar e recalcular
+                </button>
+                <button onClick={() => setDiametroMinPendente(null)} className="text-xs text-text-secondary hover:text-text-primary">
                   Cancelar
                 </button>
               </div>

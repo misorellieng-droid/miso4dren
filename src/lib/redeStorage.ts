@@ -512,3 +512,24 @@ export async function aplicarReimportacao(
     trechosNaoResolvidos,
   }
 }
+
+/** Troca o diâmetro de vários trechos de uma vez e refaz o topo (fundo + diâmetro); as cotas de fundo não mudam. */
+export async function updateTrechosDiametroEmLote(
+  patches: { id: string; diametroM: number; cotaTopoMontante: number | null; cotaTopoJusante: number | null }[]
+): Promise<void> {
+  const client = requireSupabase()
+  const resultados = await Promise.all(
+    patches.map((p) =>
+      client
+        .from('trechos')
+        .update({
+          diametro_m: p.diametroM,
+          ...(p.cotaTopoMontante != null ? { cota_topo_montante: p.cotaTopoMontante } : {}),
+          ...(p.cotaTopoJusante != null ? { cota_topo_jusante: p.cotaTopoJusante } : {}),
+        })
+        .eq('id', p.id)
+    )
+  )
+  const primeiroErro = resultados.find((r) => r.error)?.error
+  if (primeiroErro) throw primeiroErro
+}
