@@ -49,7 +49,7 @@ describe('aplicarContratoIda', () => {
     expect(por('BS-01')).toMatchObject({ tipo: 'boca_de_lobo', recebeVazao: true, ehTronco: true })
     expect(por('BL-01')).toMatchObject({ tipo: 'boca_de_lobo', recebeVazao: true, ehTronco: true })
     expect(por('CT-01')).toMatchObject({ tipo: 'caixa_passagem', recebeVazao: true, ehTronco: false })
-    expect(por('CE-01')).toMatchObject({ tipo: 'caixa_passagem', recebeVazao: false, ehTronco: true })
+    expect(por('CE-01')).toMatchObject({ tipo: 'caixa_passagem', recebeVazao: true, ehTronco: true })
     expect(por('JUS-01')).toMatchObject({ tipo: 'caixa_passagem', ehTronco: true })
     expect(avisos).toEqual([])
     expect(contagemPorTipo).toEqual({ BS: 1, PV: 1, CT: 1, CE: 2, JUS: 1, BL: 1 })

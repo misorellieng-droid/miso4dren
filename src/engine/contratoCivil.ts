@@ -57,14 +57,14 @@ interface ClassificacaoCaixa {
 /**
  * Como cada dispositivo do Civil vira caixa no miso4dren (decisão de 2026-11-01):
  * PV poço de visita; BS boca de lobo (recebe vazão); BL boca de leão do sarjetão (recebe vazão e age como PV, por isso é tronco);
- * CT caixa de telhado (recebe vazão do telhado, não é tronco); CE caixa da escada hidráulica (tronco); JUS final da rede.
+ * CT caixa de telhado (recebe vazão do telhado, não é tronco); CE caixa da escada hidráulica (tronco; recebe vazão das bacias, pois capta a água da escada e dos taludes); JUS final da rede.
  */
 export const CLASSIFICACAO_POR_DISPOSITIVO: Record<TipoDispositivoCivil, ClassificacaoCaixa> = {
   PV: { tipo: 'pv', recebeVazao: false, ehTronco: true },
   BS: { tipo: 'boca_de_lobo', recebeVazao: true, ehTronco: true },
   BL: { tipo: 'boca_de_lobo', recebeVazao: true, ehTronco: true },
   CT: { tipo: 'caixa_passagem', recebeVazao: true, ehTronco: false },
-  CE: { tipo: 'caixa_passagem', recebeVazao: false, ehTronco: true },
+  CE: { tipo: 'caixa_passagem', recebeVazao: true, ehTronco: true },
   JUS: { tipo: 'caixa_passagem', recebeVazao: false, ehTronco: true },
 }
 
