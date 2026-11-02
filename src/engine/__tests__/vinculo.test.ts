@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { vincularBaciasCaixas } from '../vinculo'
+import { caixasParaHabilitar, vincularBaciasCaixas } from '../vinculo'
 
 describe('vincularBaciasCaixas', () => {
   it('vincula automaticamente quando exatamente uma caixa está dentro da tolerância', () => {
@@ -39,5 +39,26 @@ describe('vincularBaciasCaixas', () => {
     const caixas = [{ id: 'C1', x: 8, y: 0 }]
     expect(vincularBaciasCaixas(bacias, caixas, 5)[0].vinculoStatus).toBe('pendente')
     expect(vincularBaciasCaixas(bacias, caixas, 10)[0].vinculoStatus).toBe('automatico')
+  })
+})
+
+describe('caixasParaHabilitar', () => {
+  const caixas = [
+    { id: '1', nome: 'BS-01', recebe_vazao: true },
+    { id: '2', nome: 'CT-05', recebe_vazao: false },
+    { id: '3', nome: 'CT-06', recebe_vazao: false },
+    { id: '4', nome: 'PV-01', recebe_vazao: false },
+  ]
+
+  it('habilita só as caixas vinculadas no desenho que ainda não recebiam vazão, sem repetir', () => {
+    const r = caixasParaHabilitar(
+      [{ captacao: [{ dispositivoNome: 'BS-01' }, { dispositivoNome: 'CT-05' }] }, { captacao: [{ dispositivoNome: 'CT-05' }, { dispositivoNome: 'CT-06' }] }],
+      caixas
+    )
+    expect(r.map((c) => c.nome).sort()).toEqual(['CT-05', 'CT-06'])
+  })
+
+  it('nome que não existe na rede não entra; bacia sem vínculo do desenho também não', () => {
+    expect(caixasParaHabilitar([{ captacao: [{ dispositivoNome: 'CT-99' }] }, {}], caixas)).toEqual([])
   })
 })

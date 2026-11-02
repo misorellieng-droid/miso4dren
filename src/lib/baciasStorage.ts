@@ -2,10 +2,10 @@ import type { BaciaImportada } from '../engine/csvBacias'
 import type { BaciaImportadaLandXml } from '../engine/landxml'
 import { dividirPercentualIgualmente } from '../engine/percentual'
 import { centroidePoligono, pontoDentroAlgumPoligono } from '../engine/poligono'
-import { vincularBaciasCaixas } from '../engine/vinculo'
+import { caixasParaHabilitar, vincularBaciasCaixas } from '../engine/vinculo'
 import { replaceCaptacoesDaBacia, upsertCaptacao } from './captacaoStorage'
 import { criarImportacao } from './importacoesStorage'
-import { listCaixas, type CaixaRecord } from './redeStorage'
+import { listCaixas, updateCaixasRecebeVazaoEmLote, type CaixaRecord } from './redeStorage'
 import { supabase } from './supabase'
 
 export interface BaciaRecord {
@@ -125,6 +125,8 @@ export interface ResumoImportacaoBaciasLandXml {
   /** Bacias que já existiam e tiveram a captação substituída pelo vínculo do desenho. */
   atualizadasDoDesenho: string[]
   avisos: string[]
+  /** Caixas que passaram a receber vazão por estarem vinculadas no desenho. */
+  caixasHabilitadas: string[]
 }
 
 /**
@@ -153,6 +155,13 @@ export async function importarBaciasLandXml(
   const novasBacias = bacias.filter((b) => !nomesExistentes.has(b.nome))
 
   const caixas = await listCaixas(revisaoId)
+  // vínculo feito no desenho vale mesmo se a caixa ainda não estava marcada como "recebe vazão" (ex.: rede importada antes da configuração do plugin)
+  const habilitadas = caixasParaHabilitar(bacias, caixas)
+  if (habilitadas.length > 0) {
+    await updateCaixasRecebeVazaoEmLote(habilitadas.map((c) => c.id), true)
+    const ids = new Set(habilitadas.map((c) => c.id))
+    for (const c of caixas) if (ids.has(c.id)) c.recebe_vazao = true
+  }
   const caixasElegiveis = caixas.filter((c): c is CaixaRecord & { x: number; y: number } => c.recebe_vazao && c.x != null && c.y != null)
 
   const divididas = new Map<string, string[]>()
@@ -170,7 +179,7 @@ export async function importarBaciasLandXml(
     for (const c of b.captacao) {
       const caixa = caixaPorNome.get(c.dispositivoNome)
       if (caixa) entradas.push({ dispositivoId: caixa.id, percentual: c.percentual })
-      else avisos.push(`${b.nome}: dispositivo "${c.dispositivoNome}" do desenho não está entre as caixas que recebem vazão (importe a rede antes).`)
+      else avisos.push(`${b.nome}: dispositivo "${c.dispositivoNome}" do desenho não existe na rede desta revisão (importe a rede antes, do mesmo arquivo exportado; o nome muda ao renumerar).`)
     }
     const soma = entradas.reduce((acc, e) => acc + e.percentual, 0)
     if (soma > 100.01) {
@@ -260,5 +269,5 @@ export async function importarBaciasLandXml(
     }
   }
 
-  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, divididas, pendentes, vinculadasDoDesenho, atualizadasDoDesenho, avisos }
+  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, divididas, pendentes, vinculadasDoDesenho, atualizadasDoDesenho, avisos, caixasHabilitadas: habilitadas.map((c) => c.nome) }
 }

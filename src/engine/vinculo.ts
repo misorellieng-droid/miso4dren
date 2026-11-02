@@ -54,3 +54,23 @@ export function vincularBaciasCaixas(
     }
   })
 }
+
+/**
+ * Caixas que o vínculo feito no desenho (CAP= no Parcel) manda captar mas que ainda não estão marcadas como "recebe vazão".
+ * Quem vinculou no plugin escolheu o dispositivo de propósito (e configurou quais tipos captam), então o vínculo vale e a caixa é habilitada.
+ * Nomes que não existem na rede não entram aqui (viram aviso: a rede precisa ser importada antes).
+ */
+export function caixasParaHabilitar(
+  bacias: { captacao?: { dispositivoNome: string }[] }[],
+  caixas: { id: string; nome: string; recebe_vazao: boolean }[]
+): { id: string; nome: string }[] {
+  const porNome = new Map(caixas.map((c) => [c.nome, c]))
+  const res = new Map<string, { id: string; nome: string }>()
+  for (const b of bacias) {
+    for (const c of b.captacao ?? []) {
+      const cx = porNome.get(c.dispositivoNome)
+      if (cx && !cx.recebe_vazao) res.set(cx.id, { id: cx.id, nome: cx.nome })
+    }
+  }
+  return [...res.values()]
+}

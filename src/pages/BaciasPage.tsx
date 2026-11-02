@@ -277,6 +277,7 @@ export function BaciasPage() {
         const detalheDivididas = [...resumo.divididas.entries()].map(([nome, cs]) => `${nome} (${cs.length}× — ${cs.join(', ')})`).join('; ')
         partes.push(`${resumo.divididas.size} com captação dividida igualmente entre 2+ caixas: ${detalheDivididas}`)
       }
+      if (resumo.caixasHabilitadas.length > 0) partes.push(`${resumo.caixasHabilitadas.length} caixa(s) marcada(s) como "recebe vazão" por estarem vinculadas no desenho (${resumo.caixasHabilitadas.slice(0, 6).join(', ')}${resumo.caixasHabilitadas.length > 6 ? '...' : ''})`)
       if (resumo.vinculadasDoDesenho.length > 0) partes.push(`${resumo.vinculadasDoDesenho.length} com dispositivos vinculados no desenho`)
       if (resumo.atualizadasDoDesenho.length > 0) partes.push(`${resumo.atualizadasDoDesenho.length} já existente(s) com a captação atualizada pelo desenho: ${resumo.atualizadasDoDesenho.join(', ')}`)
       if (resumo.avisos.length > 0) partes.push(`${resumo.avisos.length} aviso(s): ${resumo.avisos.slice(0, 3).join(' | ')}${resumo.avisos.length > 3 ? ` (+${resumo.avisos.length - 3})` : ''}`)
