@@ -13,6 +13,8 @@ export interface DispositivoContrato {
   tipo: TipoDispositivoCivil
   alinhamentoId: string | null
   estaca: number | null
+  /** Se o tipo deste dispositivo foi marcado, na configuração do plugin, como podendo captar de bacia; quando vem, vale no lugar da classificação padrão do tipo. */
+  recebeVazao?: boolean
   /** CE-P: caixa só indicativa na crista do talude (início da escada), que não será construída. Ausente nos arquivos antigos. */
   provisorio?: boolean
 }
@@ -125,7 +127,8 @@ export function aplicarContratoIda(resultado: ResultadoImportLandXml, contrato: 
       return c
     }
     contagemPorTipo[d.tipo] = (contagemPorTipo[d.tipo] ?? 0) + 1
-    return { ...c, ...CLASSIFICACAO_POR_DISPOSITIVO[d.tipo] }
+    const classificacao = CLASSIFICACAO_POR_DISPOSITIVO[d.tipo]
+    return { ...c, ...classificacao, recebeVazao: typeof d.recebeVazao === 'boolean' ? d.recebeVazao : classificacao.recebeVazao }
   })
   for (const d of contrato.dispositivos) {
     if (!nomesCaixas.has(d.nome)) avisos.push(`Dispositivo "${d.nome}" do arquivo complementar não está no LandXML.`)

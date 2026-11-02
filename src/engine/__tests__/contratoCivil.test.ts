@@ -30,6 +30,24 @@ function contratoBase(): ContratoIda {
 }
 
 describe('aplicarContratoIda', () => {
+  it('recebeVazao do arquivo (configuração do plugin) vale no lugar da classificação padrão do tipo', () => {
+    const c = contratoBase()
+    const jus = c.dispositivos.find((d) => d.nome === 'JUS-01')!
+    jus.recebeVazao = true // projeto que precisa captar de bacia no JUS
+    const pv = c.dispositivos.find((d) => d.nome === 'PV-01')!
+    pv.recebeVazao = false
+    c.dispositivos.find((d) => d.nome === 'BS-01')!.recebeVazao = false // restringiu: BS não capta neste projeto
+    const { resultado } = aplicarContratoIda(resultadoBase(), c)
+    const por = (n: string) => resultado.caixas.find((x) => x.nome === n)!
+    expect(por('JUS-01').recebeVazao).toBe(true)
+    expect(por('BS-01').recebeVazao).toBe(false)
+    expect(por('PV-01').recebeVazao).toBe(false)
+    // o resto da classificação (tipo e tronco) não muda
+    expect(por('BS-01')).toMatchObject({ tipo: 'boca_de_lobo', ehTronco: true })
+    // sem o campo, vale o padrão do tipo
+    expect(aplicarContratoIda(resultadoBase(), contratoBase()).resultado.caixas.find((x) => x.nome === 'BS-01')!.recebeVazao).toBe(true)
+  })
+
   it('lista as caixas provisórias (CE-P) e mantém a classificação de CE', () => {
     const r = resultadoBase()
     r.caixas.push({ nome: 'CE-P-01', tipo: 'caixa_passagem', recebeVazao: false, ehTronco: false })
