@@ -3,7 +3,13 @@ import { CheckCircle2, Layers, Loader2, XCircle } from 'lucide-react'
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { ALTURA_FLUXO_MAXIMA_M, ALTURA_FLUXO_MINIMA_M, larguraMinimaEscadaM, verificarEscadaHidraulica } from '../engine/escadaHidraulica'
+import {
+  ALTURA_FLUXO_MAXIMA_M,
+  ALTURA_FLUXO_MINIMA_M,
+  dimensionarDegraus,
+  larguraMinimaEscadaM,
+  verificarEscadaHidraulica,
+} from '../engine/escadaHidraulica'
 import { listCaixas, listTrechos, updateTrecho, type CaixaRecord, type TrechoRecord } from '../lib/redeStorage'
 import { listResultadosRedeByRevisao, type ResultadoRedeRecord } from '../lib/resultadosStorage'
 import { listBibliotecaPecas, type ItemBiblioteca } from '../lib/bibliotecaStorage'
@@ -12,6 +18,9 @@ import { supabase } from '../lib/supabase'
 const TOLERANCIA_DIAMETRO_BIBLIOTECA_M = 0.001
 /** Altura de fluxo padrão sugerida ao marcar um trecho como escada, sem nenhum valor ainda salvo — meio da faixa admitida (ver ALTURA_FLUXO_MINIMA_M/MAXIMA_M). */
 const ALTURA_FLUXO_PADRAO_M = (ALTURA_FLUXO_MINIMA_M + ALTURA_FLUXO_MAXIMA_M) / 2
+/** Espelho e degrau de partida quando o plugin ainda não enviou os escolhidos (os mesmos padrões da aba Escadas do plugin). */
+const ESPELHO_PADRAO_M = 0.2
+const DEGRAU_PADRAO_M = 0.4
 
 function acharEspessuraParedeM(biblioteca: ItemBiblioteca[], material: string | null, diametroM: number): number | null {
   if (!material) return null
@@ -56,7 +65,10 @@ export function EscadasHidraulicasPage() {
   const qProjetoPorTrecho = useMemo(() => new Map(resultados.map((r) => [r.trecho_id, r.q_projeto_m3s])), [resultados])
   const escadas = useMemo(() => trechos.filter((t) => t.eh_escada_hidraulica).sort((a, b) => a.nome.localeCompare(b.nome)), [trechos])
 
-  const handleEditar = async (id: string, patch: { escada_largura_m?: number | null; escada_altura_fluxo_m?: number | null }) => {
+  const handleEditar = async (
+    id: string,
+    patch: { escada_largura_m?: number | null; escada_altura_fluxo_m?: number | null; escada_espelho_m?: number | null; escada_degrau_m?: number | null }
+  ) => {
     setSalvandoId(id)
     setError(null)
     try {
@@ -122,6 +134,19 @@ export function EscadasHidraulicasPage() {
             const alturaFluxoM = t.escada_altura_fluxo_m ?? ALTURA_FLUXO_PADRAO_M
             const verificacao =
               qProjetoM3s != null ? verificarEscadaHidraulica(larguraM, alturaFluxoM, qProjetoM3s, diametroExternoM) : null
+
+            // degraus e patamares: perfil do talude vindo do plugin; sem ele, uma face só com o comprimento e a queda do tubo de ligação (estimativa)
+            const espelhoM = t.escada_espelho_m ?? ESPELHO_PADRAO_M
+            const degrauM = t.escada_degrau_m ?? DEGRAU_PADRAO_M
+            const perfilDoPlugin = t.escada_perfil != null && t.escada_perfil.faces.length > 0
+            const quedaTuboM =
+              t.cota_fundo_montante != null && t.cota_fundo_jusante != null ? Math.abs(t.cota_fundo_montante - t.cota_fundo_jusante) : 0
+            const degraus = dimensionarDegraus({
+              espelhoM,
+              degrauM,
+              faces: perfilDoPlugin ? t.escada_perfil!.faces : [{ comprimentoM: t.comprimento_m, desnivelM: quedaTuboM }],
+              bermasM: perfilDoPlugin ? t.escada_perfil!.bermasM : [],
+            })
 
             return (
               <div key={t.id} className="rounded-lg border border-border bg-surface p-4">
@@ -194,6 +219,94 @@ export function EscadasHidraulicasPage() {
                       {verificacao ? (verificacao.vazaoCapacidadeM3s * 1000).toFixed(2) : '—'}
                     </div>
                   </div>
+                </div>
+                <div className="mt-4 border-t border-border pt-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-sans text-sm font-semibold text-text-primary">Degraus e patamares</span>
+                    <span className="text-[11px] text-text-secondary">
+                      {perfilDoPlugin ? 'Perfil do talude vindo do plugin (faces e bermas).' : 'Estimativa pelo comprimento e queda do tubo de ligação: o plugin ainda não enviou o perfil do talude.'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-text-secondary">Espelho (m)</div>
+                      <input
+                        type="number"
+                        step="any"
+                        defaultValue={espelhoM}
+                        disabled={salvandoId === t.id}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value)
+                          if (Number.isFinite(n) && n > 0 && n !== t.escada_espelho_m) handleEditar(t.id, { escada_espelho_m: n })
+                        }}
+                        className={`${fieldInputClass} mt-1 py-1`}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-text-secondary">Degrau — piso (m)</div>
+                      <input
+                        type="number"
+                        step="any"
+                        defaultValue={degrauM}
+                        disabled={salvandoId === t.id}
+                        onBlur={(e) => {
+                          const n = Number(e.target.value)
+                          if (Number.isFinite(n) && n > 0 && n !== t.escada_degrau_m) handleEditar(t.id, { escada_degrau_m: n })
+                        }}
+                        className={`${fieldInputClass} mt-1 py-1`}
+                      />
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-text-secondary">Degraus</div>
+                      <div className="mt-1 py-1 text-sm font-medium text-text-primary">{degraus.degrausTotal || '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-text-secondary">Espelho real médio (m)</div>
+                      <div className="mt-1 py-1 text-sm text-text-primary">{degraus.degrausTotal ? degraus.espelhoRealMedioM.toFixed(3) : '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-text-secondary">Patamar total (m)</div>
+                      <div className={`mt-1 py-1 text-sm font-medium ${degraus.cabe ? 'text-text-primary' : 'text-accent-red'}`}>
+                        {degraus.degrausTotal ? degraus.patamarTotalM.toFixed(2) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                  {degraus.faces.length > 0 && (
+                    <table className="mt-3 w-full text-left text-xs">
+                      <thead className="text-[10px] uppercase tracking-wide text-text-secondary">
+                        <tr>
+                          <th className="py-1 pr-3">Face</th>
+                          <th className="py-1 pr-3">Desnível (m)</th>
+                          <th className="py-1 pr-3">Comp. disponível (m)</th>
+                          <th className="py-1 pr-3">Degraus</th>
+                          <th className="py-1 pr-3">Espelho real (m)</th>
+                          <th className="py-1 pr-3">Piso necessário (m)</th>
+                          <th className="py-1 pr-3">Sobra / falta (m)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {degraus.faces.map((f, i) => (
+                          <tr key={i} className={f.cabe ? '' : 'text-accent-red'}>
+                            <td className="py-1 pr-3">{i + 1}</td>
+                            <td className="py-1 pr-3">{f.desnivelM.toFixed(2)}</td>
+                            <td className="py-1 pr-3">{f.comprimentoDisponivelM.toFixed(2)}</td>
+                            <td className="py-1 pr-3">{f.degraus}</td>
+                            <td className="py-1 pr-3">{f.espelhoRealM.toFixed(3)}</td>
+                            <td className="py-1 pr-3">{f.comprimentoNecessarioM.toFixed(2)}</td>
+                            <td className="py-1 pr-3">{f.folgaM.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {degraus.bermasM.length > 0 && (
+                    <div className="mt-2 text-xs text-text-secondary">Bermas (patamar reto): {degraus.bermasM.map((b) => b.toFixed(2) + ' m').join(', ')}</div>
+                  )}
+                  {degraus.avisos.map((a, i) => (
+                    <div key={i} className="mt-1 text-xs text-accent-red">
+                      {a}
+                    </div>
+                  ))}
                 </div>
                 {salvandoId === t.id && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs text-text-secondary">

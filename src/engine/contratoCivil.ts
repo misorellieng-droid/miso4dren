@@ -28,6 +28,11 @@ export interface TrechoContrato {
   caso: string | null
   larguraB: number | null
   alturaH: number | null
+  /** Só escadas, versões novas do plugin: espelho, degrau e o perfil do talude (faces com comprimento horizontal e desnível; bermas planas entre elas). */
+  espelho?: number | null
+  degrau?: number | null
+  faces?: { comprimentoM: number; desnivelM: number }[] | null
+  bermasM?: number[] | null
 }
 
 export interface ContratoIda {
@@ -135,7 +140,15 @@ export function aplicarContratoIda(resultado: ResultadoImportLandXml, contrato: 
     }
     if (ct.tipo !== 'ESC') return t
     escadas++
-    return { ...t, ehEscadaHidraulica: true, escadaLarguraM: ct.larguraB ?? null, escadaAlturaFluxoM: ct.alturaH ?? null }
+    return {
+      ...t,
+      ehEscadaHidraulica: true,
+      escadaLarguraM: ct.larguraB ?? null,
+      escadaAlturaFluxoM: ct.alturaH ?? null,
+      escadaEspelhoM: ct.espelho ?? null,
+      escadaDegrauM: ct.degrau ?? null,
+      escadaPerfil: ct.faces && ct.faces.length > 0 ? { faces: ct.faces, bermasM: ct.bermasM ?? [] } : null,
+    }
   })
 
   return { resultado: { caixas, trechos }, avisos, contagemPorTipo, escadas, provisorias }

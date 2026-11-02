@@ -51,6 +51,10 @@ export interface TrechoImportado {
   ehEscadaHidraulica?: boolean
   escadaLarguraM?: number | null
   escadaAlturaFluxoM?: number | null
+  /** Espelho e degrau escolhidos no plugin e o perfil do talude (faces e bermas) -- base do cálculo de degraus e patamares. */
+  escadaEspelhoM?: number | null
+  escadaDegrauM?: number | null
+  escadaPerfil?: { faces: { comprimentoM: number; desnivelM: number }[]; bermasM: number[] } | null
 }
 
 export interface ResultadoImportLandXml {

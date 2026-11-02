@@ -65,6 +65,21 @@ describe('aplicarContratoIda', () => {
     expect(resultado.trechos.find((t) => t.nome === 'TUBO-001')!.ehEscadaHidraulica).toBeUndefined()
   })
 
+  it('escada com espelho, degrau e perfil do talude leva tudo para o trecho importado', () => {
+    const c = contratoBase()
+    c.trechos[1] = { ...c.trechos[1], espelho: 0.2, degrau: 0.4, faces: [{ comprimentoM: 9, desnivelM: 4 }, { comprimentoM: 6, desnivelM: 2 }], bermasM: [3] }
+    const esc = aplicarContratoIda(resultadoBase(), c).resultado.trechos.find((t) => t.nome === 'ESC-01')!
+    expect(esc.escadaEspelhoM).toBe(0.2)
+    expect(esc.escadaDegrauM).toBe(0.4)
+    expect(esc.escadaPerfil).toEqual({ faces: [{ comprimentoM: 9, desnivelM: 4 }, { comprimentoM: 6, desnivelM: 2 }], bermasM: [3] })
+  })
+
+  it('arquivo antigo, sem espelho e perfil, deixa esses campos nulos', () => {
+    const esc = aplicarContratoIda(resultadoBase(), contratoBase()).resultado.trechos.find((t) => t.nome === 'ESC-01')!
+    expect(esc.escadaEspelhoM).toBeNull()
+    expect(esc.escadaDegrauM).toBeNull()
+    expect(esc.escadaPerfil).toBeNull()
+  })
   it('escada ainda sem dimensões entra marcada, com B e H nulos', () => {
     const c = contratoBase()
     c.trechos[1] = { ...c.trechos[1], larguraB: null, alturaH: null }

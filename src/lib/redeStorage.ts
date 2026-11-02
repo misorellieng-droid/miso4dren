@@ -43,6 +43,10 @@ export interface TrechoRecord {
   eh_escada_hidraulica: boolean
   escada_largura_m: number | null
   escada_altura_fluxo_m: number | null
+  /** Espelho e degrau (m) e perfil do talude -- ver migração 030_escada_degraus.sql e dimensionarDegraus. */
+  escada_espelho_m?: number | null
+  escada_degrau_m?: number | null
+  escada_perfil?: { faces: { comprimentoM: number; desnivelM: number }[]; bermasM: number[] } | null
 }
 
 function requireSupabase() {
@@ -137,6 +141,8 @@ export interface TrechoPatch {
   eh_escada_hidraulica?: boolean
   escada_largura_m?: number | null
   escada_altura_fluxo_m?: number | null
+  escada_espelho_m?: number | null
+  escada_degrau_m?: number | null
 }
 
 export async function updateTrechosEhEscadaHidraulicaEmLote(ids: string[], ehEscadaHidraulica: boolean): Promise<void> {
@@ -332,6 +338,10 @@ export async function importarRedeLandXml(
       eh_escada_hidraulica: t.ehEscadaHidraulica ?? false,
       escada_largura_m: t.escadaLarguraM ?? null,
       escada_altura_fluxo_m: t.escadaAlturaFluxoM ?? null,
+      // colunas da migração 030 só vão quando há valor (importação sem escada não depende da migração)
+      ...(t.escadaEspelhoM != null ? { escada_espelho_m: t.escadaEspelhoM } : {}),
+      ...(t.escadaDegrauM != null ? { escada_degrau_m: t.escadaDegrauM } : {}),
+      ...(t.escadaPerfil != null ? { escada_perfil: t.escadaPerfil } : {}),
       importacao_id: importacaoId,
     }))
 
@@ -452,6 +462,10 @@ export async function aplicarReimportacao(
       eh_escada_hidraulica: t.novo.ehEscadaHidraulica ?? false,
       escada_largura_m: t.novo.escadaLarguraM ?? null,
       escada_altura_fluxo_m: t.novo.escadaAlturaFluxoM ?? null,
+      // colunas da migração 030 só vão quando há valor (importação sem escada não depende da migração)
+      ...(t.novo.escadaEspelhoM != null ? { escada_espelho_m: t.novo.escadaEspelhoM } : {}),
+      ...(t.novo.escadaDegrauM != null ? { escada_degrau_m: t.novo.escadaDegrauM } : {}),
+      ...(t.novo.escadaPerfil != null ? { escada_perfil: t.novo.escadaPerfil } : {}),
       importacao_id: importacaoId,
     }))
   if (trechosParaInserir.length > 0) {
