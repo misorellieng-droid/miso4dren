@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dividirPercentualIgualmente } from '../percentual'
+import { dividirPercentualIgualmente, situacaoDaSoma } from '../percentual'
 
 describe('dividirPercentualIgualmente', () => {
   it('divide em partes iguais quando dá exato', () => {
@@ -25,5 +25,22 @@ describe('dividirPercentualIgualmente', () => {
 
   it('retorna array vazio pra n=0', () => {
     expect(dividirPercentualIgualmente(0)).toEqual([])
+  })
+})
+
+describe('situacaoDaSoma', () => {
+  it('99,99999999999997 (resto de ponto flutuante) conta como 100% fechado', () => {
+    expect(situacaoDaSoma(99.99999999999997)).toBe('fechou')
+    expect(situacaoDaSoma(100)).toBe('fechou')
+    expect(situacaoDaSoma(100.00000000000004)).toBe('fechou')
+    // a soma real de 15 partes de 6,66 + resto, como no print
+    const partes = Array.from({ length: 15 }, () => 100 / 15)
+    expect(situacaoDaSoma(partes.reduce((a, b) => a + b, 0))).toBe('fechou')
+  })
+
+  it('abaixo e acima de verdade continuam sendo apontados', () => {
+    expect(situacaoDaSoma(99.5)).toBe('abaixo')
+    expect(situacaoDaSoma(0)).toBe('abaixo')
+    expect(situacaoDaSoma(100.5)).toBe('acima')
   })
 })

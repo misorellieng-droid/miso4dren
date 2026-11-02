@@ -5,6 +5,7 @@ import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
 import { parseLandXml, parseLandXmlParcels, type ResultadoImportLandXml } from '../engine/landxml'
 import { aplicarContratoIda, lerContratoIda } from '../engine/contratoCivil'
+import { situacaoDaSoma } from '../engine/percentual'
 import { parseBaciasCsv } from '../engine/csvBacias'
 import { pontoDentroAlgumPoligono } from '../engine/poligono'
 import { compararImportacao, temMudancas, type DiffImportacao } from '../engine/reimportDiff'
@@ -285,7 +286,12 @@ export function BaciasPage() {
       if (resumo.pendentes.length > 0) {
         partes.push(`${resumo.pendentes.length} pendente(s) (nenhuma caixa dentro) — revise abaixo: ${resumo.pendentes.join(', ')}`)
       }
-      setMessage(partes.join(', ') + '. Coeficiente C não vem do Parcel — informe manualmente na tabela abaixo.')
+      // o C vem do plugin (desc do Parcel); Parcel nativo do Civil 3D não traz, e aí o C é informado na tabela abaixo
+      const semC = parcelas.filter((p) => p.coefC == null).length
+      setMessage(
+        partes.join(', ') +
+          (semC === 0 ? '.' : `. ${semC} bacia(s) sem coeficiente C no arquivo (Parcel que não veio do plugin) — informe manualmente na tabela abaixo.`)
+      )
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao importar Parcels (LandXML).')
@@ -727,9 +733,9 @@ export function BaciasPage() {
                       <td className="py-2">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            soma === 100
+                            situacaoDaSoma(soma) === 'fechou'
                               ? 'bg-accent-green/10 text-accent-green'
-                              : soma > 100
+                              : situacaoDaSoma(soma) === 'acima'
                                 ? 'bg-accent-red/10 text-accent-red'
                                 : 'bg-accent-amber/10 text-accent-amber'
                           }`}
@@ -959,12 +965,12 @@ function CaptacaoPorBacia({
 
       <div className="text-xs">
         Soma atual:{' '}
-        <span className={`font-semibold ${soma === 100 ? 'text-accent-green' : soma > 100 ? 'text-accent-red' : 'text-accent-amber'}`}>
+        <span className={`font-semibold ${situacaoDaSoma(soma) === 'fechou' ? 'text-accent-green' : situacaoDaSoma(soma) === 'acima' ? 'text-accent-red' : 'text-accent-amber'}`}>
           {soma.toFixed(1)}%
         </span>
       </div>
 
-      {soma < 100 && (
+      {situacaoDaSoma(soma) === 'abaixo' && (
         <div className="rounded-md border border-accent-amber/40 bg-accent-amber/10 p-2.5">
           <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-accent-amber">
             <AlertTriangle size={13} />
