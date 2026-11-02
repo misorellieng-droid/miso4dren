@@ -1,16 +1,13 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { aplicarContratoIda, lerContratoIda } from '../contratoCivil'
 import { parseLandXml } from '../landxml'
+import xml from './fixtures/plugin-rede.xml?raw'
+import json from './fixtures/plugin-ida.json?raw'
 
 // Os dois arquivos foram gerados pelo CÓDIGO do plugin (MISO4DrenDesenho.Dominio: LandXml.Exportar e ContratoJson.Serializar)
 // a partir de uma rede de teste. Este teste prova que o miso4dren lê o que o plugin escreve, ponta a ponta.
 // Para regenerar: ver miso4dren-desenho/docs/ESTADO.md (gerador de fixtures do contrato).
-const dir = join(__dirname, 'fixtures')
-const xml = readFileSync(join(dir, 'plugin-rede.xml'), 'utf8')
-const json = readFileSync(join(dir, 'plugin-ida.json'), 'utf8')
 
 describe('arquivos gerados pelo plugin Civil', () => {
   const lido = parseLandXml(xml, new Map([['CONCRETO', 0.013]]))
