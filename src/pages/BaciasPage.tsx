@@ -277,6 +277,9 @@ export function BaciasPage() {
         const detalheDivididas = [...resumo.divididas.entries()].map(([nome, cs]) => `${nome} (${cs.length}× — ${cs.join(', ')})`).join('; ')
         partes.push(`${resumo.divididas.size} com captação dividida igualmente entre 2+ caixas: ${detalheDivididas}`)
       }
+      if (resumo.vinculadasDoDesenho.length > 0) partes.push(`${resumo.vinculadasDoDesenho.length} com dispositivos vinculados no desenho`)
+      if (resumo.atualizadasDoDesenho.length > 0) partes.push(`${resumo.atualizadasDoDesenho.length} já existente(s) com a captação atualizada pelo desenho: ${resumo.atualizadasDoDesenho.join(', ')}`)
+      if (resumo.avisos.length > 0) partes.push(`${resumo.avisos.length} aviso(s): ${resumo.avisos.slice(0, 3).join(' | ')}${resumo.avisos.length > 3 ? ` (+${resumo.avisos.length - 3})` : ''}`)
       if (resumo.jaExistentes > 0) partes.push(`${resumo.jaExistentes} já existente(s) (nome repetido, ignoradas)`)
       if (resumo.pendentes.length > 0) {
         partes.push(`${resumo.pendentes.length} pendente(s) (nenhuma caixa dentro) — revise abaixo: ${resumo.pendentes.join(', ')}`)

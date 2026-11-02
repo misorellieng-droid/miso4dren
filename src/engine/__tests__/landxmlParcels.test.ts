@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it } from 'vitest'
-import { parseLandXmlParcels } from '../landxml'
+import { parseLandXmlParcels, extrairCaptacaoDoDesc } from '../landxml'
 
 // Formato real validado contra um export de Parcels do Civil 3D 2027:
 // <Parcels name="..."><Parcel name="..." area="..." desc=""><CoordGeom>
@@ -166,6 +166,32 @@ describe('parseLandXmlParcels', () => {
 
   it('lança erro para XML inválido', () => {
     expect(() => parseLandXmlParcels('<not-xml')).toThrow()
+  })
+
+  it('extrai a captação do desc ("CAP=BS-03:50;CT-01:50") junto com o C, sem confundir o C com o CAP', () => {
+    const xml = `<LandXML><Parcels><Parcel name="B-01" area="100" desc="MISO4Dren C=0.65 CAP=BS-03:50;CT-01:50">
+      <CoordGeom>
+        <Line><Start>0 0</Start><End>0 10</End></Line>
+        <Line><Start>0 10</Start><End>10 10</End></Line>
+        <Line><Start>10 10</Start><End>0 0</End></Line>
+      </CoordGeom>
+    </Parcel></Parcels></LandXML>`
+    const { bacias } = parseLandXmlParcels(xml)
+    expect(bacias[0].coefC).toBeCloseTo(0.65)
+    expect(bacias[0].captacao).toEqual([
+      { dispositivoNome: 'BS-03', percentual: 50 },
+      { dispositivoNome: 'CT-01', percentual: 50 },
+    ])
+  })
+
+  it('desc sem CAP, ou com itens inválidos, não gera captação', () => {
+    expect(extrairCaptacaoDoDesc('MISO4Dren C=0.65')).toBeUndefined()
+    expect(extrairCaptacaoDoDesc(null)).toBeUndefined()
+    expect(extrairCaptacaoDoDesc('MISO4Dren C=0.5 CAP=BS-03:abc;BS-04:0;BS-05:150')).toBeUndefined()
+    expect(extrairCaptacaoDoDesc('C=0,4 CAP=BS-03:33,33;BS-04:66,67')).toEqual([
+      { dispositivoNome: 'BS-03', percentual: 33.33 },
+      { dispositivoNome: 'BS-04', percentual: 66.67 },
+    ])
   })
 
   it('extrai o C do desc quando o Parcel veio do plugin MISO4Dren ("MISO4Dren C=0.65")', () => {

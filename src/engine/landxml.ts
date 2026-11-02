@@ -69,6 +69,9 @@ export interface BaciaImportadaLandXml {
   /** Coeficiente de deflúvio, só presente quando o Parcel veio do plugin MISO4Dren pro Civil 3D
    * (desc="MISO4Dren C=0.65") — um Parcel nativo do Civil 3D não traz esse dado. */
   coefC?: number
+  /** Dispositivos que captam desta bacia e o % da vazão de cada um, vinculados no desenho pelo plugin
+   * (desc="MISO4Dren C=0.65 CAP=BS-03:50;BS-04:50"). Ausente = sem vínculo no desenho (vale a proximidade). */
+  captacao?: { dispositivoNome: string; percentual: number }[]
 }
 
 function textOf(el: Element | null | undefined): string | undefined {
@@ -352,6 +355,20 @@ function extrairCoefCDoDesc(desc: string | null): number | undefined {
   return Number.isFinite(c) && c >= 0 && c <= 1 ? c : undefined
 }
 
+/** Lê "CAP=BS-03:50;BS-04:50" do desc do Parcel — undefined se não houver ou se nenhum item for válido. */
+export function extrairCaptacaoDoDesc(desc: string | null): { dispositivoNome: string; percentual: number }[] | undefined {
+  const m = desc?.match(/CAP\s*=\s*(\S+)/i)
+  if (!m) return undefined
+  const itens = m[1]
+    .split(';')
+    .map((s) => {
+      const i = s.lastIndexOf(':')
+      return { dispositivoNome: s.slice(0, i).trim(), percentual: Number(s.slice(i + 1).replace(',', '.')) }
+    })
+    .filter((x) => x.dispositivoNome !== '' && Number.isFinite(x.percentual) && x.percentual > 0 && x.percentual <= 100)
+  return itens.length > 0 ? itens : undefined
+}
+
 export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLandXml[] } {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
@@ -373,7 +390,7 @@ export function parseLandXmlParcels(xmlText: string): { bacias: BaciaImportadaLa
     const poligonos = extrairAneisDoParcel(p)
     if (poligonos.length === 0) continue // sem contorno utilizável — ignora o Parcel
 
-    bacias.push({ nome, areaM2, poligonos, coefC: extrairCoefCDoDesc(p.getAttribute('desc')) })
+    bacias.push({ nome, areaM2, poligonos, coefC: extrairCoefCDoDesc(p.getAttribute('desc')), captacao: extrairCaptacaoDoDesc(p.getAttribute('desc')) })
   }
 
   return { bacias }

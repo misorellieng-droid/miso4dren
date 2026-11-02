@@ -3,7 +3,7 @@ import type { BaciaImportadaLandXml } from '../engine/landxml'
 import { dividirPercentualIgualmente } from '../engine/percentual'
 import { centroidePoligono, pontoDentroAlgumPoligono } from '../engine/poligono'
 import { vincularBaciasCaixas } from '../engine/vinculo'
-import { upsertCaptacao } from './captacaoStorage'
+import { replaceCaptacoesDaBacia, upsertCaptacao } from './captacaoStorage'
 import { criarImportacao } from './importacoesStorage'
 import { listCaixas, type CaixaRecord } from './redeStorage'
 import { supabase } from './supabase'
@@ -120,6 +120,11 @@ export interface ResumoImportacaoBaciasLandXml {
   divididas: Map<string, string[]>
   /** nome da bacia -> fica pendente pra vínculo manual (nenhuma caixa encontrada dentro do polígono). */
   pendentes: string[]
+  /** Bacias novas cuja captação veio do vínculo feito no desenho (CAP= no Parcel), no lugar da proximidade. */
+  vinculadasDoDesenho: string[]
+  /** Bacias que já existiam e tiveram a captação substituída pelo vínculo do desenho. */
+  atualizadasDoDesenho: string[]
+  avisos: string[]
 }
 
 /**
@@ -153,6 +158,27 @@ export async function importarBaciasLandXml(
   const divididas = new Map<string, string[]>()
   const pendentes: string[] = []
   let automaticas = 0
+  const vinculadasDoDesenho: string[] = []
+  const atualizadasDoDesenho: string[] = []
+  const avisos: string[] = []
+
+  // vínculo feito no desenho: dispositivos pelo nome (só os que recebem vazão); percentuais como vieram, soma máxima 100%
+  const caixaPorNome = new Map(caixas.filter((c) => c.recebe_vazao).map((c) => [c.nome, c]))
+  const resolverCaptacao = (b: BaciaImportadaLandXml): { dispositivoId: string; percentual: number }[] => {
+    if (!b.captacao) return []
+    const entradas: { dispositivoId: string; percentual: number }[] = []
+    for (const c of b.captacao) {
+      const caixa = caixaPorNome.get(c.dispositivoNome)
+      if (caixa) entradas.push({ dispositivoId: caixa.id, percentual: c.percentual })
+      else avisos.push(`${b.nome}: dispositivo "${c.dispositivoNome}" do desenho não está entre as caixas que recebem vazão (importe a rede antes).`)
+    }
+    const soma = entradas.reduce((acc, e) => acc + e.percentual, 0)
+    if (soma > 100.01) {
+      avisos.push(`${b.nome}: vínculo do desenho soma ${soma.toFixed(1)}% (máximo 100); ignorado.`)
+      return []
+    }
+    return entradas
+  }
 
   if (novasBacias.length > 0) {
     const importacaoId = await criarImportacao(
@@ -185,6 +211,18 @@ export async function importarBaciasLandXml(
     if (error) throw error
 
     for (const row of inseridas as BaciaRecord[]) {
+      const doDesenho = resolverCaptacao(novasBacias.find((b) => b.nome === row.nome) as BaciaImportadaLandXml)
+      if (doDesenho.length > 0) {
+        try {
+          await replaceCaptacoesDaBacia(row.id, doDesenho)
+          await updateBaciaVinculo(row.id, doDesenho.length === 1 ? doDesenho[0].dispositivoId : null, 'automatico')
+          vinculadasDoDesenho.push(row.nome)
+          automaticas++
+          continue
+        } catch {
+          // migração 009 ainda não aplicada: cai na proximidade abaixo
+        }
+      }
       const candidatas = caixasElegiveis.filter((c) => pontoDentroAlgumPoligono({ x: c.x, y: c.y }, row.poligonos ?? []))
 
       if (candidatas.length === 0) {
@@ -208,5 +246,19 @@ export async function importarBaciasLandXml(
     }
   }
 
-  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, divididas, pendentes }
+  // bacias que já existiam e vieram com vínculo do desenho: o desenho passa a valer (substitui os percentuais dessas bacias)
+  for (const b of bacias.filter((x) => nomesExistentes.has(x.nome) && x.captacao)) {
+    const existente = existentes.find((e) => e.nome === b.nome)
+    const entradas = resolverCaptacao(b)
+    if (!existente || entradas.length === 0) continue
+    try {
+      await replaceCaptacoesDaBacia(existente.id, entradas)
+      await updateBaciaVinculo(existente.id, entradas.length === 1 ? entradas[0].dispositivoId : null, 'automatico')
+      atualizadasDoDesenho.push(b.nome)
+    } catch (err) {
+      avisos.push(`${b.nome}: não foi possível atualizar o vínculo do desenho (${err instanceof Error ? err.message : 'erro'}).`)
+    }
+  }
+
+  return { novas: novasBacias.length, jaExistentes: bacias.length - novasBacias.length, automaticas, divididas, pendentes, vinculadasDoDesenho, atualizadasDoDesenho, avisos }
 }
