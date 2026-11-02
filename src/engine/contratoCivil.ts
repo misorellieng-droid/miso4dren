@@ -13,6 +13,8 @@ export interface DispositivoContrato {
   tipo: TipoDispositivoCivil
   alinhamentoId: string | null
   estaca: number | null
+  /** CE-P: caixa só indicativa na crista do talude (início da escada), que não será construída. Ausente nos arquivos antigos. */
+  provisorio?: boolean
 }
 
 export interface TrechoContrato {
@@ -94,6 +96,8 @@ export interface ResultadoContrato {
   avisos: string[]
   contagemPorTipo: Partial<Record<TipoDispositivoCivil, number>>
   escadas: number
+  /** Nomes das caixas provisórias (CE-P): entram na rede para o cálculo, mas não são construídas. */
+  provisorias: string[]
 }
 
 /**
@@ -107,6 +111,7 @@ export function aplicarContratoIda(resultado: ResultadoImportLandXml, contrato: 
   const trechoPorNome = new Map(contrato.trechos.map((t) => [t.nome, t]))
   const contagemPorTipo: Partial<Record<TipoDispositivoCivil, number>> = {}
   const nomesCaixas = new Set(resultado.caixas.map((c) => c.nome))
+  const provisorias = contrato.dispositivos.filter((d) => d.provisorio === true && nomesCaixas.has(d.nome)).map((d) => d.nome)
 
   const caixas = resultado.caixas.map((c) => {
     const d = dispPorNome.get(c.nome)
@@ -133,5 +138,5 @@ export function aplicarContratoIda(resultado: ResultadoImportLandXml, contrato: 
     return { ...t, ehEscadaHidraulica: true, escadaLarguraM: ct.larguraB ?? null, escadaAlturaFluxoM: ct.alturaH ?? null }
   })
 
-  return { resultado: { caixas, trechos }, avisos, contagemPorTipo, escadas }
+  return { resultado: { caixas, trechos }, avisos, contagemPorTipo, escadas, provisorias }
 }

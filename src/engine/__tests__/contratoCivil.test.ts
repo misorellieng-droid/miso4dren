@@ -30,6 +30,18 @@ function contratoBase(): ContratoIda {
 }
 
 describe('aplicarContratoIda', () => {
+  it('lista as caixas provisórias (CE-P) e mantém a classificação de CE', () => {
+    const r = resultadoBase()
+    r.caixas.push({ nome: 'CE-P-01', tipo: 'caixa_passagem', recebeVazao: false, ehTronco: false })
+    const c = contratoBase()
+    c.dispositivos.push({ handle: 'h-cep', nome: 'CE-P-01', tipo: 'CE', alinhamentoId: null, estaca: null, provisorio: true })
+    const { resultado, provisorias, avisos } = aplicarContratoIda(r, c)
+    expect(provisorias).toEqual(['CE-P-01'])
+    expect(resultado.caixas.find((x) => x.nome === 'CE-P-01')).toMatchObject({ tipo: 'caixa_passagem', ehTronco: true })
+    expect(avisos).toEqual([])
+    expect(aplicarContratoIda(resultadoBase(), contratoBase()).provisorias).toEqual([])
+  })
+
   it('define tipo, recebe vazão e tronco de cada caixa pelo tipo do dispositivo', () => {
     const { resultado, avisos, contagemPorTipo } = aplicarContratoIda(resultadoBase(), contratoBase())
     const por = (n: string) => resultado.caixas.find((c) => c.nome === n)!

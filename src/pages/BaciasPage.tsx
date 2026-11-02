@@ -180,7 +180,7 @@ export function BaciasPage() {
         const aplicado = aplicarContratoIda(resultado, lerContratoIda(await contratoFile.text()))
         resultado = aplicado.resultado
         const tipos = Object.entries(aplicado.contagemPorTipo).map(([t, n]) => `${n} ${t}`).join(', ')
-        avisoContrato = ` Arquivo do plugin aplicado: ${tipos}${aplicado.escadas > 0 ? `; ${aplicado.escadas} escada(s)` : ''}.` +
+        avisoContrato = ` Arquivo do plugin aplicado: ${tipos}${aplicado.escadas > 0 ? `; ${aplicado.escadas} escada(s)` : ''}${aplicado.provisorias.length > 0 ? `; ${aplicado.provisorias.length} caixa(s) provisória(s) indicativa(s), não serão construídas (${aplicado.provisorias.join(', ')})` : ''}.` +
           (aplicado.avisos.length > 0 ? ` Avisos: ${aplicado.avisos.slice(0, 3).join(' | ')}${aplicado.avisos.length > 3 ? ` (+${aplicado.avisos.length - 3})` : ''}` : '')
       }
 
