@@ -421,8 +421,32 @@ async function executarCalculoRede(dados: DadosCalculo): Promise<{ avisos: strin
     { apenasTroncoParaEnergia: limites.energiaSoTronco }
   )
   const TOLERANCIA_COTA_M = 0.001
+  // Ajuste de energia é fino (centímetros). Variação grande quase sempre é cota inconsistente na rede (ramo muito mais fundo
+  // que o outro numa confluência, trecho com declividade que não bate com as cotas, cabeceira sem cota) e, gravada em silêncio,
+  // afunda a rede inteira a jusante. Nesse caso nada é gravado e o aviso diz onde olhar.
+  const LIMITE_VARIACAO_COTA_M = 1
+  const variacoesGrandes: { nome: string; delta: number }[] = []
+  for (const t of trechos) {
+    const nova = cotasPorEnergia.get(t.id)
+    if (!nova || t.cota_fundo_montante == null) continue
+    const delta = nova.cotaFundoMontante - t.cota_fundo_montante
+    if (Math.abs(delta) > LIMITE_VARIACAO_COTA_M) variacoesGrandes.push({ nome: t.nome, delta })
+  }
+  const aplicarEnergia = variacoesGrandes.length === 0
+  if (!aplicarEnergia) {
+    variacoesGrandes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    avisos.push(
+      `Ajuste de cota pela linha de energia NÃO foi gravado: ${variacoesGrandes.length} trecho(s) mudariam mais de ${LIMITE_VARIACAO_COTA_M} m (` +
+        variacoesGrandes
+          .slice(0, 5)
+          .map((v) => `${v.nome} ${v.delta > 0 ? '+' : ''}${v.delta.toFixed(2)} m`)
+          .join(', ') +
+        `). Confira as cotas de fundo e a declividade desses trechos e das confluências a montante.`
+    )
+  }
   let trechosComCotaAjustada = 0
   for (const t of trechos) {
+    if (!aplicarEnergia) break
     const nova = cotasPorEnergia.get(t.id)
     if (!nova) continue
     const mudouMontante = t.cota_fundo_montante == null || Math.abs(t.cota_fundo_montante - nova.cotaFundoMontante) > TOLERANCIA_COTA_M
@@ -683,6 +707,10 @@ export function RedePluvialPage() {
         limites,
       })
       setAvisos(novosAvisos)
+      // o cálculo pode regravar cotas de fundo (linha de energia): relê, senão a tela mostra a cota de antes do ajuste
+      const [caixasFinais, trechosFinais] = await Promise.all([listCaixas(revisaoAtiva.id), listTrechos(revisaoAtiva.id)])
+      setCaixas(caixasFinais)
+      setTrechos(trechosFinais)
       const existentes = await listResultadosRedeByRevisao(revisaoAtiva.id)
       setResultados(existentes)
     })
