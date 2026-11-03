@@ -3,7 +3,8 @@ import { AlertTriangle, CheckSquare, Download, Droplets, Loader2, Network, Squar
 import { Breadcrumb } from '../components/layout/Breadcrumb'
 import { fieldInputClass } from '../components/ui/Field'
 import { useRevisaoContext } from '../lib/RevisaoContext'
-import { recalcularCascataJusante, type PatchCascata } from '../engine/cascataJusante'
+import { recalcularCascataEmLote, recalcularCascataJusante, type PatchCascata, type TrechoSemCota } from '../engine/cascataJusante'
+import { ordenarTopologicamente } from '../engine/rede'
 import { exportarRedeXmlAtualizado } from '../lib/exportRedeXml'
 import { nomeSemRede } from '../lib/nomeRede'
 import {
@@ -46,7 +47,11 @@ export function RedeImportadaPage() {
   const [recebeVazaoLote, setRecebeVazaoLote] = useState('true')
   const [ehTroncoLote, setEhTroncoLote] = useState('true')
   const [manningLote, setManningLote] = useState('')
-  const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[] } | null>(null)
+  const [cascataPendente, setCascataPendente] = useState<{ trechoNome: string; patches: PatchCascata[]; selecionados?: number; semCota?: TrechoSemCota[] } | null>(null)
+  const [filtroMontante, setFiltroMontante] = useState('')
+  const [filtroJusante, setFiltroJusante] = useState('')
+  const [diametroLote, setDiametroLote] = useState('')
+  const [declividadeLote, setDeclividadeLote] = useState('')
   const [redeSelecionada, setRedeSelecionada] = useState<string>('todas')
   const [avisoExport, setAvisoExport] = useState<string | null>(null)
   const [exportando, setExportando] = useState(false)
@@ -122,13 +127,27 @@ export function RedeImportadaPage() {
       ),
     [caixas, filtro, redeSelecionada],
   )
-  const trechosFiltrados = useMemo(
-    () =>
-      trechos.filter(
-        (t) => t.nome.toLowerCase().includes(filtro.toLowerCase()) && (redeSelecionada === 'todas' || t.rede_nome === redeSelecionada),
-      ),
-    [trechos, filtro, redeSelecionada],
-  )
+  // Filtro por texto no nome da estrutura de montante/jusante; vírgula separa alternativas ("BS, BL" = qualquer um dos dois).
+  const trechosFiltrados = useMemo(() => {
+    const nomePorCaixa = new Map(caixas.map((c) => [c.id, nomeExibido(c.nome, c.rede_nome).toLowerCase()]))
+    const termos = (texto: string) =>
+      texto
+        .toLowerCase()
+        .split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    const casa = (nome: string, lista: string[]) => lista.length === 0 || lista.some((s) => nome.includes(s))
+    const termosMontante = termos(filtroMontante)
+    const termosJusante = termos(filtroJusante)
+    return trechos.filter(
+      (t) =>
+        t.nome.toLowerCase().includes(filtro.toLowerCase()) &&
+        (redeSelecionada === 'todas' || t.rede_nome === redeSelecionada) &&
+        casa(nomePorCaixa.get(t.caixa_montante_id) ?? '', termosMontante) &&
+        casa(nomePorCaixa.get(t.caixa_jusante_id) ?? '', termosJusante),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trechos, caixas, filtro, filtroMontante, filtroJusante, redeSelecionada, ocultarNomeRede])
 
   const toggleSelecaoCaixa = (id: string) =>
     setSelecionadosCaixas((atual) => {
@@ -293,10 +312,11 @@ export function RedeImportadaPage() {
     }
   }
 
-  const aplicarPatchesCascata = async (patches: PatchCascata[]) => {
+  const aplicarPatchesCascata = async (patches: PatchCascata[], semCota: TrechoSemCota[] = []) => {
     setBusy(true)
     setError(null)
     try {
+      for (const s of semCota) await updateTrecho(s.id, { diametro_m: s.diametroM, declividade_m_m: s.declividadeMM })
       for (const p of patches) {
         await updateTrecho(p.id, {
           diametro_m: p.diametroM,
@@ -345,8 +365,40 @@ export function RedeImportadaPage() {
 
   const handleConfirmarCascata = async () => {
     if (!cascataPendente) return
-    await aplicarPatchesCascata(cascataPendente.patches)
+    await aplicarPatchesCascata(cascataPendente.patches, cascataPendente.semCota)
     setCascataPendente(null)
+  }
+
+  // Diâmetro e/ou inclinação iguais para os selecionados, com a mesma cascata da edição de um trecho; sempre mostra o que muda antes.
+  const handlePrepararLoteDiamDecl = () => {
+    const d = diametroLote.trim() === '' ? null : Number(diametroLote.replace(',', '.'))
+    const i = declividadeLote.trim() === '' ? null : Number(declividadeLote.replace(',', '.'))
+    if ((d == null && i == null) || (d != null && !(d > 0)) || (i != null && !(i > 0))) {
+      setError('Informe diâmetro e/ou inclinação maiores que zero.')
+      return
+    }
+    setError(null)
+    let ordem: string[]
+    try {
+      ordem = ordenarTopologicamente(
+        caixas.map((c) => c.id),
+        trechos.map((t) => ({ id: t.id, montanteId: t.caixa_montante_id, jusanteId: t.caixa_jusante_id }))
+      )
+    } catch {
+      setError('A rede tem ciclo (trechos formando uma volta): não dá para aplicar em lote com cascata.')
+      return
+    }
+    const grafo = trechos.map((x) => ({
+      id: x.id,
+      caixaMontanteId: x.caixa_montante_id,
+      caixaJusanteId: x.caixa_jusante_id,
+      comprimentoM: x.comprimento_m,
+      diametroM: x.diametro_m,
+      declividadeMM: x.declividade_m_m,
+      cotaFundoMontante: x.cota_fundo_montante,
+    }))
+    const { patches, semCota } = recalcularCascataEmLote(grafo, [...selecionadosTrechos], d, i, ordem)
+    setCascataPendente({ trechoNome: '', patches, semCota, selecionados: selecionadosTrechos.size })
   }
 
   if (!supabase) {
@@ -433,11 +485,29 @@ export function RedeImportadaPage() {
             ))}
           </select>
         )}
+        {aba === 'tubos' && (
+          <>
+            <input
+              placeholder="Montante contém... (ex.: BS)"
+              value={filtroMontante}
+              onChange={(e) => setFiltroMontante(e.target.value)}
+              title="Texto no nome da estrutura de montante. Vírgula separa alternativas: BS, BL"
+              className={`${fieldInputClass} ${redesDisponiveis.length > 1 ? '' : 'ml-auto'} w-48 py-1.5`}
+            />
+            <input
+              placeholder="Jusante contém..."
+              value={filtroJusante}
+              onChange={(e) => setFiltroJusante(e.target.value)}
+              title="Texto no nome da estrutura de jusante. Vírgula separa alternativas: PV, CE"
+              className={`${fieldInputClass} w-44 py-1.5`}
+            />
+          </>
+        )}
         <input
           placeholder="Filtrar por nome..."
           value={filtro}
           onChange={(e) => setFiltro(e.target.value)}
-          className={`${fieldInputClass} ${redesDisponiveis.length > 1 ? '' : 'ml-auto'} w-56 py-1.5`}
+          className={`${fieldInputClass} ${redesDisponiveis.length > 1 || aba === 'tubos' ? '' : 'ml-auto'} w-56 py-1.5`}
         />
       </div>
 
@@ -612,8 +682,9 @@ export function RedeImportadaPage() {
             <div className="mb-3 rounded-lg border border-accent-amber/40 bg-accent-amber/5 p-3">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-text-primary">
                 <AlertTriangle size={16} className="text-accent-amber shrink-0" />
-                Editar {cascataPendente.trechoNome} recalcula {cascataPendente.patches.length - 1} trecho(s) a jusante
-                (cota de fundo deslocada e diâmetro elevado quando necessário).
+                {cascataPendente.selecionados != null
+                  ? `Alterar ${cascataPendente.selecionados} trecho(s) selecionado(s) recalcula ${cascataPendente.patches.length + (cascataPendente.semCota?.length ?? 0)} trecho(s) no total (cota de fundo deslocada e diâmetro elevado a jusante quando necessário).`
+                  : `Editar ${cascataPendente.trechoNome} recalcula ${cascataPendente.patches.length - 1} trecho(s) a jusante (cota de fundo deslocada e diâmetro elevado quando necessário).`}
               </div>
               <div className="mb-3 max-h-40 overflow-y-auto rounded-md border border-border/60 bg-surface">
                 <table className="w-full text-xs">
@@ -623,6 +694,7 @@ export function RedeImportadaPage() {
                       <th className="px-2 py-1 font-medium">Montante</th>
                       <th className="px-2 py-1 font-medium">Jusante</th>
                       <th className="px-2 py-1 font-medium">Diâm. novo (m)</th>
+                      <th className="px-2 py-1 font-medium">Decl. nova</th>
                       <th className="px-2 py-1 font-medium">Cota fundo montante</th>
                       <th className="px-2 py-1 font-medium">Cota fundo jusante</th>
                     </tr>
@@ -640,6 +712,7 @@ export function RedeImportadaPage() {
                           <td className="px-2 py-1 text-text-secondary">{nomeMontante}</td>
                           <td className="px-2 py-1 text-text-secondary">{nomeJusante}</td>
                           <td className="px-2 py-1 text-text-secondary">{p.diametroM.toFixed(3)}</td>
+                          <td className="px-2 py-1 text-text-secondary">{p.declividadeMM.toFixed(4)}</td>
                           <td className="px-2 py-1 text-text-secondary">{p.cotaFundoMontante.toFixed(3)}</td>
                           <td className="px-2 py-1 text-text-secondary">{p.cotaFundoJusante.toFixed(3)}</td>
                         </tr>
@@ -672,8 +745,33 @@ export function RedeImportadaPage() {
             </div>
           )}
           {selecionadosTrechos.size > 0 && (
-            <div className="mb-3 flex items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
               <span className="text-sm text-text-primary">{selecionadosTrechos.size} selecionado(s)</span>
+              <input
+                type="number"
+                step="any"
+                placeholder="diâmetro (m)"
+                value={diametroLote}
+                onChange={(e) => setDiametroLote(e.target.value)}
+                className={`${fieldInputClass} w-32 py-1.5`}
+              />
+              <input
+                type="number"
+                step="any"
+                placeholder="inclinação (m/m)"
+                value={declividadeLote}
+                onChange={(e) => setDeclividadeLote(e.target.value)}
+                className={`${fieldInputClass} w-36 py-1.5`}
+              />
+              <button
+                onClick={handlePrepararLoteDiamDecl}
+                disabled={busy || (!diametroLote && !declividadeLote)}
+                className={SMALL_BTN}
+                title="Aplica diâmetro e/ou inclinação aos selecionados; mostra o que muda (cotas e diâmetros a jusante) antes de gravar."
+              >
+                Aplicar diâmetro / inclinação
+              </button>
+              <span className="h-4 w-px bg-border" />
               <input
                 type="number"
                 step="0.001"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { recalcularCascataJusante, type TrechoCascata } from '../cascataJusante'
+import { recalcularCascataEmLote, recalcularCascataJusante, type TrechoCascata } from '../cascataJusante'
 
 // Rede linear: A -T1-> B -T2-> C -T3-> D
 const REDE_LINEAR: TrechoCascata[] = [
@@ -56,5 +56,34 @@ describe('recalcularCascataJusante', () => {
     const patches = recalcularCascataJusante(comBifurcacao, 'T1', 0.3, 0.02)
     const ids = patches.map((p) => p.id).sort()
     expect(ids).toEqual(['T1', 'T2', 'T3', 'T4'])
+  })
+})
+
+describe('recalcularCascataEmLote', () => {
+  const ordem = ['A', 'B', 'C', 'D']
+
+  it('aplica a declividade a todos os selecionados e encadeia as cotas de montante para jusante', () => {
+    const { patches } = recalcularCascataEmLote(REDE_LINEAR, ['T3', 'T1'], null, 0.01, ordem)
+    const p = (id: string) => patches.find((x) => x.id === id)!
+    expect(p('T1').cotaFundoMontante).toBe(100)
+    expect(p('T1').cotaFundoJusante).toBeCloseTo(99.8)
+    expect(p('T2').cotaFundoMontante).toBeCloseTo(99.8) // não selecionado: só desloca
+    expect(p('T2').declividadeMM).toBe(0.02)
+    expect(p('T3').declividadeMM).toBe(0.01) // selecionado
+    expect(p('T3').cotaFundoMontante).toBeCloseTo(p('T2').cotaFundoJusante)
+    expect(patches.filter((x) => x.id === 'T3')).toHaveLength(1)
+  })
+
+  it('diâmetro em lote sobe os trechos a jusante e mantém o que está maior', () => {
+    const { patches } = recalcularCascataEmLote(REDE_LINEAR, ['T1'], 0.6, null, ordem)
+    expect(patches.find((x) => x.id === 'T2')!.diametroM).toBe(0.6)
+    expect(patches.find((x) => x.id === 'T3')!.diametroM).toBe(0.6)
+  })
+
+  it('selecionado sem cota de fundo só muda diâmetro/declividade', () => {
+    const rede = REDE_LINEAR.map((t) => (t.id === 'T2' ? { ...t, cotaFundoMontante: null } : t))
+    const r = recalcularCascataEmLote(rede, ['T2'], 0.5, 0.03, ordem)
+    expect(r.patches).toEqual([])
+    expect(r.semCota).toEqual([{ id: 'T2', diametroM: 0.5, declividadeMM: 0.03 }])
   })
 })

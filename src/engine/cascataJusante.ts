@@ -83,3 +83,57 @@ export function recalcularCascataJusante(
 
   return patches
 }
+
+export interface TrechoSemCota {
+  id: string
+  diametroM: number
+  declividadeMM: number
+}
+
+export interface ResultadoCascataEmLote {
+  /** Trechos (os selecionados e os a jusante que se deslocam) com cotas novas; cada trecho aparece uma vez. */
+  patches: PatchCascata[]
+  /** Selecionados sem cota de fundo conhecida: só diâmetro/declividade mudam, sem cascata. */
+  semCota: TrechoSemCota[]
+}
+
+/**
+ * Mesma regra de recalcularCascataJusante, aplicada a vários trechos de uma vez (diâmetro e/ou declividade iguais para todos).
+ * Os selecionados são processados de montante para jusante (ordemCaixas = caixas em ordem de fluxo), cada um já sobre as cotas
+ * deixadas pelos anteriores; assim um selecionado que está a jusante de outro parte da cota deslocada, não da original.
+ * novoDiametroM / novaDeclividadeMM nulos mantêm o valor atual de cada trecho.
+ */
+export function recalcularCascataEmLote(
+  trechos: TrechoCascata[],
+  selecionadosIds: string[],
+  novoDiametroM: number | null,
+  novaDeclividadeMM: number | null,
+  ordemCaixas: string[]
+): ResultadoCascataEmLote {
+  const atual = new Map(trechos.map((t) => [t.id, { ...t }]))
+  const posicao = new Map(ordemCaixas.map((id, i) => [id, i]))
+  const pos = (id: string) => posicao.get(atual.get(id)!.caixaMontanteId) ?? 0
+  const ordenados = selecionadosIds.filter((id) => atual.has(id)).sort((a, b) => pos(a) - pos(b))
+
+  const acumulado = new Map<string, PatchCascata>()
+  const semCota: TrechoSemCota[] = []
+  for (const id of ordenados) {
+    const t = atual.get(id)!
+    const diametroM = novoDiametroM ?? t.diametroM
+    const declividadeMM = novaDeclividadeMM ?? t.declividadeMM
+    if (t.cotaFundoMontante == null) {
+      semCota.push({ id, diametroM, declividadeMM })
+      t.diametroM = diametroM
+      t.declividadeMM = declividadeMM
+      continue
+    }
+    for (const p of recalcularCascataJusante([...atual.values()], id, diametroM, declividadeMM)) {
+      const alvo = atual.get(p.id)!
+      alvo.diametroM = p.diametroM
+      alvo.declividadeMM = p.declividadeMM
+      alvo.cotaFundoMontante = p.cotaFundoMontante
+      acumulado.set(p.id, p)
+    }
+  }
+  return { patches: [...acumulado.values()], semCota }
+}
